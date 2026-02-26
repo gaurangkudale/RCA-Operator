@@ -5,7 +5,7 @@
 
 [![Phase](https://img.shields.io/badge/Phase-1%20%E2%80%94%20Foundation-blue)](.)
 [![Status](https://img.shields.io/badge/Status-Planning-yellow)](.)
-[![Timeline](https://img.shields.io/badge/Timeline-6--8%20Weeks-green)](.)
+[![Timeline](https://img.shields.io/badge/Timeline-2--3%20Weeks-green)](.)
 [![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://golang.org)
 
 </div>
