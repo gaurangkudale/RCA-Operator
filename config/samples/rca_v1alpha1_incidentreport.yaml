@@ -1,0 +1,9 @@
+apiVersion: rca.rca-operator.io/v1alpha1
+kind: IncidentReport
+metadata:
+  labels:
+    app.kubernetes.io/name: rca-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: incidentreport-sample
+spec:
+  # TODO(user): Add fields here

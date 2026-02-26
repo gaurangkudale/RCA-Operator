@@ -1,0 +1,5 @@
+## Append samples of your project ##
+resources:
+- rca_v1alpha1_rcaagent.yaml
+- rca_v1alpha1_incidentreport.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
