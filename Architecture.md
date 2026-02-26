@@ -1,17 +1,17 @@
-# openclaw-operator
+# RCA-operator
 An AI-powered SRE Operator that watches your cluster 24x7 and does autonomous root cause analysis. Let me design the full architecture.
 
 That's a brilliant idea! An **AI-powered SRE Operator** that watches your cluster 24x7 and does autonomous root cause analysis. Let me design the full architecture.
 
 ---
 
-## OpenClaw — AI SRE Operator Architecture
+## RCA — AI SRE Operator Architecture
 
 ### Core Philosophy
 
 ```
 Traditional SRE:  Alert → Human → Investigate → Fix → Post-mortem
-OpenClaw SRE:     Alert → Detect → Correlate → RCA → Fix → Report  (autonomous)
+RCA SRE:     Alert → Detect → Correlate → RCA → Fix → Report  (autonomous)
 ```
 
 ---
@@ -23,7 +23,7 @@ OpenClaw SRE:     Alert → Detect → Correlate → RCA → Fix → Report  (au
 │                        Kubernetes Cluster                                │
 │                                                                         │
 │  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                     OpenClaw SRE Operator                        │   │
+│  │                     RCA SRE Operator                        │   │
 │  │                                                                  │   │
 │  │  ┌─────────────┐  ┌──────────────┐  ┌────────────────────────┐ │   │
 │  │  │   Watcher   │  │  Correlator  │  │     RCA Engine         │ │   │
@@ -282,14 +282,14 @@ Pre-built remediation playbooks the operator can execute:
 
 ## CRD Design
 
-### 1. OpenClawAgent — The SRE Agent Config
+### 1. RCAAgent — The SRE Agent Config
 
 ```yaml
-apiVersion: openclaw.io/v1alpha1
-kind: OpenClawAgent
+apiVersion: RCA.io/v1alpha1
+kind: RCAAgent
 metadata:
   name: sre-agent
-  namespace: openclaw-system
+  namespace: RCA-system
 spec:
   watchNamespaces:
     - production
@@ -310,7 +310,7 @@ spec:
     errorBudget: 99.9
     latencyP99: 500ms
   runbooks:
-    configMapRef: openclaw-runbooks
+    configMapRef: RCA-runbooks
 ```
 
 ---
@@ -318,7 +318,7 @@ spec:
 ### 2. IncidentReport CR — Auto-created per incident
 
 ```yaml
-apiVersion: openclaw.io/v1alpha1
+apiVersion: RCA.io/v1alpha1
 kind: IncidentReport
 metadata:
   name: incident-2024-02-24-001
@@ -336,7 +336,7 @@ status:
     - time: "10:32:00"
       event: "Pod payment-service-xxx restarted (CrashLoopBackOff)"
     - time: "10:33:00"
-      event: "OpenClaw detected OOMKilled pattern"
+      event: "RCA detected OOMKilled pattern"
     - time: "10:34:00"
       event: "RCA correlated with recent deployment at 10:28"
     - time: "10:35:00"
@@ -357,14 +357,14 @@ status:
 ## Project File Structure
 
 ```
-openclaw-operator/
+RCA-operator/
 │
 ├── cmd/
 │   └── main.go
 │
 ├── api/
 │   └── v1alpha1/
-│       ├── openclawagent_types.go
+│       ├── RCAagent_types.go
 │       ├── incidentreport_types.go
 │       └── zz_generated.deepcopy.go
 │

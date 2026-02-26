@@ -10,21 +10,21 @@
 [![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://golang.org)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-1.26+-326CE5?logo=kubernetes)](https://kubernetes.io)
 [![kubebuilder](https://img.shields.io/badge/Built%20with-kubebuilder-FF6B6B)](https://book.kubebuilder.io)
-[![Go Report Card](https://goreportcard.com/badge/github.com/gaurangkudale/openclaw-operator)](https://goreportcard.com/report/github.com/gaurangkudale/openclaw-operator)
+[![Go Report Card](https://goreportcard.com/badge/github.com/gaurangkudale/RCA-operator)](https://goreportcard.com/report/github.com/gaurangkudale/RCA-operator)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord)](https://discord.gg/openclaw)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord)](https://discord.gg/RCA)
 
 </div>
 
 ---
 
-## What is OpenClaw Operator?
+## What is RCA Operator?
 
-**OpenClaw Operator** is an open-source Kubernetes operator that acts as your always-on Site Reliability Engineer. It watches every namespace in your cluster, correlates signals across pods, nodes, services, and metrics, and autonomously performs root cause analysis when incidents occur — then either alerts your team with a full diagnosis or automatically remediates the issue based on your configured autonomy level.
+**RCA Operator** is an open-source Kubernetes operator that acts as your always-on Site Reliability Engineer. It watches every namespace in your cluster, correlates signals across pods, nodes, services, and metrics, and autonomously performs root cause analysis when incidents occur — then either alerts your team with a full diagnosis or automatically remediates the issue based on your configured autonomy level.
 
 > **Traditional SRE:** Alert → Human wakes up → Investigates for 20 mins → Finds root cause → Fixes
 >
-> **OpenClaw SRE:** Alert → Detect → Correlate → RCA in seconds → Fix (optionally autonomous) → Post-mortem auto-drafted
+> **RCA SRE:** Alert → Detect → Correlate → RCA in seconds → Fix (optionally autonomous) → Post-mortem auto-drafted
 
 ---
 
@@ -52,7 +52,7 @@
 │                         Kubernetes Cluster                               │
 │                                                                         │
 │  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                     OpenClaw SRE Operator                        │   │
+│  │                     RCA SRE Operator                        │   │
 │  │                                                                  │   │
 │  │  ┌─────────────┐  ┌──────────────┐  ┌────────────────────────┐ │   │
 │  │  │   Watcher   │  │  Correlator  │  │     RCA Engine         │ │   │
@@ -109,13 +109,13 @@
 ### Install via Helm
 
 ```bash
-# Add the OpenClaw Helm repository
-helm repo add openclaw https://charts.openclaw.io
+# Add the RCA Helm repository
+helm repo add RCA https://charts.RCA.io
 helm repo update
 
-# Install OpenClaw into its own namespace
-helm install openclaw openclaw/openclaw-operator \
-  --namespace openclaw-system \
+# Install RCA into its own namespace
+helm install RCA RCA/RCA-operator \
+  --namespace RCA-system \
   --create-namespace \
   --set aiProvider.type=openai \
   --set aiProvider.apiKey=<YOUR_API_KEY>
@@ -125,21 +125,21 @@ helm install openclaw openclaw/openclaw-operator \
 
 ```bash
 # Install CRDs
-kubectl apply -f https://github.com/gaurangkudale/openclaw-operator/releases/latest/download/crds.yaml
+kubectl apply -f https://github.com/gaurangkudale/RCA-operator/releases/latest/download/crds.yaml
 
 # Install the operator
-kubectl apply -f https://github.com/gaurangkudale/openclaw-operator/releases/latest/download/install.yaml
+kubectl apply -f https://github.com/gaurangkudale/RCA-operator/releases/latest/download/install.yaml
 ```
 
 ### Deploy your first SRE Agent
 
 ```yaml
-# openclaw-agent.yaml
-apiVersion: openclaw.io/v1alpha1
-kind: OpenClawAgent
+# RCA-agent.yaml
+apiVersion: RCA.io/v1alpha1
+kind: RCAAgent
 metadata:
   name: sre-agent
-  namespace: openclaw-system
+  namespace: RCA-system
 spec:
   watchNamespaces:
     - production
@@ -159,11 +159,11 @@ spec:
 ```
 
 ```bash
-kubectl apply -f openclaw-agent.yaml
+kubectl apply -f RCA-agent.yaml
 
 # Verify the agent is running
-kubectl get openclawagent -n openclaw-system
-kubectl get pods -n openclaw-system
+kubectl get RCAagent -n RCA-system
+kubectl get pods -n RCA-system
 ```
 
 ---
@@ -172,7 +172,7 @@ kubectl get pods -n openclaw-system
 
 ### Autonomy Levels
 
-OpenClaw gives you full control over how much it acts on its own. Set the level globally or per namespace.
+RCA gives you full control over how much it acts on its own. Set the level globally or per namespace.
 
 | Level | Mode | What Happens |
 |---|---|---|
@@ -192,11 +192,11 @@ spec:
 ### Full Agent Configuration Reference
 
 ```yaml
-apiVersion: openclaw.io/v1alpha1
-kind: OpenClawAgent
+apiVersion: RCA.io/v1alpha1
+kind: RCAAgent
 metadata:
   name: sre-agent
-  namespace: openclaw-system
+  namespace: RCA-system
 spec:
 
   # Namespaces to watch (omit for all namespaces)
@@ -244,12 +244,12 @@ spec:
       recipients:
         - sre-team@company.com
     webhook:
-      url: https://your-endpoint.com/openclaw
+      url: https://your-endpoint.com/RCA
       secretRef: webhook-hmac-secret
 
   # Custom Runbooks (ConfigMap)
   runbooks:
-    configMapRef: openclaw-runbooks
+    configMapRef: RCA-runbooks
 
   # Retention
   incidentRetentionDays: 90
@@ -259,13 +259,13 @@ spec:
 
 ## 📊 Custom Resources
 
-### OpenClawAgent
+### RCAAgent
 
 The main configuration CRD. One agent can watch multiple namespaces.
 
 ```bash
-kubectl get openclawagent -A
-kubectl describe openclawagent sre-agent -n openclaw-system
+kubectl get RCAagent -A
+kubectl describe RCAagent sre-agent -n RCA-system
 ```
 
 ### IncidentReport
@@ -297,7 +297,7 @@ status:
   confidence: 94
   timeline:
     - time: "10:32:00" event: "Pod payment-service-xxx entered CrashLoopBackOff"
-    - time: "10:33:00" event: "OpenClaw detected OOMKilled pattern"
+    - time: "10:33:00" event: "RCA detected OOMKilled pattern"
     - time: "10:34:00" event: "Correlated with deployment at 10:28 UTC"
     - time: "10:35:00" event: "Auto-rollback triggered to revision 14 (v2.3.0)"
     - time: "10:45:00" event: "Service healthy. Incident resolved."
@@ -315,7 +315,7 @@ status:
 
 ## 🧩 Built-in Remediation Playbooks
 
-OpenClaw ships with playbooks for the most common Kubernetes incidents.
+RCA ships with playbooks for the most common Kubernetes incidents.
 
 | Incident Type | Detection | Automated Actions |
 |---|---|---|
@@ -338,8 +338,8 @@ Define your own runbooks in a ConfigMap:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: openclaw-runbooks
-  namespace: openclaw-system
+  name: RCA-runbooks
+  namespace: RCA-system
 data:
   payment-service-5xx.yaml: |
     trigger:
@@ -360,16 +360,16 @@ data:
 
 ## 🔒 Security & RBAC
 
-OpenClaw follows least-privilege principles. The operator is granted only what it needs per the default ClusterRole.
+RCA follows least-privilege principles. The operator is granted only what it needs per the default ClusterRole.
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: openclaw-operator-role
+  name: RCA-operator-role
 rules:
-  - apiGroups: ["openclaw.io"]
-    resources: ["openclawagents", "incidentreports"]
+  - apiGroups: ["RCA.io"]
+    resources: ["RCAagents", "incidentreports"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: [""]
     resources: ["pods", "pods/log", "events", "nodes", "endpoints", "services"]
@@ -389,14 +389,14 @@ rules:
 ## 🗂️ Project Structure
 
 ```
-openclaw-operator/
+RCA-operator/
 │
 ├── cmd/
 │   └── main.go                        # Entry point, manager setup
 │
 ├── api/
 │   └── v1alpha1/
-│       ├── openclawagent_types.go     # Agent CRD types
+│       ├── RCAagent_types.go     # Agent CRD types
 │       ├── incidentreport_types.go    # IncidentReport CRD types
 │       └── zz_generated.deepcopy.go
 │
@@ -451,7 +451,7 @@ openclaw-operator/
 │   └── node-pressure.yaml
 │
 ├── charts/
-│   └── openclaw-operator/             # Helm chart
+│   └── RCA-operator/             # Helm chart
 │
 ├── docs/                              # Documentation
 ├── tests/
@@ -486,14 +486,14 @@ go install sigs.k8s.io/kind@latest
 
 ```bash
 # Clone the repo
-git clone https://github.com/gaurangkudale/openclaw-operator.git
-cd openclaw-operator
+git clone https://github.com/gaurangkudale/RCA-operator.git
+cd RCA-operator
 
 # Install dependencies
 go mod tidy
 
 # Start a local cluster
-kind create cluster --name openclaw-dev
+kind create cluster --name RCA-dev
 
 # Install CRDs into cluster
 make install
@@ -518,7 +518,7 @@ make generate manifests
 ### Build & Push Docker Image
 
 ```bash
-make docker-build docker-push IMG=<your-registry>/openclaw-operator:latest
+make docker-build docker-push IMG=<your-registry>/RCA-operator:latest
 ```
 
 ---
@@ -526,7 +526,7 @@ make docker-build docker-push IMG=<your-registry>/openclaw-operator:latest
 ## 🗺️ Roadmap
 
 ### v0.1 — Foundation *(current)*
-- [x] CRD definitions: `OpenClawAgent`, `IncidentReport`
+- [x] CRD definitions: `RCAAgent`, `IncidentReport`
 - [x] Pod and Event watchers
 - [x] Basic signal correlation engine
 - [x] Slack and PagerDuty notifications
@@ -560,12 +560,12 @@ make docker-build docker-push IMG=<your-registry>/openclaw-operator:latest
 
 ## 🤝 Contributing
 
-We love contributions! OpenClaw Operator is built by the community, for the community.
+We love contributions! RCA Operator is built by the community, for the community.
 
 ### Ways to Contribute
 
-- 🐛 **Report bugs** via [GitHub Issues](https://github.com/gaurangkudale/openclaw-operator/issues)
-- 💡 **Suggest features** via [GitHub Discussions](https://github.com/gaurangkudale/openclaw-operator/discussions)
+- 🐛 **Report bugs** via [GitHub Issues](https://github.com/gaurangkudale/RCA-operator/issues)
+- 💡 **Suggest features** via [GitHub Discussions](https://github.com/gaurangkudale/RCA-operator/discussions)
 - 📖 **Improve documentation** — even small fixes matter
 - 🔧 **Submit playbooks** — share runbooks for incidents you've solved
 - 💻 **Write code** — pick up a `good first issue` to get started
@@ -592,7 +592,7 @@ Please read [CONTRIBUTING.md](CONTRIBUTING.md) and our [Code of Conduct](CODE_OF
 
 ## 📜 License
 
-OpenClaw Operator is licensed under the **MIT License** — see [LICENSE](LICENSE) for details.
+RCA Operator is licensed under the **MIT License** — see [LICENSE](LICENSE) for details.
 
 You are free to use, modify, and distribute this software in commercial and non-commercial projects. Contributions are welcome under the same license.
 
@@ -600,7 +600,7 @@ You are free to use, modify, and distribute this software in commercial and non-
 
 ## 🙏 Acknowledgements
 
-OpenClaw Operator stands on the shoulders of giants:
+RCA Operator stands on the shoulders of giants:
 
 - [kubebuilder](https://book.kubebuilder.io) — operator scaffolding framework
 - [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime) — the reconciliation engine
@@ -611,8 +611,8 @@ OpenClaw Operator stands on the shoulders of giants:
 
 <div align="center">
 
-**Built with ❤️ by the OpenClaw Operator community**
+**Built with ❤️ by the RCA Operator community**
 
-*If OpenClaw saved your on-call rotation, give us a ⭐ on GitHub!*
+*If RCA saved your on-call rotation, give us a ⭐ on GitHub!*
 
 </div>
