@@ -72,7 +72,7 @@ Before building a significant feature, check:
 ### Step 1 — Clone the repo
 
 ```bash
-git clone https://github.com/your-org/rca-operator.git
+git clone https://github.com/gaurangkudale/rca-operator.git
 cd rca-operator
 ```
 

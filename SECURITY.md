@@ -64,7 +64,7 @@ We will never ask you to delay disclosure indefinitely. If we cannot fix the iss
 - **CRD definitions** — `api/v1alpha1/`
 - **Helm chart** — `charts/rca-operator/`
 - **RBAC manifests** — `config/rbac/`
-- **Official Docker images** — published at `ghcr.io/your-org/rca-operator`
+- **Official Docker images** — published at `ghcr.io/gaurangkudale/rca-operator`
 
 ### Out of scope
 

@@ -62,7 +62,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - Initial kubebuilder project structure
-- Go module `github.com/your-org/rca-operator`
+- Go module `github.com/gaurangkudale/rca-operator`
 - CI pipeline (lint, build, unit test)
 - `LICENSE` (Apache 2.0)
 - `README.md` skeleton
@@ -71,6 +71,6 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ---
 
 <!-- Version diff links — update on each release -->
-[Unreleased]: https://github.com/your-org/rca-operator/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/your-org/rca-operator/compare/v0.0.1...v0.1.0
-[0.0.1]: https://github.com/your-org/rca-operator/releases/tag/v0.0.1
+[Unreleased]: https://github.com/gaurangkudale/rca-operator/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/gaurangkudale/rca-operator/compare/v0.0.1...v0.1.0
+[0.0.1]: https://github.com/gaurangkudale/rca-operator/releases/tag/v0.0.1
