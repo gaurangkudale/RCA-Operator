@@ -6,6 +6,9 @@ cliVersion: 4.12.0
 domain: rca-operator.io
 layout:
 - go.kubebuilder.io/v4
+plugins:
+  autoupdate.kubebuilder.io/v1-alpha:
+    useGHModels: true
 projectName: rca-operator
 repo: github.com/gaurangkudale/rca-operator
 resources:
