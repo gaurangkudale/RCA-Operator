@@ -12,7 +12,7 @@
 [![kubebuilder](https://img.shields.io/badge/Built%20with-kubebuilder-FF6B6B)](https://book.kubebuilder.io)
 [![Go Report Card](https://goreportcard.com/badge/github.com/gaurangkudale/RCA-operator)](https://goreportcard.com/report/github.com/gaurangkudale/RCA-operator)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord)](https://discord.gg/RCA)
+<!-- [![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord)](https://discord.gg/RCA-Operator) -->
 
 </div>
 
