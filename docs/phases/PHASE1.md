@@ -377,28 +377,28 @@ Phase 1 is complete when **all** of the following pass without exception:
 
 ## GitHub Issues
 
-Create these as GitHub Issues under the milestone **`v0.1 — Foundation`**. Each maps to one discrete, reviewable PR.
+Tracked under the milestone **[`v0.1 — Foundation`](https://github.com/gaurangkudale/RCA-Operator/milestone/1)**. Each maps to one discrete, reviewable PR.
 
-| # | Issue Title | Label | Week |
+| # | Issue | Label | Week |
 |---|---|---|---|
-| 1 | Init kubebuilder project + Go module | `setup` | 1 |
-| 2 | Define RCAAgent CRD (Phase 1 fields) | `api` | 1 |
-| 3 | Define IncidentReport CRD | `api` | 1 |
-| 4 | Helm chart skeleton + values.yaml | `helm` | 1–2 |
-| 5 | Implement pod_watcher.go | `watcher` | 3 |
-| 6 | Implement event_watcher.go + dedup buffer | `watcher` | 3 |
-| 7 | Implement node_watcher.go | `watcher` | 3 |
-| 8 | Implement deployment_watcher.go | `watcher` | 3 |
-| 9 | Implement correlator.go + 5 correlation rules | `correlator` | 4 |
-| 10 | Implement incident lifecycle + auto-resolve | `correlator` | 4 |
-| 11 | Implement slack.go notification | `reporter` | 5 |
-| 12 | Implement pagerduty.go notification | `reporter` | 5 |
-| 13 | Implement cr_reporter.go (IncidentReport CR writer) | `reporter` | 5 |
-| 14 | RBAC + Helm chart finalization | `helm, rbac` | 6 |
-| 15 | Prometheus metrics + health endpoints | `observability` | 6 |
-| 16 | E2E test: CrashLoop scenario | `test` | 7 |
-| 17 | README Quick Start verification + samples/ | `docs` | 7–8 |
-| 18 | GitHub release v0.1.0 + Docker image push | `release` | 8 |
+| 1 | [#3 Init kubebuilder project + Go module](https://github.com/gaurangkudale/RCA-Operator/issues/3) | `setup` | 1 |
+| 2 | [#4 Define RCAAgent CRD (Phase 1 fields)](https://github.com/gaurangkudale/RCA-Operator/issues/4) | `api` | 1 |
+| 3 | [#5 Define IncidentReport CRD](https://github.com/gaurangkudale/RCA-Operator/issues/5) | `api` | 1 |
+| 4 | [#6 Helm chart skeleton + values.yaml](https://github.com/gaurangkudale/RCA-Operator/issues/6) | `helm` | 1–2 |
+| 5 | [#7 Implement pod_watcher.go](https://github.com/gaurangkudale/RCA-Operator/issues/7) | `watcher` | 3 |
+| 6 | [#8 Implement event_watcher.go + dedup buffer](https://github.com/gaurangkudale/RCA-Operator/issues/8) | `watcher` | 3 |
+| 7 | [#9 Implement node_watcher.go](https://github.com/gaurangkudale/RCA-Operator/issues/9) | `watcher` | 3 |
+| 8 | [#10 Implement deployment_watcher.go](https://github.com/gaurangkudale/RCA-Operator/issues/10) | `watcher` | 3 |
+| 9 | [#11 Implement correlator.go + 5 correlation rules](https://github.com/gaurangkudale/RCA-Operator/issues/11) | `correlator` | 4 |
+| 10 | [#12 Implement incident lifecycle + auto-resolve](https://github.com/gaurangkudale/RCA-Operator/issues/12) | `correlator` | 4 |
+| 11 | [#13 Implement slack.go notification](https://github.com/gaurangkudale/RCA-Operator/issues/13) | `reporter` | 5 |
+| 12 | [#14 Implement pagerduty.go notification](https://github.com/gaurangkudale/RCA-Operator/issues/14) | `reporter` | 5 |
+| 13 | [#15 Implement cr_reporter.go (IncidentReport CR writer)](https://github.com/gaurangkudale/RCA-Operator/issues/15) | `reporter` | 5 |
+| 14 | [#16 RBAC + Helm chart finalization](https://github.com/gaurangkudale/RCA-Operator/issues/16) | `helm, rbac` | 6 |
+| 15 | [#17 Prometheus metrics + health endpoints](https://github.com/gaurangkudale/RCA-Operator/issues/17) | `observability` | 6 |
+| 16 | [#18 E2E test: CrashLoop scenario](https://github.com/gaurangkudale/RCA-Operator/issues/18) | `test` | 7 |
+| 17 | [#19 README Quick Start verification + samples/](https://github.com/gaurangkudale/RCA-Operator/issues/19) | `docs` | 7–8 |
+| 18 | [#20 GitHub release v0.1.0 + Docker image push](https://github.com/gaurangkudale/RCA-Operator/issues/20) | `release` | 8 |
 
 ---
 
