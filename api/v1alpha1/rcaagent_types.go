@@ -55,7 +55,7 @@ type AIProviderConfig struct {
 
 	// Model is the model identifier to use (e.g. gpt-4o, claude-3-opus).
 	// +kubebuilder:validation:Required
-	// kubebuilder:default=gpt-4o
+	// +kubebuilder:default=gpt-4o
 	// +kubebuilder:example=gpt-4o
 	Model string `json:"model,omitempty"`
 
