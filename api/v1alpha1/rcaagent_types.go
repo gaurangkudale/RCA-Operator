@@ -30,9 +30,47 @@ type RCAAgentSpec struct {
 	// The following markers will use OpenAPI v3 schema to validate the value
 	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
 
-	// foo is an example field of RCAAgent. Edit rcaagent_types.go to remove/update
-	// +optional
-	Foo *string `json:"foo,omitempty"`
+	// watchNamespaces specifies the namespaces that the RCAAgent should monitor.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:default={"default"}
+	// +kubebuilder:example={"production","staging"}
+	WatchNamespaces []string `json:"watchNamespaces,omitempty"`
+
+	// AIProviderConfig holds the configuration for the LLM backend.
+	// +kubebuilder:validation:Required
+	AIProviderConfig *AIProviderConfig `json:"aiProviderConfig,omitempty"`
+}
+
+// AIProviderConfig holds the LLM backend configuration.
+// Phase 1: stored only — not used by the operator yet.
+type AIProviderConfig struct {
+
+	// Type is the LLM provider to use.
+	// +kubebuilder:validation:Enum=openai
+	// Type is the LLM provider to use.
+	// +kubebuilder:validation:Enum=openai
+	// +kubebuilder:validation:Required
+	// TODO: add more providers as they are supported (e.g. anthropic, gemini, ollama, etc.)
+	// +kubebuilder:default=openai
+	// +kubebuilder:default=openai
+	// +kubebuilder:example=openai
+	Type string `json:"type"`
+
+	// Model is the model identifier to use (e.g. gpt-4o, claude-3-opus).
+	// +kubebuilder:validation:Required
+	// +kubebuilder:default=gpt-4o
+	// +kubebuilder:example=gpt-4o
+	Model string `json:"model,omitempty"`
+
+	// SecretRef is the name of the Kubernetes Secret containing the API key.
+	// The secret must have a key named "apiKey".
+	// +kubebuilder:validation:Required
+	// SecretRef is the name of the Kubernetes Secret containing the API key.
+	// The secret must have a key named "apiKey".
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:example=rca-agent-openai-secret
+	SecretRef string `json:"secretRef,omitempty"`
 }
 
 // RCAAgentStatus defines the observed state of RCAAgent.
