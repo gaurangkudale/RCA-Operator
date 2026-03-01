@@ -47,9 +47,13 @@ type RCAAgentReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/reconcile
 func (r *RCAAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	log := logf.FromContext(ctx)
 
-	// TODO(user): your logic here
+	rcagent := &rcav1alpha1.RCAAgent{}
+	if err := r.Get(ctx, req.NamespacedName, rcagent); err != nil {
+		log.Error(err, "unable to fetch RCAAgent")
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
 
 	return ctrl.Result{}, nil
 }
