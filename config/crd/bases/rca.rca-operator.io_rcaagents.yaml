@@ -39,10 +39,53 @@ spec:
           spec:
             description: spec defines the desired state of RCAAgent
             properties:
-              foo:
-                description: foo is an example field of RCAAgent. Edit rcaagent_types.go
-                  to remove/update
-                type: string
+              aiProviderConfig:
+                description: AIProviderConfig holds the configuration for the LLM
+                  backend.
+                properties:
+                  model:
+                    default: gpt-4o
+                    description: Model is the model identifier to use (e.g. gpt-4o,
+                      claude-3-opus).
+                    example: gpt-4o
+                    type: string
+                  secretRef:
+                    description: |-
+                      SecretRef is the name of the Kubernetes Secret containing the API key.
+                      The secret must have a key named "apiKey".
+                      SecretRef is the name of the Kubernetes Secret containing the API key.
+                      The secret must have a key named "apiKey".
+                    example: rca-agent-openai-secret
+                    minLength: 1
+                    type: string
+                  type:
+                    default: openai
+                    description: |-
+                      Type is the LLM provider to use.
+                      Type is the LLM provider to use.
+                    enum:
+                    - openai
+                    example: openai
+                    type: string
+                required:
+                - model
+                - secretRef
+                - type
+                type: object
+              watchNamespaces:
+                default:
+                - default
+                description: watchNamespaces specifies the namespaces that the RCAAgent
+                  should monitor.
+                example:
+                - production
+                - staging
+                items:
+                  type: string
+                type: array
+            required:
+            - aiProviderConfig
+            - watchNamespaces
             type: object
           status:
             description: status defines the observed state of RCAAgent
