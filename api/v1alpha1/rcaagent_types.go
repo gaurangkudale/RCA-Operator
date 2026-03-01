@@ -45,29 +45,28 @@ type RCAAgentSpec struct {
 // Phase 1: stored only — not used by the operator yet.
 type AIProviderConfig struct {
 
-    // Type is the LLM provider to use.
-    // +kubebuilder:validation:Enum=openai 
+	// Type is the LLM provider to use.
+	// +kubebuilder:validation:Enum=openai
 	// +kubebuilder:validation:Required
 	// TODO: add more providers as they are supported (e.g. anthropic, gemini, ollama, etc.)
-    // +kubebuilder:default=openai
+	// +kubebuilder:default=openai
 	// +kubebuilder:example=openai
-    Type string `json:"type"`
+	Type string `json:"type"`
 
-    // Model is the model identifier to use (e.g. gpt-4o, claude-3-opus).
-    // +kubebuilder:validation:Required
+	// Model is the model identifier to use (e.g. gpt-4o, claude-3-opus).
+	// +kubebuilder:validation:Required
 	// kubebuilder:default=gpt-4o
 	// +kubebuilder:example=gpt-4o
-    Model string `json:"model,omitempty"`
+	Model string `json:"model,omitempty"`
 
-    // SecretRef is the name of the Kubernetes Secret containing the API key.
-    // The secret must have a key named "apiKey".
-    // +kubebuilder:validation:Required
+	// SecretRef is the name of the Kubernetes Secret containing the API key.
+	// The secret must have a key named "apiKey".
+	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:example=rca-agent-openai-secret
-    SecretRef string `json:"secretRef,omitempty"`
-
-
+	SecretRef string `json:"secretRef,omitempty"`
 }
+
 // RCAAgentStatus defines the observed state of RCAAgent.
 type RCAAgentStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
