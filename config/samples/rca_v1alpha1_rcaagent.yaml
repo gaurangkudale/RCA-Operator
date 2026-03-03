@@ -6,4 +6,25 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: rcaagent-sample
 spec:
-  # TODO(user): Add fields here
+  watchNamespaces:
+    - default
+  aiProviderConfig:
+    type: openai
+    model: gpt-4o
+    secretRef: rca-agent-openai-secret
+---
+apiVersion: rca.rca-operator.io/v1alpha1
+kind: RCAAgent
+metadata:
+  labels:
+    app.kubernetes.io/name: rca-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: rcaagent-sample1
+  namespace: test
+spec:
+  watchNamespaces:
+    - default
+  aiProviderConfig:
+    type: openai
+    model: gpt-4o
+    secretRef: rca-agent-openai-secret

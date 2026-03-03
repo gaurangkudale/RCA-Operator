@@ -14,7 +14,23 @@ spec:
     singular: rcaagent
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Overall status based on conditions
+      jsonPath: .status.conditions[?(@.type=='Available')].status
+      name: Status
+      type: string
+    - description: AI provider type
+      jsonPath: .spec.aiProviderConfig.type
+      name: Provider
+      type: string
+    - description: AI model in use
+      jsonPath: .spec.aiProviderConfig.model
+      name: Model
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: RCAAgent is the Schema for the rcaagents API
