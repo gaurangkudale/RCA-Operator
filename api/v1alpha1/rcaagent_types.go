@@ -98,6 +98,10 @@ type RCAAgentStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Status",type=string,JSONPath=".status.conditions[?(@.type=='Available')].status",description="Overall status based on conditions"
+// +kubebuilder:printcolumn:name="Provider",type=string,JSONPath=".spec.aiProviderConfig.type",description="AI provider type"
+// +kubebuilder:printcolumn:name="Model",type=string,JSONPath=".spec.aiProviderConfig.model",description="AI model in use"
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=".metadata.creationTimestamp"
 
 // RCAAgent is the Schema for the rcaagents API
 type RCAAgent struct {
