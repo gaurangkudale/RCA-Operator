@@ -5,6 +5,7 @@ go 1.25.3
 require (
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
+	k8s.io/api v0.35.0
 	k8s.io/apimachinery v0.35.0
 	k8s.io/client-go v0.35.0
 	sigs.k8s.io/controller-runtime v0.23.1
@@ -85,7 +86,6 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/api v0.35.0 // indirect
 	k8s.io/apiextensions-apiserver v0.35.0 // indirect
 	k8s.io/apiserver v0.35.0 // indirect
 	k8s.io/component-base v0.35.0 // indirect
