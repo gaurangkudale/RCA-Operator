@@ -230,6 +230,33 @@ status:
 | `status.rootCause` | `string` | Stub in Phase 1 — populated by the RCA engine in Phase 2 |
 | `status.conditions` | `[]metav1.Condition` | Standard Kubernetes status conditions (`+listType=map`) |
 
+#### About `status.conditions`
+
+`status.conditions` is the standard Kubernetes pattern for communicating detailed machine-readable state on any CR. It is the same mechanism used by Deployments, Pods, Nodes, etc.
+
+**What a single condition looks like:**
+
+```yaml
+status:
+  conditions:
+    - type: Available               # what aspect of the resource this describes
+      status: "True"                # True | False | Unknown
+      reason: IncidentActive        # CamelCase machine-readable reason code
+      message: "P2 OOM incident is active, notifications dispatched"
+      observedGeneration: 3         # matches metadata.generation — staleness check
+      lastTransitionTime: "2026-03-05T10:32:00Z"
+```
+
+**The three condition types used in this operator:**
+
+| `type` | `status: True` means | `status: False` means |
+|---|---|---|
+| `Available` | CR is healthy / fully operational | Something is wrong |
+| `Progressing` | State is actively changing (e.g. detecting, resolving) | Not currently changing |
+| `Degraded` | Something failed (secret missing, notification error) | Everything healthy |
+
+> **Rule:** use `status.phase` (`Detecting|Active|Resolved`) for the business-level lifecycle. Use `status.conditions` for the operator's own health state — notification failures, validation errors, reconcile success. They serve different audiences: `phase` is for humans and dashboards; `conditions` are for automation and `kubectl describe`.
+
 ---
 
 ## Delivery Breakdown

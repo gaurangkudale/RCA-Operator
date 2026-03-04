@@ -232,6 +232,15 @@ spec:
                   type: object
                 type: array
                 x-kubernetes-list-type: atomic
+            required:
+            - affectedResources
+            - correlatedSignals
+            - incidentType
+            - phase
+            - resolvedTime
+            - severity
+            - startTime
+            - timeline
             type: object
         required:
         - spec
