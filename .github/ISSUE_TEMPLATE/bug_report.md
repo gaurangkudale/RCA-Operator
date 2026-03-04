@@ -23,14 +23,14 @@ What actually happened (e.g., "Operator reported 'Unknown Error' despite clear e
 Please provide the output of the following commands:
 
 **Operator Logs:**
-\```bash
+```bash
 kubectl logs -n rca-system deployment/rca-operator-controller-manager
-\```
+```
 
-**The RCA Custom Resource:**
-\```yaml
+<!-- **The RCA Custom Resource:**
+```yaml
 # Paste your RCA YAML here
-\```
+``` -->
 
 ## Possible Fix
 (Optional) If you have identified a specific logic error in the controller's reconciliation loop, please suggest it here.
