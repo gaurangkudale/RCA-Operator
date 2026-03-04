@@ -16,7 +16,7 @@ Every doc should answer exactly one version of that question.
 ---
 
 ## Complete Docs Directory Structure
-
+> TODO: Create a `docs/reference` folder and documentation of CRD's Phase-2
 ```
 rca-operator/
 │

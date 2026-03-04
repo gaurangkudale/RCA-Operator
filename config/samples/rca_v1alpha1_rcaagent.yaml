@@ -10,6 +10,15 @@ spec:
     type: openai
     model: gpt-4o
     secretRef: rca-agent-openai-secret
+  notifications:
+    slack:
+      webhookSecretRef: slack-webhook
+      channel: "#incidents"
+      mentionOnP1: "@oncall"
+    pagerduty:
+      secretRef: pd-api-key
+      severity: P2         # minimum severity to page
+  incidentRetentionDays: 30
 ---
 apiVersion: rca.rca-operator.io/v1alpha1
 kind: RCAAgent
@@ -23,3 +32,12 @@ spec:
     type: openai
     model: gpt-4o
     secretRef: rca-agent-openai-secret
+  notifications:
+    slack:
+      webhookSecretRef: slack-webhook
+      channel: "#incidents"
+      mentionOnP1: "@sre-oncall"
+    pagerduty:
+      secretRef: pd-api-key
+      severity: P2         # minimum severity to page
+  incidentRetentionDays: 30
