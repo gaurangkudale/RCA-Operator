@@ -32,7 +32,7 @@ This is the official scope document for **Phase 1 of the RCA Operator**. It defi
 - [Risks & Mitigations](#risks--mitigations)
 - [GitHub Issues](#github-issues)
 - [Incident Flow (End-to-End)](#incident-flow-end-to-end)
-- [IncidentReport CR Lifecycle](#incidentreport-cr-lifecycle)
+- [IncidentReport CR Lifecycle](#incidentreport-customresource-lifecycle)
 
 ---
 
@@ -561,7 +561,7 @@ status:
   severity:      P2
   phase:         Active
   incidentType:  OOM
-  startTime:     "<now>"
+  startTime:     "RFC3339"
   notified:      false          # will become true after notification fires
   affectedResources:
     - kind: Deployment
@@ -571,9 +571,9 @@ status:
     - "CrashLoopBackOff (restarts: 8)"
     - "OOMKilled (exit code 137)"
   timeline:
-    - time: "<T+0>"
+    - time: "RFC3339"
       event: "Pod payment-service-xxx entered CrashLoopBackOff"
-    - time: "<T+1m>"
+    - time: "RFC3339"
       event: "OOMKilled event correlated"
   rootCause: ""                 # stub — Phase 2
 ```
