@@ -62,25 +62,25 @@ type TimelineEvent struct {
 type IncidentReportStatus struct {
 	// severity is the incident severity level assigned by the correlator.
 	// +kubebuilder:validation:Enum=P1;P2;P3;P4
-	// +optional
+	// +required
 	Severity string `json:"severity,omitempty"`
 
 	// phase is the current lifecycle phase of the incident.
 	// +kubebuilder:validation:Enum=Detecting;Active;Resolved
-	// +optional
+	// +required
 	Phase string `json:"phase,omitempty"`
 
 	// incidentType is the category of incident detected by the correlator.
 	// +kubebuilder:validation:Enum=CrashLoop;OOM;BadDeploy;NodeFailure;Registry
-	// +optional
+	// +required
 	IncidentType string `json:"incidentType,omitempty"`
 
 	// startTime is when the incident was first detected.
-	// +optional
+	// +required
 	StartTime *metav1.Time `json:"startTime,omitempty"`
 
 	// resolvedTime is when the incident was resolved. Empty while still active.
-	// +optional
+	// +required
 	ResolvedTime *metav1.Time `json:"resolvedTime,omitempty"`
 
 	// notified indicates whether the notification layer (Slack / PagerDuty) has
@@ -89,18 +89,18 @@ type IncidentReportStatus struct {
 	Notified bool `json:"notified,omitempty"`
 
 	// affectedResources lists the Kubernetes resources involved in this incident.
-	// +optional
+	// +required
 	// +listType=atomic
 	AffectedResources []AffectedResource `json:"affectedResources,omitempty"`
 
 	// correlatedSignals is the list of raw signals that triggered this incident
 	// (e.g. "CrashLoopBackOff (restarts: 8)", "OOMKilled (exit code 137)").
-	// +optional
+	// +required
 	// +listType=atomic
 	CorrelatedSignals []string `json:"correlatedSignals,omitempty"`
 
 	// timeline is the ordered sequence of events that make up this incident.
-	// +optional
+	// +required
 	// +listType=atomic
 	Timeline []TimelineEvent `json:"timeline,omitempty"`
 
