@@ -56,8 +56,9 @@ spec:
             description: spec defines the desired state of RCAAgent
             properties:
               aiProviderConfig:
-                description: AIProviderConfig holds the configuration for the LLM
-                  backend.
+                description: |-
+                  AIProviderConfig holds the configuration for the LLM backend.
+                  Phase 1: stored only — not used by the operator yet.
                 properties:
                   model:
                     default: gpt-4o
@@ -69,16 +70,12 @@ spec:
                     description: |-
                       SecretRef is the name of the Kubernetes Secret containing the API key.
                       The secret must have a key named "apiKey".
-                      SecretRef is the name of the Kubernetes Secret containing the API key.
-                      The secret must have a key named "apiKey".
                     example: rca-agent-openai-secret
                     minLength: 1
                     type: string
                   type:
                     default: openai
-                    description: |-
-                      Type is the LLM provider to use.
-                      Type is the LLM provider to use.
+                    description: Type is the LLM provider to use.
                     enum:
                     - openai
                     example: openai
@@ -87,6 +84,65 @@ spec:
                 - model
                 - secretRef
                 - type
+                type: object
+              incidentRetentionDays:
+                default: 30
+                description: IncidentRetentionDays specifies how long to keep IncidentReport
+                  CRs before they are pruned.
+                minimum: 1
+                type: integer
+              notifications:
+                description: Notifications holds the configuration for sending incident
+                  notifications.
+                properties:
+                  pagerduty:
+                    description: PagerDuty holds the configuration for PagerDuty notifications.
+                    properties:
+                      secretRef:
+                        description: |-
+                          SecretRef is the name of the Kubernetes Secret containing the PagerDuty Events API v2 key.
+                          The secret must have a key named "apiKey".
+                        example: pd-api-key
+                        minLength: 1
+                        type: string
+                      severity:
+                        default: P2
+                        description: Severity is the minimum incident severity that
+                          triggers a PagerDuty page.
+                        enum:
+                        - P1
+                        - P2
+                        - P3
+                        - P4
+                        type: string
+                    required:
+                    - secretRef
+                    type: object
+                  slack:
+                    description: Slack holds the configuration for Slack notifications.
+                    properties:
+                      channel:
+                        description: 'Channel is the Slack channel to post notifications
+                          to (e.g. #incidents).'
+                        example: '#incidents'
+                        minLength: 1
+                        type: string
+                      mentionOnP1:
+                        description: MentionOnP1 is the Slack user or group handle
+                          to mention on P1 incidents (e.g. @oncall).
+                        example: '@oncall'
+                        type: string
+                      webhookSecretRef:
+                        description: |-
+                          WebhookSecretRef is the name of the Kubernetes Secret containing the Slack webhook URL.
+                          The secret must have a key named "webhookURL".
+                        example: slack-webhook
+                        minLength: 1
+                        type: string
+                    required:
+                    - channel
+                    - webhookSecretRef
+                    type: object
                 type: object
               watchNamespaces:
                 default:

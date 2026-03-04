@@ -165,6 +165,7 @@ spec:
     - staging
   aiProviderConfig:             # stub only in Phase 1 — stored, not used
     type: openai
+    model: gpt-4o
     secretRef: ai-api-key
   notifications:
     slack:

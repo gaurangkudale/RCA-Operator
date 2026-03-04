@@ -39,6 +39,16 @@ type RCAAgentSpec struct {
 	// AIProviderConfig holds the configuration for the LLM backend.
 	// +kubebuilder:validation:Required
 	AIProviderConfig *AIProviderConfig `json:"aiProviderConfig,omitempty"`
+
+	// Notifications holds the configuration for sending incident notifications.
+	// +optional
+	Notifications *NotificationsConfig `json:"notifications,omitempty"`
+
+	// IncidentRetentionDays specifies how long to keep IncidentReport CRs before they are pruned.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=30
+	// +optional
+	IncidentRetentionDays int `json:"incidentRetentionDays,omitempty"`
 }
 
 // AIProviderConfig holds the LLM backend configuration.
@@ -46,12 +56,10 @@ type RCAAgentSpec struct {
 type AIProviderConfig struct {
 
 	// Type is the LLM provider to use.
-	// +kubebuilder:validation:Enum=openai
-	// Type is the LLM provider to use.
+	// TODO: add more providers as they are supported (e.g. anthropic, gemini, ollama, etc.)
 	// +kubebuilder:validation:Enum=openai
 	// +kubebuilder:validation:Required
-	// TODO: add more providers as they are supported (e.g. anthropic, gemini, ollama, etc.)
-	// +kubebuilder:default=openai
+	// +kubebuilder:validation:Enum=openai
 	// +kubebuilder:default=openai
 	// +kubebuilder:example=openai
 	Type string `json:"type"`
@@ -65,12 +73,57 @@ type AIProviderConfig struct {
 	// SecretRef is the name of the Kubernetes Secret containing the API key.
 	// The secret must have a key named "apiKey".
 	// +kubebuilder:validation:Required
-	// SecretRef is the name of the Kubernetes Secret containing the API key.
-	// The secret must have a key named "apiKey".
-	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:example=rca-agent-openai-secret
 	SecretRef string `json:"secretRef,omitempty"`
+}
+
+// NotificationsConfig defines where to send RCAAgent notifications.
+type NotificationsConfig struct {
+	// Slack holds the configuration for Slack notifications.
+	// +optional
+	Slack *SlackConfig `json:"slack,omitempty"`
+
+	// PagerDuty holds the configuration for PagerDuty notifications.
+	// +optional
+	PagerDuty *PagerDutyConfig `json:"pagerduty,omitempty"`
+}
+
+// SlackConfig holds Slack-specific notification settings.
+type SlackConfig struct {
+	// WebhookSecretRef is the name of the Kubernetes Secret containing the Slack webhook URL.
+	// The secret must have a key named "webhookURL".
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:example=slack-webhook
+	WebhookSecretRef string `json:"webhookSecretRef"`
+
+	// Channel is the Slack channel to post notifications to (e.g. #incidents).
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:example="#incidents"
+	Channel string `json:"channel"`
+
+	// MentionOnP1 is the Slack user or group handle to mention on P1 incidents (e.g. @oncall).
+	// +optional
+	// +kubebuilder:example="@oncall"
+	MentionOnP1 string `json:"mentionOnP1,omitempty"`
+}
+
+// PagerDutyConfig holds PagerDuty-specific notification settings.
+type PagerDutyConfig struct {
+	// SecretRef is the name of the Kubernetes Secret containing the PagerDuty Events API v2 key.
+	// The secret must have a key named "apiKey".
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:example=pd-api-key
+	SecretRef string `json:"secretRef"`
+
+	// Severity is the minimum incident severity that triggers a PagerDuty page.
+	// +kubebuilder:validation:Enum=P1;P2;P3;P4
+	// +kubebuilder:default=P2
+	// +optional
+	Severity string `json:"severity,omitempty"`
 }
 
 // RCAAgentStatus defines the observed state of RCAAgent.
