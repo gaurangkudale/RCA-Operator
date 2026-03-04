@@ -197,6 +197,12 @@ func (r *RCAAgentReconciler) setCondition(
 		return fmt.Errorf("failed to re-fetch RCAAgent before status patch: %w", err)
 	}
 
+	// Snapshot the just-fetched object BEFORE mutation — this is the patch base.
+	// Using the original `agent` (stale resourceVersion) as the base would cause
+	// "object has been modified" conflicts when setCondition is called more than
+	// once in a single reconcile loop.
+	base := current.DeepCopy()
+
 	meta.SetStatusCondition(&current.Status.Conditions, metav1.Condition{
 		Type:               conditionType,
 		Status:             status,
@@ -205,9 +211,13 @@ func (r *RCAAgentReconciler) setCondition(
 		ObservedGeneration: current.Generation,
 	})
 
-	if err := r.Status().Patch(ctx, current, client.MergeFrom(agent)); err != nil {
+	if err := r.Status().Patch(ctx, current, client.MergeFrom(base)); err != nil {
 		return fmt.Errorf("failed to patch status condition %q: %w", conditionType, err)
 	}
+
+	// Propagate the updated resourceVersion back to the caller so the next
+	// setCondition call in this reconcile loop starts from the latest version.
+	*agent = *current
 	return nil
 }
 
