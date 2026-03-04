@@ -221,12 +221,12 @@ status:
 
 ### Week 1–2 — Scaffolding & CRDs
 
-- [ ] `kubebuilder init` + API group `rca-operator.io/v1alpha1`
-- [ ] Define `RCAAgent` CRD (Phase 1 fields only)
+- [x] `kubebuilder init` + API group `rca-operator.io/v1alpha1`
+- [x] Define `RCAAgent` CRD (Phase 1 fields only)
 - [ ] Define `IncidentReport` CRD
-- [ ] `make generate` + `make manifests` to produce CRD YAMLs
-- [ ] Basic `agent_controller.go` reconcile loop
-- [ ] `kind` cluster + `make install` smoke test
+- [x] `make generate` + `make manifests` to produce CRD YAMLs
+- [x] Basic `agent_controller.go` reconcile loop
+- [x] `kind` cluster + `make install` smoke test
 - [ ] Helm chart skeleton (`Chart.yaml`, `templates/deployment.yaml`, `values.yaml`)
 
 ### Week 3 — Watcher Layer
