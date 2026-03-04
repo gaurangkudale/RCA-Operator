@@ -51,17 +51,21 @@ var _ = Describe("IncidentReport Controller", func() {
 						Name:      resourceName,
 						Namespace: "default",
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: rcav1alpha1.IncidentReportSpec{
+						AgentRef: "test-agent",
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}
 		})
 
 		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
 			resource := &rcav1alpha1.IncidentReport{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
+			if err != nil {
+				// Already deleted or never created — nothing to clean up
+				return
+			}
 
 			By("Cleanup the specific resource instance IncidentReport")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
