@@ -7,8 +7,8 @@ assignees: ''
 
 ---
 
-## Bug Description
-A clear and concise description of the issue encountered during RCA automation.
+## Issue
+A clear and concise description of the issue encountered during RCA.
 
 ## Environment Details
 * **Kubernetes Version:** (e.g., v1.29.0)
@@ -32,10 +32,9 @@ What actually happened (e.g., "Operator reported 'Unknown Error' despite clear e
 Please provide the output of the following commands:
 
 **Operator Logs:**
-\```bash
+```bash
 kubectl logs -n rca-system deployment/rca-operator-controller-manager
-\```
-
+```
 
 
 ## Possible Fix
