@@ -4,6 +4,9 @@ metadata:
   labels:
     app.kubernetes.io/name: rca-operator
     app.kubernetes.io/managed-by: kustomize
+    rca.rca-operator.io/severity: P2
+    rca.rca-operator.io/incident-type: OOM
   name: incidentreport-sample
+  namespace: development
 spec:
-  # TODO(user): Add fields here
+  agentRef: rcaagent-sample
