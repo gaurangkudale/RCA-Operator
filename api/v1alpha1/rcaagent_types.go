@@ -36,7 +36,7 @@ type RCAAgentSpec struct {
 	// +kubebuilder:example={"production","staging"}
 	WatchNamespaces []string `json:"watchNamespaces,omitempty"`
 
-	// AIProviderConfig holds the configuration for the LLM backend.
+	// AIProviderConfig holds the configuration for the LLM backend. Phase 1: stored only — not used by the operator yet.
 	// +kubebuilder:validation:Required
 	AIProviderConfig *AIProviderConfig `json:"aiProviderConfig,omitempty"`
 

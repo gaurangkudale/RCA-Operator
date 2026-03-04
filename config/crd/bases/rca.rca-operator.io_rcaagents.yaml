@@ -56,8 +56,8 @@ spec:
             description: spec defines the desired state of RCAAgent
             properties:
               aiProviderConfig:
-                description: AIProviderConfig holds the configuration for the LLM
-                  backend.
+                description: 'AIProviderConfig holds the configuration for the LLM
+                  backend. Phase 1: stored only — not used by the operator yet.'
                 properties:
                   model:
                     default: gpt-4o
