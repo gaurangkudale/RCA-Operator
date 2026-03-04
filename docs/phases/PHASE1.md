@@ -265,7 +265,7 @@ status:
 
 - [x] `kubebuilder init` + API group `rca-operator.io/v1alpha1`
 - [x] Define `RCAAgent` CRD (Phase 1 fields only)
-- [ ] Define `IncidentReport` CRD
+- [x] Define `IncidentReport` CRD
 - [x] `make generate` + `make manifests` to produce CRD YAMLs
 - [x] Basic `agent_controller.go` reconcile loop
 - [x] `kind` cluster + `make install` smoke test
