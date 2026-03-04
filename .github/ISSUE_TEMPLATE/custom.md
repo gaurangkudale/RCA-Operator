@@ -1,7 +1,7 @@
 ---
-name: Bug report
-about: Create a report to help us improve
-title: "[BUG]"
+name: Custom issue template
+about: Describe this issue template's purpose here.
+title: ''
 labels: bug
 assignees: ''
 
@@ -35,6 +35,8 @@ Please provide the output of the following commands:
 \```bash
 kubectl logs -n rca-system deployment/rca-operator-controller-manager
 \```
+
+
 
 ## Possible Fix
 (Optional) If you have identified a specific logic error in the controller's reconciliation loop, please suggest it here.

@@ -1,17 +1,20 @@
-## Feature Description
-A clear and concise description of the new RCA capability or automation you want.
+---
+name: Feature request
+about: Suggest an idea for this project
+title: ''
+labels: enhancement
+assignees: ''
 
-## User Persona
-Who would benefit from this? (e.g., SRE, DevOps Engineer, Application Developer)
+---
 
-## Problem Statement
-What specific Kubernetes troubleshooting pain point does this solve? 
+**Is your feature request related to a problem? Please describe.**
+A clear and concise description of what the problem is. Ex. I'm always frustrated when [...]
 
-## Proposed Solution
-A description of how the RCA-Operator should handle this (e.g., "Add a new analyzer for Ingress 502 errors").
+**Describe the solution you'd like**
+A clear and concise description of what you want to happen.
 
-## Alternative Solutions
-Any workarounds or other tools you have considered.
+**Describe alternatives you've considered**
+A clear and concise description of any alternative solutions or features you've considered.
 
-## Additional Context
-Add any diagrams or mockups of the expected RCA report output.
+**Additional context**
+Add any other context or screenshots about the feature request here.
