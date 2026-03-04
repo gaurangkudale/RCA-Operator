@@ -163,7 +163,7 @@ spec:
   watchNamespaces:
     - production
     - staging
-  aiProvider:             # stub only in Phase 1 — stored, not used
+  aiProviderConfig:             # stub only in Phase 1 — stored, not used
     type: openai
     secretRef: ai-api-key
   notifications:
@@ -180,7 +180,7 @@ spec:
 | Field | Type | Description |
 |---|---|---|
 | `spec.watchNamespaces` | `[]string` | Namespaces to watch. Empty = all namespaces. |
-| `spec.aiProvider` | `object` | Stub in Phase 1 — type and secretRef stored, not used yet. |
+| `spec.aiProviderConfig` | `object` | Stub in Phase 1 — type and secretRef stored, not used yet. |
 | `spec.notifications.slack.webhookSecretRef` | `string` | Secret name containing the Slack webhook URL. |
 | `spec.notifications.slack.channel` | `string` | Target Slack channel (e.g. `#incidents`). |
 | `spec.notifications.slack.mentionOnP1` | `string` | User or group to mention on P1 incidents. |

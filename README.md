@@ -117,8 +117,8 @@ helm repo update
 helm install RCA RCA/RCA-operator \
   --namespace RCA-system \
   --create-namespace \
-  --set aiProvider.type=openai \
-  --set aiProvider.apiKey=<YOUR_API_KEY>
+  --set aiProviderConfig.type=openai \
+  --set aiProviderConfig.apiKey=<YOUR_API_KEY>
 ```
 
 ### Install via kubectl
@@ -145,7 +145,7 @@ spec:
     - production
     - staging
   autonomyLevel: 1              # 0=observe, 1=suggest, 2=semi-auto, 3=full-auto
-  aiProvider:
+  aiProviderConfig:
     type: openai                # openai | anthropic | ollama
     model: gpt-4o
     secretRef: ai-api-key
@@ -208,7 +208,7 @@ spec:
   autonomyLevel: 1
 
   # AI Provider Configuration
-  aiProvider:
+  aiProviderConfig:
     type: openai              # openai | anthropic | ollama
     model: gpt-4o
     secretRef: ai-api-key    # Secret with key: apiKey
