@@ -32,6 +32,7 @@ This is the official scope document for **Phase 1 of the RCA Operator**. It defi
 - [Risks & Mitigations](#risks--mitigations)
 - [GitHub Issues](#github-issues)
 - [Incident Flow (End-to-End)](#incident-flow-end-to-end)
+- [IncidentReport CR Lifecycle](#incidentreport-cr-lifecycle)
 
 ---
 
@@ -214,6 +215,20 @@ status:
       event: "OOMKilled event correlated"
   rootCause: ""                  # stub — populated by RCA engine in Phase 2
 ```
+
+| Field | Type | Validation / Notes |
+|---|---|---|
+| `status.severity` | `string` | Enum: `P1` `P2` `P3` `P4` |
+| `status.phase` | `string` | Enum: `Detecting` \| `Active` \| `Resolved` |
+| `status.incidentType` | `string` | Enum: `CrashLoop` \| `OOM` \| `BadDeploy` \| `NodeFailure` \| `Registry` |
+| `status.startTime` | `*metav1.Time` | RFC3339 timestamp — set when incident is first detected |
+| `status.resolvedTime` | `*metav1.Time` | RFC3339 timestamp — empty while still active |
+| `status.notified` | `bool` | Dedup gate — set to `true` after first notification fires; prevents duplicate alerts |
+| `status.affectedResources` | `[]AffectedResource` | `kind`, `name`, `namespace` of each impacted resource (`+listType=atomic`) |
+| `status.correlatedSignals` | `[]string` | Raw signal strings from the correlator (`+listType=atomic`) |
+| `status.timeline` | `[]TimelineEvent` | Ordered `{time, event}` entries (`+listType=atomic`) |
+| `status.rootCause` | `string` | Stub in Phase 1 — populated by the RCA engine in Phase 2 |
+| `status.conditions` | `[]metav1.Condition` | Standard Kubernetes status conditions (`+listType=map`) |
 
 ---
 
@@ -440,6 +455,146 @@ Concrete walkthrough of how Phase 1 handles the most common scenario:
       │
 [12] slack.go sends resolve message. PD alert closed.
 ```
+
+---
+
+---
+
+## IncidentReport CustomResource Lifecycle
+
+This section defines exactly **who creates the CR, when, and how its fields transition** from detection through resolution.
+
+### Who Creates It
+
+The `IncidentReport` CR is **never created by a human**. It is always written by the operator:
+
+| Component | Responsibility |
+|---|---|
+| `correlator.go` | Fires a correlation rule → emits an in-memory `Incident` struct |
+| `cr_reporter.go` | Receives the `Incident` → creates or patches the `IncidentReport` CR |
+| `incidentreport_controller.go` | Reconciles the CR → dispatches notifications, manages `status.notified` |
+| `pod_watcher.go` | Detects healthy pod → triggers auto-resolve path |
+
+### Phase Transitions
+
+```
+          ┌─────────────┐
+          │  Detecting  │  ← correlator sees first signal, rule not yet fully matched
+          └──────┬──────┘
+                 │  all rule conditions met within correlation window
+                 ▼
+          ┌─────────────┐
+          │   Active    │  ← CR created; Slack + PagerDuty fired; status.notified=true
+          └──────┬──────┘
+                 │  pod/node healthy for N consecutive minutes (auto-resolve)
+                 ▼
+          ┌─────────────┐
+          │  Resolved   │  ← CR patched; resolvedTime set; Slack resolve + PD close sent
+          └─────────────┘
+```
+
+### CR Creation — Step by Step
+
+**Step 1 — Correlator fires a rule**
+```
+correlator.go detects: CrashLoop + OOMKilled on same pod within 5-min window
+→ produces: Incident{
+    severity:          P2,
+    incidentType:      OOM,
+    affectedResources: [{kind:Deployment, name:payment-service, ns:production}],
+    correlatedSignals: ["CrashLoopBackOff (restarts: 8)", "OOMKilled (exit 137)"],
+    timeline:          [{time:T+0, event:"Pod entered CrashLoopBackOff"},
+                        {time:T+1m, event:"OOMKilled correlated"}],
+  }
+```
+
+**Step 2 — Dedup check (in-memory)**
+```
+correlator checks: is there already an Active IncidentReport for this
+                   (namespace + incidentType + affectedResource) tuple?
+  YES → drop silently (cool-down window not expired)
+  NO  → pass Incident to cr_reporter.go
+```
+
+**Step 3 — cr_reporter.go creates the CR**
+```yaml
+apiVersion: rca.rca-operator.io/v1alpha1
+kind: IncidentReport
+metadata:
+  generateName: oom-payment-service-   # deterministic prefix
+  namespace: production
+  labels:
+    rca.rca-operator.io/agent:         rcaagent-sample
+    rca.rca-operator.io/severity:      P2
+    rca.rca-operator.io/incident-type: OOM
+spec:
+  agentRef: rcaagent-sample
+# status written immediately via status subresource:
+status:
+  severity:      P2
+  phase:         Active
+  incidentType:  OOM
+  startTime:     "<now>"
+  notified:      false          # will become true after notification fires
+  affectedResources:
+    - kind: Deployment
+      name: payment-service
+      namespace: production
+  correlatedSignals:
+    - "CrashLoopBackOff (restarts: 8)"
+    - "OOMKilled (exit code 137)"
+  timeline:
+    - time: "<T+0>"
+      event: "Pod payment-service-xxx entered CrashLoopBackOff"
+    - time: "<T+1m>"
+      event: "OOMKilled event correlated"
+  rootCause: ""                 # stub — Phase 2
+```
+
+**Step 4 — IncidentReport controller reconciles**
+```
+incidentreport_controller.go picks up the new CR
+→ status.notified == false → send notifications:
+    slack.go  → post open-incident message to #incidents
+    pagerduty.go → trigger PD alert (severity >= spec.notifications.pagerduty.severity)
+→ patch status.notified = true
+→ emit K8s Event on the IncidentReport CR (visible in kubectl describe)
+```
+
+**Step 5 — Auto-resolve**
+```
+pod_watcher.go: pod Running + Ready for N consecutive minutes
+→ notifies correlator → correlator marks Incident resolved
+→ cr_reporter.go patches IncidentReport:
+    status.phase        = Resolved
+    status.resolvedTime = <now>
+→ incidentreport_controller.go reconciles:
+    slack.go     → post resolve message with duration
+    pagerduty.go → close PD alert
+```
+
+### Field Population Responsibility
+
+| Field | Set by | When |
+|---|---|---|
+| `status.severity` | `cr_reporter.go` | On creation |
+| `status.phase` | `cr_reporter.go` | On creation (`Active`) and resolution (`Resolved`) |
+| `status.incidentType` | `cr_reporter.go` | On creation |
+| `status.startTime` | `cr_reporter.go` | On creation |
+| `status.resolvedTime` | `cr_reporter.go` | On auto-resolve |
+| `status.affectedResources` | `cr_reporter.go` | On creation |
+| `status.correlatedSignals` | `cr_reporter.go` | On creation |
+| `status.timeline` | `cr_reporter.go` | On creation; appended on resolve |
+| `status.notified` | `incidentreport_controller.go` | After notifications are dispatched |
+| `status.rootCause` | _RCA engine (Phase 2)_ | Not set in Phase 1 |
+| `status.conditions` | `incidentreport_controller.go` | On each reconcile |
+
+### Key Invariants
+
+- **One CR per active incident** — the correlator dedup key is `(namespace, incidentType, primaryResource)`. Duplicate signals within the cool-down window are dropped, never create a second CR.
+- **Notify exactly once** — `status.notified=true` gates notification dispatch. The controller checks this flag before sending; it will never resend even if it reconciles multiple times.
+- **CR is the source of truth** — the in-memory `Incident` struct is transient. If the operator restarts, it reconstructs state from existing `IncidentReport` CRs with `phase != Resolved`.
+- **Status is operator-owned** — users must never edit `status` directly. `spec.agentRef` is the only user-facing field.
 
 ---
 

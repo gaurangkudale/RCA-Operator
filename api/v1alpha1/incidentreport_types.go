@@ -23,35 +23,93 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// IncidentReportSpec defines the desired state of IncidentReport
+// IncidentReportSpec defines the desired state of IncidentReport.
+// In Phase 1 the CR is written by the operator — users do not submit specs directly.
 type IncidentReportSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+	// agentRef is the name of the RCAAgent that created this report.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	AgentRef string `json:"agentRef"`
+}
 
-	// foo is an example field of IncidentReport. Edit incidentreport_types.go to remove/update
+// AffectedResource identifies a Kubernetes resource involved in an incident.
+type AffectedResource struct {
+	// kind is the resource kind (e.g. Deployment, Pod, Node).
+	// +kubebuilder:validation:Required
+	Kind string `json:"kind"`
+
+	// name is the resource name.
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// namespace is the resource namespace. Empty for cluster-scoped resources.
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
+}
+
+// TimelineEvent is a single timestamped entry in the incident timeline.
+type TimelineEvent struct {
+	// time is the wall-clock time of the event (RFC3339).
+	// +kubebuilder:validation:Required
+	Time metav1.Time `json:"time"`
+
+	// event is a human-readable description of what happened.
+	// +kubebuilder:validation:Required
+	Event string `json:"event"`
 }
 
 // IncidentReportStatus defines the observed state of IncidentReport.
 type IncidentReportStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// severity is the incident severity level assigned by the correlator.
+	// +kubebuilder:validation:Enum=P1;P2;P3;P4
+	// +optional
+	Severity string `json:"severity,omitempty"`
 
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+	// phase is the current lifecycle phase of the incident.
+	// +kubebuilder:validation:Enum=Detecting;Active;Resolved
+	// +optional
+	Phase string `json:"phase,omitempty"`
+
+	// incidentType is the category of incident detected by the correlator.
+	// +kubebuilder:validation:Enum=CrashLoop;OOM;BadDeploy;NodeFailure;Registry
+	// +optional
+	IncidentType string `json:"incidentType,omitempty"`
+
+	// startTime is when the incident was first detected.
+	// +optional
+	StartTime *metav1.Time `json:"startTime,omitempty"`
+
+	// resolvedTime is when the incident was resolved. Empty while still active.
+	// +optional
+	ResolvedTime *metav1.Time `json:"resolvedTime,omitempty"`
+
+	// notified indicates whether the notification layer (Slack / PagerDuty) has
+	// already fired for this incident. Used to suppress duplicate alerts.
+	// +optional
+	Notified bool `json:"notified,omitempty"`
+
+	// affectedResources lists the Kubernetes resources involved in this incident.
+	// +optional
+	// +listType=atomic
+	AffectedResources []AffectedResource `json:"affectedResources,omitempty"`
+
+	// correlatedSignals is the list of raw signals that triggered this incident
+	// (e.g. "CrashLoopBackOff (restarts: 8)", "OOMKilled (exit code 137)").
+	// +optional
+	// +listType=atomic
+	CorrelatedSignals []string `json:"correlatedSignals,omitempty"`
+
+	// timeline is the ordered sequence of events that make up this incident.
+	// +optional
+	// +listType=atomic
+	Timeline []TimelineEvent `json:"timeline,omitempty"`
+
+	// rootCause is a human-readable summary of the root cause.
+	// Stub in Phase 1 — populated by the RCA engine in Phase 2.
+	// +optional
+	RootCause string `json:"rootCause,omitempty"`
 
 	// conditions represent the current state of the IncidentReport resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
@@ -60,6 +118,12 @@ type IncidentReportStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Severity",type=string,JSONPath=".status.severity",description="Incident severity"
+// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=".status.phase",description="Lifecycle phase"
+// +kubebuilder:printcolumn:name="Type",type=string,JSONPath=".status.incidentType",description="Incident type"
+// +kubebuilder:printcolumn:name="Notified",type=boolean,JSONPath=".status.notified",description="Notifications sent"
+// +kubebuilder:printcolumn:name="Start",type=date,JSONPath=".status.startTime",description="When detected"
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=".metadata.creationTimestamp"
 
 // IncidentReport is the Schema for the incidentreports API
 type IncidentReport struct {
