@@ -27,6 +27,9 @@ rca-operator/
 ├── SECURITY.md                        ← how to report vulnerabilities
 ├── CHANGELOG.md                       ← version history, human-readable
 ├── LICENSE                            ← license file (no extension)
+├── research-poc/                      ← experimental PoCs and validation spikes
+│   ├── README.md                      ← index of PoCs, status, and outcomes
+│   └── <poc-name>/                    ← one folder per experiment with notes/assets
 │
 ├── docs/                              ← all long-form documentation
 │   │
@@ -202,6 +205,18 @@ ADRs are invaluable 6 months later when someone asks "why did we do it this way?
 
 ---
 
+### research-poc/ — Experimental Work
+
+Use `research-poc/` for short-lived experiments, feasibility checks, and design spikes that are not part of the production operator path yet.
+
+Rules:
+1. Keep one subfolder per PoC (for example `research-poc/incident-correlation-poc/`)
+2. Include a short `README.md` with objective, approach, result, and decision
+3. Mark outcome clearly: `adopted`, `deferred`, or `discarded`
+4. Promote successful outcomes into `docs/`, `internal/`, or `config/` and keep links back for traceability
+
+---
+
 ### config/samples/ — Living Examples
 
 Sample YAMLs are documentation. They must:
@@ -361,6 +376,7 @@ New contributor asks...          Send them to...
 "How do I configure Slack?"      docs/guides/configure-slack.md
 "What does this CRD field do?"   docs/reference/rcaagent-crd.md
 "How do I run tests locally?"    docs/development/testing.md
+"Where are current experiments?"  research-poc/
 "What changed in v0.2?"          CHANGELOG.md
 "Why was X designed this way?"   docs/development/architecture-decisions/
 "How do I contribute a PR?"      CONTRIBUTING.md
