@@ -1,7 +1,6 @@
 <div align="center">
 
 
-
 **The Autonomous AI-Powered SRE Operator for Kubernetes**
 
 *24x7 incident detection • Root cause analysis • Autonomous remediation*
