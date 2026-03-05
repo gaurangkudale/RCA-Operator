@@ -269,7 +269,7 @@ status:
 - [x] `make generate` + `make manifests` to produce CRD YAMLs
 - [x] Basic `agent_controller.go` reconcile loop
 - [x] `kind` cluster + `make install` smoke test
-- [ ] Helm chart skeleton (`Chart.yaml`, `templates/deployment.yaml`, `values.yaml`)
+- [x] Helm chart skeleton (`Chart.yaml`, `templates/deployment.yaml`, `values.yaml`)
 
 ### Week 3 — Watcher Layer
 
