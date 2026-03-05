@@ -64,6 +64,11 @@ Everything else — LLM analysis, remediation playbooks, autonomy levels, dashbo
 - OOMKilled detection (exit code 137)
 - ImagePullBackOff detection
 - Pod pending too long
+- Exit code intelligence (classify and map all common termination exit codes)
+- Grace period violation detection (simplified):
+  - Track pod deletions using `DeletionTimestamp`
+  - Compare runtime against `DeletionGracePeriodSeconds`
+  - If containers remain running after grace period, raise `Grace Period Violation`
 
 **Event Watcher**
 - Watch `core/v1` Event stream across watched namespaces
@@ -77,10 +82,16 @@ Everything else — LLM analysis, remediation playbooks, autonomy levels, dashbo
 - Track recent deployments (timestamp + revision)
 - Detect stalled rollouts
 
+**Correlation Additions (Phase 1)**
+- CPU throttling correlation engine using Kubernetes metrics/events already available to the operator
+- Exit-code-aware incident enrichment (not limited to code `137`)
+
+**Estimated Effort for Added Scope:** 3-4 days
+
 ### 2.3 Correlator & Triage Engine
 
 - Internal event ring buffer (in-memory, configurable window)
-- Rule engine — **5 built-in correlation rules** for Phase 1:
+- Rule engine — **8 built-in correlation rules** for revised Phase 1:
 
 | # | Rule | Incident Type |
 |---|------|--------------|
@@ -89,6 +100,9 @@ Everything else — LLM analysis, remediation playbooks, autonomy levels, dashbo
 | 3 | Multiple pods failing on same node | Node-level incident |
 | 4 | ImagePullBackOff + no prior pull success | Registry / credentials incident |
 | 5 | Node NotReady + eviction events | Node failure incident |
+| 6 | CPU throttling + probe failures/restarts | Resource saturation incident |
+| 7 | Non-zero exit code patterns (mapped by category) | Exit-code intelligence incident |
+| 8 | Deletion grace period exceeded + forced termination signal | Grace period violation incident |
 
 - Incident deduplication — suppress repeat fires within cool-down window
 - Severity scoring: `P1` (cluster) / `P2` (namespace) / `P3` (single service) / `P4` (warning)
@@ -135,9 +149,11 @@ The following are planned for later phases. **Do not build them now.**
 | Feature | Phase | Reason Deferred |
 |---|---|---|
 | AI / LLM RCA (OpenAI, Claude, Ollama) | Phase 2 | Adds API cost + complexity before core pipeline is proven |
+| NetworkPolicy impact analyzer | Phase 2 | Requires CNI-specific behavior handling and deeper networking integration than Phase 1 allows |
 | Rule-based log analysis (pattern matching) | Phase 2 | Needs evidence gatherer first |
 | Autonomous remediation (rollback, scale) | Phase 3 | Requires human trust before autonomous action |
 | Autonomy level engine (0–3) | Phase 3 | No remediation in Phase 1 |
+| Full DSADS (eBPF-driven) | Phase 3-4 | Requires eBPF infrastructure and deeper kernel-level telemetry not suitable for Phase 1 timeline |
 | Auto post-mortem generation | Phase 4 | Needs AI + full incident history |
 | Grafana dashboard provisioning | Phase 4 | Nice-to-have, not core value |
 | Email notifications | Phase 2 | Slack + PagerDuty sufficient for MVP |
@@ -274,9 +290,12 @@ status:
 ### Week 3 — Watcher Layer
 
 - [ ] `pod_watcher.go` — CrashLoop / OOM / ImagePull / Pending detection
+- [ ] Add exit code intelligence mapping for common termination codes
+- [ ] Add simplified grace period violation detector (non-eBPF)
 - [ ] `event_watcher.go` — `core/v1` Event stream, dedup buffer
 - [ ] `node_watcher.go` — NotReady / DiskPressure / MemoryPressure
 - [ ] `deployment_watcher.go` — recent deploy timestamp tracker
+- [ ] Add CPU throttling correlation inputs (Kubernetes-native signals only)
 - [ ] Shared event emitter interface → feeds Correlator channel
 - [ ] Unit tests for each watcher (table-driven, mock K8s client)
 
