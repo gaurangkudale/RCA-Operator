@@ -83,14 +83,14 @@ func (w *PodWatcher) Start(ctx context.Context) error {
 	}
 
 	_, err = informer.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
+		AddFunc: func(obj any) {
 			pod, ok := toPod(obj)
 			if !ok {
 				return
 			}
 			w.onPodAdd(pod)
 		},
-		UpdateFunc: func(oldObj, newObj interface{}) {
+		UpdateFunc: func(oldObj, newObj any) {
 			oldPod, oldOK := toPod(oldObj)
 			newPod, newOK := toPod(newObj)
 			if !oldOK || !newOK {
@@ -98,7 +98,7 @@ func (w *PodWatcher) Start(ctx context.Context) error {
 			}
 			w.onPodUpdate(oldPod, newPod)
 		},
-		DeleteFunc: func(obj interface{}) {
+		DeleteFunc: func(obj any) {
 			pod, ok := toPod(obj)
 			if !ok {
 				return
@@ -405,7 +405,7 @@ func baseEventFromPod(pod *corev1.Pod, agentName string, at time.Time) BaseEvent
 	}
 }
 
-func toPod(obj interface{}) (*corev1.Pod, bool) {
+func toPod(obj any) (*corev1.Pod, bool) {
 	switch t := obj.(type) {
 	case *corev1.Pod:
 		return t, true
