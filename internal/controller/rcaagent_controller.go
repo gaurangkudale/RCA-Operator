@@ -19,7 +19,12 @@ package controller
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"sort"
+	"strings"
+	"sync"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -27,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -34,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
+	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
 const rcaAgentFinalizer = "rca.rca-operator.io/finalizer"
@@ -48,6 +55,22 @@ const (
 type RCAAgentReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+
+	Cache            ctrlcache.Cache
+	WatcherEmitter   watcher.EventEmitter
+	ManagerContext   context.Context
+	newPodWatcher    func(ctrlcache.Cache, watcher.EventEmitter, logr.Logger, watcher.PodWatcherConfig) podWatcher
+	watcherRegistry  map[types.NamespacedName]watcherEntry
+	watcherRegistryM sync.Mutex
+}
+
+type podWatcher interface {
+	Start(ctx context.Context) error
+}
+
+type watcherEntry struct {
+	cancel          context.CancelFunc
+	watchNamespaces []string
 }
 
 // +kubebuilder:rbac:groups=rca.rca-operator.io,resources=rcaagents,verbs=get;list;watch;create;update;patch;delete
@@ -82,6 +105,7 @@ func (r *RCAAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if !agent.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(agent, rcaAgentFinalizer) {
 			log.Info("Running cleanup for deleted RCAAgent", "name", agent.Name)
+			r.stopWatcher(req.NamespacedName)
 
 			// Phase 1: nothing external to clean up yet.
 			// Phase 2+: stop watchers, cancel goroutines, etc.
@@ -132,6 +156,10 @@ func (r *RCAAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// Validate that watchNamespaces exist (warn only — don't block)
 	r.validateNamespaces(ctx, agent)
+
+	if err := r.ensureWatcherRunning(ctx, agent); err != nil {
+		return ctrl.Result{}, err
+	}
 
 	// ── 5. UPDATE STATUS — AVAILABLE ─────────────────────────────────────────
 	if err := r.setCondition(ctx, agent, ConditionTypeAvailable, metav1.ConditionTrue,
@@ -247,6 +275,11 @@ func (r *RCAAgentReconciler) findRCAAgentsForSecret(ctx context.Context, obj cli
 }
 
 func (r *RCAAgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.initWatcherRegistry()
+	if r.ManagerContext == nil {
+		r.ManagerContext = context.Background()
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&rcav1alpha1.RCAAgent{}).
 		// Watch Secrets — when a Secret is created/updated/deleted, reconcile any
@@ -257,4 +290,112 @@ func (r *RCAAgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		).
 		Named("rcaagent").
 		Complete(r)
+}
+
+func (r *RCAAgentReconciler) initWatcherRegistry() {
+	r.watcherRegistryM.Lock()
+	defer r.watcherRegistryM.Unlock()
+	if r.watcherRegistry == nil {
+		r.watcherRegistry = make(map[types.NamespacedName]watcherEntry)
+	}
+}
+
+func (r *RCAAgentReconciler) ensureWatcherRunning(ctx context.Context, agent *rcav1alpha1.RCAAgent) error {
+	if r.WatcherEmitter == nil {
+		return nil
+	}
+
+	key := types.NamespacedName{Name: agent.Name, Namespace: agent.Namespace}
+	desiredNamespaces := normalizeNamespaces(agent.Spec.WatchNamespaces)
+
+	factory := r.newPodWatcher
+	if factory == nil {
+		if r.Cache == nil {
+			return nil
+		}
+		factory = func(cache ctrlcache.Cache, emitter watcher.EventEmitter, logger logr.Logger, cfg watcher.PodWatcherConfig) podWatcher {
+			return watcher.NewPodWatcher(cache, emitter, logger, cfg)
+		}
+	}
+
+	r.watcherRegistryM.Lock()
+	entry, exists := r.watcherRegistry[key]
+	if exists && reflect.DeepEqual(entry.watchNamespaces, desiredNamespaces) {
+		r.watcherRegistryM.Unlock()
+		return nil
+	}
+	if exists {
+		delete(r.watcherRegistry, key)
+	}
+	r.watcherRegistryM.Unlock()
+	if exists {
+		entry.cancel()
+	}
+
+	baseCtx := r.ManagerContext
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+	watcherCtx, cancel := context.WithCancel(baseCtx)
+
+	log := logf.FromContext(ctx)
+	podWatcher := factory(r.Cache, r.WatcherEmitter, log,
+		watcher.PodWatcherConfig{
+			AgentName:       agent.Name,
+			WatchNamespaces: desiredNamespaces,
+		},
+	)
+	if err := podWatcher.Start(watcherCtx); err != nil {
+		cancel()
+		return fmt.Errorf("failed to start pod watcher for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
+	}
+
+	r.watcherRegistryM.Lock()
+	defer r.watcherRegistryM.Unlock()
+	r.watcherRegistry[key] = watcherEntry{cancel: cancel, watchNamespaces: desiredNamespaces}
+
+	log.Info("Started pod watcher for RCAAgent",
+		"name", agent.Name,
+		"namespace", agent.Namespace,
+		"watchNamespaces", desiredNamespaces,
+	)
+
+	return nil
+}
+
+func (r *RCAAgentReconciler) stopWatcher(key types.NamespacedName) {
+	r.watcherRegistryM.Lock()
+	entry, ok := r.watcherRegistry[key]
+	if ok {
+		delete(r.watcherRegistry, key)
+	}
+	r.watcherRegistryM.Unlock()
+
+	if ok {
+		entry.cancel()
+	}
+}
+
+func normalizeNamespaces(namespaces []string) []string {
+	if len(namespaces) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(namespaces))
+	out := make([]string, 0, len(namespaces))
+	for _, ns := range namespaces {
+		ns = strings.TrimSpace(ns)
+		if ns == "" {
+			continue
+		}
+		if _, ok := seen[ns]; ok {
+			continue
+		}
+		seen[ns] = struct{}{}
+		out = append(out, ns)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	sort.Strings(out)
+	return out
 }

@@ -18,16 +18,20 @@ package controller
 
 import (
 	"context"
+	"sync"
 
+	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
+	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
 var _ = Describe("RCAAgent Controller", func() {
@@ -87,5 +91,90 @@ var _ = Describe("RCAAgent Controller", func() {
 			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
 			// Example: If you expect a certain status condition after reconciliation, verify it here.
 		})
+	})
+})
+
+type noopEmitter struct{}
+
+func (n noopEmitter) Emit(_ watcher.CorrelatorEvent) {}
+
+type fakePodWatcher struct {
+	mu        sync.Mutex
+	startErr  error
+	startCtxs []context.Context
+}
+
+func (f *fakePodWatcher) Start(ctx context.Context) error {
+	f.mu.Lock()
+	f.startCtxs = append(f.startCtxs, ctx)
+	f.mu.Unlock()
+	return f.startErr
+}
+
+func (f *fakePodWatcher) startCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.startCtxs)
+}
+
+func (f *fakePodWatcher) firstCtx() context.Context {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.startCtxs) == 0 {
+		return nil
+	}
+	return f.startCtxs[0]
+}
+
+var _ = Describe("RCAAgent watcher registry", func() {
+	It("starts watcher once and restarts on watch namespace changes", func() {
+		ctx := context.Background()
+		reconciler := &RCAAgentReconciler{
+			WatcherEmitter: noopEmitter{},
+			ManagerContext: context.Background(),
+		}
+		reconciler.initWatcherRegistry()
+
+		watchers := make([]*fakePodWatcher, 0, 2)
+		reconciler.newPodWatcher = func(_ ctrlcache.Cache, _ watcher.EventEmitter, _ logr.Logger, _ watcher.PodWatcherConfig) podWatcher {
+			w := &fakePodWatcher{}
+			watchers = append(watchers, w)
+			return w
+		}
+
+		agent := &rcav1alpha1.RCAAgent{ObjectMeta: metav1.ObjectMeta{Name: "agent-a", Namespace: "default"}, Spec: rcav1alpha1.RCAAgentSpec{WatchNamespaces: []string{"default"}}}
+		Expect(reconciler.ensureWatcherRunning(ctx, agent)).To(Succeed())
+		Expect(watchers).To(HaveLen(1))
+		Expect(watchers[0].startCount()).To(Equal(1))
+
+		// Same namespace set should not trigger restart.
+		agent.Spec.WatchNamespaces = []string{"default", "default"}
+		Expect(reconciler.ensureWatcherRunning(ctx, agent)).To(Succeed())
+		Expect(watchers).To(HaveLen(1))
+
+		firstCtx := watchers[0].firstCtx()
+		Expect(firstCtx).NotTo(BeNil())
+
+		// Different namespace set should trigger restart.
+		agent.Spec.WatchNamespaces = []string{"production"}
+		Expect(reconciler.ensureWatcherRunning(ctx, agent)).To(Succeed())
+		Expect(watchers).To(HaveLen(2))
+		Expect(watchers[1].startCount()).To(Equal(1))
+		Eventually(firstCtx.Done()).Should(BeClosed())
+	})
+
+	It("stops watcher and removes registry entry", func() {
+		reconciler := &RCAAgentReconciler{}
+		reconciler.initWatcherRegistry()
+
+		key := types.NamespacedName{Name: "agent-a", Namespace: "default"}
+		ctx, cancel := context.WithCancel(context.Background())
+		reconciler.watcherRegistry[key] = watcherEntry{cancel: cancel, watchNamespaces: []string{"default"}}
+
+		reconciler.stopWatcher(key)
+
+		_, exists := reconciler.watcherRegistry[key]
+		Expect(exists).To(BeFalse())
+		Eventually(ctx.Done()).Should(BeClosed())
 	})
 })
