@@ -3,12 +3,15 @@ package correlator
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
@@ -17,27 +20,36 @@ import (
 
 const defaultDedupCooldown = 2 * time.Minute
 
+const (
+	annotationDedupKey   = "rca.rca-operator.io/dedup-key"
+	annotationSignal     = "rca.rca-operator.io/signal"
+	annotationLastSeen   = "rca.rca-operator.io/last-seen"
+	annotationSignalSeen = "rca.rca-operator.io/signal-count"
+
+	labelAgent        = "rca.rca-operator.io/agent"
+	labelSeverity     = "rca.rca-operator.io/severity"
+	labelIncidentType = "rca.rca-operator.io/incident-type"
+	labelPodName      = "rca.rca-operator.io/pod"
+
+	maxTimelineEntries = 50
+	maxSignalEntries   = 20
+)
+
 // Consumer reads watcher events, performs deduplication, and writes IncidentReport CRs.
 type Consumer struct {
-	client   client.Client
-	events   <-chan watcher.CorrelatorEvent
-	log      logr.Logger
-	cooldown time.Duration
-	now      func() time.Time
-
-	mu        sync.Mutex
-	lastFired map[string]time.Time
+	client client.Client
+	events <-chan watcher.CorrelatorEvent
+	log    logr.Logger
+	now    func() time.Time
 }
 
 // NewConsumer returns a correlator consumer with a sensible default dedup cooldown.
 func NewConsumer(c client.Client, events <-chan watcher.CorrelatorEvent, logger logr.Logger) *Consumer {
 	return &Consumer{
-		client:    c,
-		events:    events,
-		log:       logger.WithName("correlator-consumer"),
-		cooldown:  defaultDedupCooldown,
-		now:       time.Now,
-		lastFired: make(map[string]time.Time),
+		client: c,
+		events: events,
+		log:    logger.WithName("correlator-consumer"),
+		now:    time.Now,
 	}
 }
 
@@ -54,9 +66,6 @@ func (c *Consumer) Run(ctx context.Context) {
 			if event == nil {
 				continue
 			}
-			if !c.shouldProcess(event) {
-				continue
-			}
 			if err := c.handleEvent(ctx, event); err != nil {
 				c.log.Error(err, "Could not process watcher event", "eventType", event.Type(), "dedupKey", event.DedupKey())
 			}
@@ -64,32 +73,22 @@ func (c *Consumer) Run(ctx context.Context) {
 	}
 }
 
-func (c *Consumer) shouldProcess(event watcher.CorrelatorEvent) bool {
-	now := c.now()
-	key := event.DedupKey()
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if at, ok := c.lastFired[key]; ok && now.Sub(at) < c.cooldown {
-		return false
-	}
-	c.lastFired[key] = now
-	return true
-}
-
 func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEvent) error {
+	if healthy, ok := event.(watcher.PodHealthyEvent); ok {
+		return c.resolveIncidentsForPod(ctx, healthy)
+	}
+
 	namespace, podName, agentRef, incidentType, severity, summary := mapEvent(event)
 	if namespace == "" || podName == "" {
 		return nil
 	}
 
-	hasRecent, err := c.hasRecentIncidentReport(ctx, namespace, event.DedupKey())
+	active, err := c.findActiveIncidentForPodType(ctx, namespace, podName, incidentType)
 	if err != nil {
 		return err
 	}
-	if hasRecent {
-		return nil
+	if active != nil {
+		return c.updateActiveIncident(ctx, active, event, severity, summary)
 	}
 
 	if agentRef == "" {
@@ -107,13 +106,16 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 			GenerateName: fmt.Sprintf("%s-%s-", strings.ToLower(incidentType), safeNameToken(podName)),
 			Namespace:    namespace,
 			Labels: map[string]string{
-				"rca.rca-operator.io/agent":         agentRef,
-				"rca.rca-operator.io/severity":      severity,
-				"rca.rca-operator.io/incident-type": incidentType,
+				labelAgent:        agentRef,
+				labelSeverity:     severity,
+				labelIncidentType: incidentType,
+				labelPodName:      safeLabelValue(podName),
 			},
 			Annotations: map[string]string{
-				"rca.rca-operator.io/signal":    summary,
-				"rca.rca-operator.io/dedup-key": event.DedupKey(),
+				annotationSignal:     summary,
+				annotationDedupKey:   event.DedupKey(),
+				annotationLastSeen:   startTime.Format(time.RFC3339),
+				annotationSignalSeen: "1",
 			},
 		},
 		Spec: rcav1alpha1.IncidentReportSpec{AgentRef: agentRef},
@@ -158,31 +160,26 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 	return nil
 }
 
-func (c *Consumer) hasRecentIncidentReport(ctx context.Context, namespace, dedupKey string) (bool, error) {
+func (c *Consumer) findActiveIncidentForPodType(ctx context.Context, namespace, podName, incidentType string) (*rcav1alpha1.IncidentReport, error) {
 	list := &rcav1alpha1.IncidentReportList{}
 	if err := c.client.List(ctx, list, client.InNamespace(namespace)); err != nil {
-		return false, fmt.Errorf("failed to list IncidentReports: %w", err)
+		return nil, fmt.Errorf("failed to list IncidentReports: %w", err)
 	}
-
-	now := c.now()
 	for i := range list.Items {
 		report := &list.Items[i]
-		if report.Annotations == nil {
+		if report.Status.Phase != "Active" {
 			continue
 		}
-		if report.Annotations["rca.rca-operator.io/dedup-key"] != dedupKey {
+		if report.Status.IncidentType != incidentType {
 			continue
 		}
-		if now.Sub(report.CreationTimestamp.Time) >= c.cooldown {
+		if !incidentAffectsPod(report, podName, namespace) {
 			continue
 		}
-		if report.Status.Phase == "Resolved" {
-			continue
-		}
-		return true, nil
+		copy := report.DeepCopy()
+		return copy, nil
 	}
-
-	return false, nil
+	return nil, nil
 }
 
 func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, incidentType, severity, summary string) {
@@ -196,9 +193,204 @@ func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, inci
 	case watcher.PodPendingTooLongEvent:
 		// Pending can be caused by scheduling/capacity/image/constraints; treat as bad deployment signal for now.
 		return e.Namespace, e.PodName, e.AgentName, "BadDeploy", "P3", fmt.Sprintf("Pod pending too long pendingFor=%s timeout=%s", e.PendingFor.String(), e.Timeout.String())
+	case watcher.PodHealthyEvent:
+		return "", "", "", "", "", ""
 	default:
 		return "", "", "", "", "", ""
 	}
+}
+
+func (c *Consumer) resolveIncidentsForPod(ctx context.Context, event watcher.PodHealthyEvent) error {
+	currentPod := &corev1.Pod{}
+	if err := c.client.Get(ctx, types.NamespacedName{Namespace: event.Namespace, Name: event.PodName}, currentPod); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to fetch pod for resolve check: %w", err)
+	}
+	if !isPodCurrentlyReady(currentPod) {
+		// Ignore stale healthy signals when pod is not currently Running+Ready.
+		return nil
+	}
+
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := c.client.List(ctx, list, client.InNamespace(event.Namespace)); err != nil {
+		return fmt.Errorf("failed to list IncidentReports for resolve: %w", err)
+	}
+
+	now := metav1.NewTime(c.now())
+	resolvedCount := 0
+	for i := range list.Items {
+		report := &list.Items[i]
+		if report.Status.Phase != "Active" {
+			continue
+		}
+		if !incidentAffectsPod(report, event.PodName, event.Namespace) {
+			continue
+		}
+
+		base := report.DeepCopy()
+		report.Status.Phase = "Resolved"
+		report.Status.ResolvedTime = &now
+		report.Status.Timeline = append(report.Status.Timeline, rcav1alpha1.TimelineEvent{
+			Time:  now,
+			Event: fmt.Sprintf("Pod %s became Running and Ready", event.PodName),
+		})
+		report.Status.Timeline = trimTimeline(report.Status.Timeline)
+
+		if err := c.client.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
+			return fmt.Errorf("failed to patch IncidentReport resolve status: %w", err)
+		}
+		resolvedCount++
+	}
+
+	if resolvedCount > 0 {
+		c.log.Info("Resolved IncidentReports from pod healthy signal",
+			"namespace", event.Namespace,
+			"pod", event.PodName,
+			"count", resolvedCount,
+		)
+	}
+
+	return nil
+}
+
+func (c *Consumer) updateActiveIncident(
+	ctx context.Context,
+	report *rcav1alpha1.IncidentReport,
+	event watcher.CorrelatorEvent,
+	severity string,
+	summary string,
+) error {
+	now := c.now()
+	nowTime := metav1.NewTime(now)
+
+	if report.Labels == nil {
+		report.Labels = make(map[string]string)
+	}
+	if report.Annotations == nil {
+		report.Annotations = make(map[string]string)
+	}
+
+	metaBase := report.DeepCopy()
+	report.Labels[labelSeverity] = higherSeverity(report.Labels[labelSeverity], severity)
+	report.Annotations[annotationSignal] = summary
+	report.Annotations[annotationDedupKey] = event.DedupKey()
+	report.Annotations[annotationLastSeen] = now.Format(time.RFC3339)
+	report.Annotations[annotationSignalSeen] = incrementCounter(report.Annotations[annotationSignalSeen])
+	if err := c.client.Patch(ctx, report, client.MergeFrom(metaBase)); err != nil {
+		return fmt.Errorf("failed to patch IncidentReport metadata: %w", err)
+	}
+
+	statusBase := report.DeepCopy()
+	report.Status.Severity = higherSeverity(report.Status.Severity, severity)
+	report.Status.Timeline = append(report.Status.Timeline, rcav1alpha1.TimelineEvent{Time: nowTime, Event: summary})
+	report.Status.Timeline = trimTimeline(report.Status.Timeline)
+	report.Status.CorrelatedSignals = append(report.Status.CorrelatedSignals, summary)
+	report.Status.CorrelatedSignals = trimSignals(report.Status.CorrelatedSignals)
+	if err := c.client.Status().Patch(ctx, report, client.MergeFrom(statusBase)); err != nil {
+		return fmt.Errorf("failed to patch IncidentReport status: %w", err)
+	}
+
+	c.log.Info("Updated active IncidentReport from repeated watcher signal",
+		"namespace", report.Namespace,
+		"name", report.Name,
+		"eventType", event.Type(),
+	)
+
+	return nil
+}
+
+func incidentAffectsPod(report *rcav1alpha1.IncidentReport, podName, namespace string) bool {
+	for _, resource := range report.Status.AffectedResources {
+		if resource.Kind != "Pod" {
+			continue
+		}
+		if resource.Name == podName && resource.Namespace == namespace {
+			return true
+		}
+	}
+	return false
+}
+
+func isPodCurrentlyReady(pod *corev1.Pod) bool {
+	if pod == nil {
+		return false
+	}
+	if pod.Status.Phase != corev1.PodRunning {
+		return false
+	}
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == corev1.PodReady {
+			return condition.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+func trimTimeline(in []rcav1alpha1.TimelineEvent) []rcav1alpha1.TimelineEvent {
+	if len(in) <= maxTimelineEntries {
+		return in
+	}
+	return in[len(in)-maxTimelineEntries:]
+}
+
+func trimSignals(in []string) []string {
+	if len(in) <= maxSignalEntries {
+		return in
+	}
+	return in[len(in)-maxSignalEntries:]
+}
+
+func incrementCounter(current string) string {
+	if current == "" {
+		return "1"
+	}
+	n, err := strconv.Atoi(current)
+	if err != nil || n < 0 {
+		return "1"
+	}
+	return strconv.Itoa(n + 1)
+}
+
+func higherSeverity(current, incoming string) string {
+	rank := map[string]int{"P1": 4, "P2": 3, "P3": 2, "P4": 1}
+	if rank[incoming] > rank[current] {
+		return incoming
+	}
+	if current == "" {
+		return incoming
+	}
+	return current
+}
+
+func safeLabelValue(in string) string {
+	if in == "" {
+		return "unknown"
+	}
+	replaced := strings.ToLower(in)
+	b := strings.Builder{}
+	b.Grow(len(replaced))
+	for _, r := range replaced {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-' || r == '.' || r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	out := strings.Trim(b.String(), "-._")
+	if out == "" {
+		return "unknown"
+	}
+	if len(out) > 63 {
+		return out[:63]
+	}
+	return out
 }
 
 func safeNameToken(in string) string {

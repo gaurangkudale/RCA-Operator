@@ -19,6 +19,7 @@ const (
 	defaultCrashLoopRestartThreshold int32 = 3
 	defaultPendingTimeout                  = 5 * time.Minute
 	defaultPendingScanInterval             = 30 * time.Second
+	defaultReadyStabilityWindow            = 60 * time.Second
 )
 
 // PodWatcherConfig controls pod failure detection thresholds.
@@ -27,6 +28,7 @@ type PodWatcherConfig struct {
 	CrashLoopRestartThreshold int32
 	PendingTimeout            time.Duration
 	PendingScanInterval       time.Duration
+	ReadyStabilityWindow      time.Duration
 	WatchNamespaces           []string
 }
 
@@ -41,6 +43,8 @@ type PodWatcher struct {
 	mu             sync.Mutex
 	pendingAlerted map[types.UID]bool
 	namespaceSet   map[string]struct{}
+	readySince     map[types.UID]time.Time
+	healthyAlerted map[types.UID]bool
 }
 
 // NewPodWatcher creates a pod watcher backed by controller-runtime informers.
@@ -54,6 +58,9 @@ func NewPodWatcher(cache ctrlcache.Cache, emitter EventEmitter, logger logr.Logg
 	if cfg.PendingScanInterval <= 0 {
 		cfg.PendingScanInterval = defaultPendingScanInterval
 	}
+	if cfg.ReadyStabilityWindow <= 0 {
+		cfg.ReadyStabilityWindow = defaultReadyStabilityWindow
+	}
 
 	return &PodWatcher{
 		cache:          cache,
@@ -63,6 +70,8 @@ func NewPodWatcher(cache ctrlcache.Cache, emitter EventEmitter, logger logr.Logg
 		clock:          time.Now,
 		pendingAlerted: make(map[types.UID]bool),
 		namespaceSet:   toNamespaceSet(cfg.WatchNamespaces),
+		readySince:     make(map[types.UID]time.Time),
+		healthyAlerted: make(map[types.UID]bool),
 	}
 }
 
@@ -101,11 +110,23 @@ func (w *PodWatcher) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to add pod informer handler: %w", err)
 	}
 
+	// Bootstrap once after cache sync so existing failing pods are reported
+	// immediately when the watcher starts (no need to wait for the next update).
+	go func() {
+		if !w.cache.WaitForCacheSync(ctx) {
+			w.log.Info("Pod watcher bootstrap scan skipped because cache did not sync")
+			return
+		}
+		w.scanCurrentFailureSignals(ctx)
+	}()
+
 	go wait.UntilWithContext(ctx, w.scanPendingPods, w.config.PendingScanInterval)
+	go wait.UntilWithContext(ctx, w.scanReadyPods, w.config.PendingScanInterval)
 	w.log.Info("Started pod watcher",
 		"crashLoopThreshold", w.config.CrashLoopRestartThreshold,
 		"pendingTimeout", w.config.PendingTimeout.String(),
 		"pendingScanInterval", w.config.PendingScanInterval.String(),
+		"readyStabilityWindow", w.config.ReadyStabilityWindow.String(),
 	)
 
 	return nil
@@ -115,6 +136,7 @@ func (w *PodWatcher) onPodAdd(pod *corev1.Pod) {
 	if !w.shouldWatchNamespace(pod.Namespace) {
 		return
 	}
+	w.detectPodHealthy(nil, pod)
 	w.detectImagePullBackOff(nil, pod)
 	w.detectCrashLoop(nil, pod)
 	w.detectOOMKilled(nil, pod)
@@ -125,15 +147,22 @@ func (w *PodWatcher) onPodUpdate(oldPod, newPod *corev1.Pod) {
 	if !w.shouldWatchNamespace(newPod.Namespace) {
 		return
 	}
+	w.detectPodHealthy(oldPod, newPod)
 	w.detectImagePullBackOff(oldPod, newPod)
 	w.detectCrashLoop(oldPod, newPod)
 	w.detectOOMKilled(oldPod, newPod)
 	w.updatePendingState(newPod)
 }
 
+func (w *PodWatcher) detectPodHealthy(oldPod, newPod *corev1.Pod) {
+	w.trackReadyState(oldPod, newPod)
+}
+
 func (w *PodWatcher) onPodDelete(pod *corev1.Pod) {
 	w.mu.Lock()
 	delete(w.pendingAlerted, pod.UID)
+	delete(w.readySince, pod.UID)
+	delete(w.healthyAlerted, pod.UID)
 	w.mu.Unlock()
 }
 
@@ -148,8 +177,12 @@ func (w *PodWatcher) detectCrashLoop(oldPod, newPod *corev1.Pod) {
 		}
 
 		oldStatus, hasOld := oldStatuses[status.Name]
-		if hasOld && status.RestartCount <= oldStatus.RestartCount {
-			continue
+		if hasOld {
+			// Emit when entering CrashLoopBackOff at threshold even if restart count
+			// did not change between the previous and current pod updates.
+			if oldStatus.State.Waiting != nil && oldStatus.State.Waiting.Reason == "CrashLoopBackOff" && status.RestartCount <= oldStatus.RestartCount {
+				continue
+			}
 		}
 
 		w.emitter.Emit(CrashLoopBackOffEvent{
@@ -252,6 +285,81 @@ func (w *PodWatcher) scanPendingPods(ctx context.Context) {
 	}
 }
 
+func (w *PodWatcher) scanCurrentFailureSignals(ctx context.Context) {
+	podList := &corev1.PodList{}
+	if err := w.cache.List(ctx, podList, &client.ListOptions{}); err != nil {
+		w.log.Error(err, "Failed to list pods for startup failure scan")
+		return
+	}
+
+	for i := range podList.Items {
+		pod := &podList.Items[i]
+		if !w.shouldWatchNamespace(pod.Namespace) {
+			continue
+		}
+
+		// old=nil intentionally treats current state as fresh signal for startup bootstrap.
+		w.detectImagePullBackOff(nil, pod)
+		w.detectCrashLoop(nil, pod)
+		w.detectOOMKilled(nil, pod)
+		w.trackReadyState(nil, pod)
+	}
+}
+
+func (w *PodWatcher) scanReadyPods(ctx context.Context) {
+	podList := &corev1.PodList{}
+	if err := w.cache.List(ctx, podList, &client.ListOptions{}); err != nil {
+		w.log.Error(err, "Failed to list pods for ready stability scan")
+		return
+	}
+
+	for i := range podList.Items {
+		pod := &podList.Items[i]
+		if !w.shouldWatchNamespace(pod.Namespace) {
+			continue
+		}
+		w.trackReadyState(nil, pod)
+	}
+}
+
+func (w *PodWatcher) trackReadyState(oldPod, newPod *corev1.Pod) {
+	now := w.clock()
+	uid := newPod.UID
+	isReady := isPodReady(newPod)
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if !isReady {
+		delete(w.readySince, uid)
+		delete(w.healthyAlerted, uid)
+		return
+	}
+
+	oldReady := isPodReady(oldPod)
+	if !oldReady {
+		w.readySince[uid] = now
+		delete(w.healthyAlerted, uid)
+		return
+	}
+
+	since, ok := w.readySince[uid]
+	if !ok {
+		w.readySince[uid] = now
+		return
+	}
+
+	if w.healthyAlerted[uid] {
+		return
+	}
+	if now.Sub(since) < w.config.ReadyStabilityWindow {
+		return
+	}
+
+	w.healthyAlerted[uid] = true
+	w.emitter.Emit(PodHealthyEvent{BaseEvent: baseEventFromPod(newPod, w.config.AgentName, now)})
+}
+
 func (w *PodWatcher) updatePendingState(pod *corev1.Pod) {
 	if pod.Status.Phase != corev1.PodPending {
 		w.clearPendingAlerted(pod.UID)
@@ -333,4 +441,19 @@ func (w *PodWatcher) shouldWatchNamespace(namespace string) bool {
 	}
 	_, ok := w.namespaceSet[namespace]
 	return ok
+}
+
+func isPodReady(pod *corev1.Pod) bool {
+	if pod == nil {
+		return false
+	}
+	if pod.Status.Phase != corev1.PodRunning {
+		return false
+	}
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == corev1.PodReady {
+			return condition.Status == corev1.ConditionTrue
+		}
+	}
+	return false
 }
