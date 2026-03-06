@@ -10,6 +10,7 @@ const (
 	EventTypeOOMKilled         EventType = "OOMKilled"
 	EventTypeImagePullBackOff  EventType = "ImagePullBackOff"
 	EventTypePodPendingTooLong EventType = "PodPendingTooLong"
+	EventTypePodHealthy        EventType = "PodHealthy"
 )
 
 // CorrelatorEvent is the shared typed event interface consumed by the correlator.
@@ -82,4 +83,15 @@ func (e PodPendingTooLongEvent) Type() EventType       { return EventTypePodPend
 func (e PodPendingTooLongEvent) OccurredAt() time.Time { return e.At }
 func (e PodPendingTooLongEvent) DedupKey() string {
 	return string(e.Type()) + ":" + e.Namespace + ":" + e.PodName + ":" + e.PodUID
+}
+
+// PodHealthyEvent is emitted when a pod transitions to Running and Ready.
+type PodHealthyEvent struct {
+	BaseEvent
+}
+
+func (e PodHealthyEvent) Type() EventType       { return EventTypePodHealthy }
+func (e PodHealthyEvent) OccurredAt() time.Time { return e.At }
+func (e PodHealthyEvent) DedupKey() string {
+	return string(e.Type()) + ":" + e.Namespace + ":" + e.PodName
 }
