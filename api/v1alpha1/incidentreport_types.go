@@ -80,7 +80,7 @@ type IncidentReportStatus struct {
 	StartTime *metav1.Time `json:"startTime,omitempty"`
 
 	// resolvedTime is when the incident was resolved. Empty while still active.
-	// +required
+	// +optional
 	ResolvedTime *metav1.Time `json:"resolvedTime,omitempty"`
 
 	// notified indicates whether the notification layer (Slack / PagerDuty) has

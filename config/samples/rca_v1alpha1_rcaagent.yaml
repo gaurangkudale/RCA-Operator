@@ -2,7 +2,7 @@ apiVersion: rca.rca-operator.io/v1alpha1
 kind: RCAAgent
 metadata:
   name: rcaagent-sample
-  namespace: rca-operator-system
+  namespace: development
 spec:
   watchNamespaces:
     - development
