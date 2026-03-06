@@ -83,15 +83,31 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 	if namespace == "" || podName == "" {
 		return nil
 	}
+
+	hasRecent, err := c.hasRecentIncidentReport(ctx, namespace, event.DedupKey())
+	if err != nil {
+		return err
+	}
+	if hasRecent {
+		return nil
+	}
+
 	if agentRef == "" {
 		agentRef = "unknown-agent"
 	}
+
+	occurredAt := event.OccurredAt()
+	if occurredAt.IsZero() {
+		occurredAt = c.now()
+	}
+	startTime := metav1.NewTime(occurredAt)
 
 	report := &rcav1alpha1.IncidentReport{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: fmt.Sprintf("%s-%s-", strings.ToLower(incidentType), safeNameToken(podName)),
 			Namespace:    namespace,
 			Labels: map[string]string{
+				"rca.rca-operator.io/agent":         agentRef,
 				"rca.rca-operator.io/severity":      severity,
 				"rca.rca-operator.io/incident-type": incidentType,
 			},
@@ -107,6 +123,31 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 		return fmt.Errorf("failed to create IncidentReport: %w", err)
 	}
 
+	statusBase := report.DeepCopy()
+	report.Status = rcav1alpha1.IncidentReportStatus{
+		Severity:     severity,
+		Phase:        "Active",
+		IncidentType: incidentType,
+		StartTime:    &startTime,
+		ResolvedTime: nil,
+		Notified:     false,
+		AffectedResources: []rcav1alpha1.AffectedResource{
+			{
+				Kind:      "Pod",
+				Name:      podName,
+				Namespace: namespace,
+			},
+		},
+		CorrelatedSignals: []string{summary},
+		Timeline: []rcav1alpha1.TimelineEvent{
+			{Time: startTime, Event: summary},
+		},
+		RootCause: "",
+	}
+	if err := c.client.Status().Patch(ctx, report, client.MergeFrom(statusBase)); err != nil {
+		return fmt.Errorf("failed to patch IncidentReport status: %w", err)
+	}
+
 	c.log.Info("Created IncidentReport from watcher event",
 		"namespace", namespace,
 		"name", report.Name,
@@ -115,6 +156,33 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 		"severity", severity,
 	)
 	return nil
+}
+
+func (c *Consumer) hasRecentIncidentReport(ctx context.Context, namespace, dedupKey string) (bool, error) {
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := c.client.List(ctx, list, client.InNamespace(namespace)); err != nil {
+		return false, fmt.Errorf("failed to list IncidentReports: %w", err)
+	}
+
+	now := c.now()
+	for i := range list.Items {
+		report := &list.Items[i]
+		if report.Annotations == nil {
+			continue
+		}
+		if report.Annotations["rca.rca-operator.io/dedup-key"] != dedupKey {
+			continue
+		}
+		if now.Sub(report.CreationTimestamp.Time) >= c.cooldown {
+			continue
+		}
+		if report.Status.Phase == "Resolved" {
+			continue
+		}
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, incidentType, severity, summary string) {
