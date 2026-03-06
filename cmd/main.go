@@ -37,6 +37,8 @@ import (
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 	"github.com/gaurangkudale/rca-operator/internal/controller"
+	"github.com/gaurangkudale/rca-operator/internal/correlator"
+	"github.com/gaurangkudale/rca-operator/internal/watcher"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -178,9 +180,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	managerCtx := ctrl.SetupSignalHandler()
+	watchEvents := make(chan watcher.CorrelatorEvent, 1024)
+	watcherEmitter := watcher.NewChannelEventEmitter(watchEvents, ctrl.Log)
+	correlatorConsumer := correlator.NewConsumer(mgr.GetClient(), watchEvents, ctrl.Log)
+	go correlatorConsumer.Run(managerCtx)
+
 	if err := (&controller.RCAAgentReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		Cache:          mgr.GetCache(),
+		WatcherEmitter: watcherEmitter,
+		ManagerContext: managerCtx,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "RCAAgent")
 		os.Exit(1)
@@ -204,7 +215,7 @@ func main() {
 	}
 
 	setupLog.Info("Starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(managerCtx); err != nil {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}
