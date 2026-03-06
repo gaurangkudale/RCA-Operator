@@ -18,7 +18,7 @@ import (
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
-const defaultDedupCooldown = 2 * time.Minute
+// const defaultDedupCooldown = 2 * time.Minute
 
 const (
 	annotationDedupKey   = "rca.rca-operator.io/dedup-key"
