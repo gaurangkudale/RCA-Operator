@@ -144,7 +144,6 @@ spec:
   watchNamespaces:
     - production
     - staging
-  autonomyLevel: 1              # 0=observe, 1=suggest, 2=semi-auto, 3=full-auto
   aiProviderConfig:
     type: openai                # openai | anthropic | ollama
     model: gpt-4o
@@ -203,9 +202,6 @@ spec:
   watchNamespaces:
     - production
     - staging
-
-  # Global autonomy level (overridden per namespace above)
-  autonomyLevel: 1
 
   # AI Provider Configuration
   aiProviderConfig:

@@ -294,7 +294,6 @@ spec:
   watchNamespaces:
     - production
     - staging
-  autonomyLevel: 1                  # 0=observe, 1=suggest, 2=semi, 3=full
   aiProviderConfig:
     type: openai                    # or anthropic, ollama (local)
     model: gpt-4o
