@@ -104,3 +104,55 @@ spec:
         # 2) retention window (incidentRetention: 5m) cleanup to run
         echo "Recovery phase: staying healthy"
         sleep 1800
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: oomkill-demo
+  namespace: development
+  labels:
+    app: oomkill-demo
+spec:
+  restartPolicy: Always
+  volumes:
+  - name: state
+    emptyDir: {}
+  containers:
+  - name: memory-hog
+    image: python:3.12-alpine
+    volumeMounts:
+    - name: state
+      mountPath: /state
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "200m"
+      limits:
+        memory: "512Mi"
+        cpu: "200m"
+    command:
+      - /bin/sh
+      - -c
+      - |
+        COUNT_FILE=/state/restart-count
+        COUNT=0
+
+        if [ -f "$COUNT_FILE" ]; then
+          COUNT=$(cat "$COUNT_FILE")
+        fi
+
+        COUNT=$((COUNT+1))
+        echo "$COUNT" > "$COUNT_FILE"
+        echo "OOM test start attempt: $COUNT"
+
+        # Force real OOMKills on the first few restarts so the watcher emits OOM events.
+        if [ "$COUNT" -le 3 ]; then
+          echo "Intentional OOM attempt"
+          python -c 'exec("chunks=[]\nwhile True:\n    chunks.append(\"X\" * (32 * 1024 * 1024) + str(len(chunks)))")'
+        fi
+
+        # Then stay healthy long enough for:
+        # 1) PodHealthy signal after ready stability window
+        # 2) OOM incident auto-resolution
+        echo "Recovery phase: staying healthy"
+        sleep 1800
