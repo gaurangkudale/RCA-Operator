@@ -226,7 +226,7 @@ We use [Conventional Commits](https://www.conventionalcommits.org/).
 ```
 feat(correlator): add ImagePullBackOff + registry rule
 fix(watcher): correct OOMKilled exit code check from 143 to 137
-docs(reference): add incidentRetentionDays field to RCAAgent CRD ref
+docs(reference): add incidentRetention field to RCAAgent CRD ref
 test(correlator): add table-driven tests for node failure rule
 chore(ci): upgrade golangci-lint to v1.57
 ```

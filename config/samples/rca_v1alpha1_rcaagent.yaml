@@ -18,7 +18,7 @@ spec:
     pagerduty:
       secretRef: pd-api-key
       severity: P2         # minimum severity to page
-  incidentRetentionDays: 30
+  incidentRetention: 5m
 ---
 apiVersion: rca.rca-operator.io/v1alpha1
 kind: RCAAgent
@@ -40,7 +40,7 @@ spec:
     pagerduty:
       secretRef: pd-api-key
       severity: P2         # minimum severity to page
-  incidentRetentionDays: 30
+  incidentRetention: 5m
 ---
 apiVersion: v1
 kind: Pod
@@ -73,14 +73,14 @@ spec:
         # First 5 runs -> crash
         if [ $COUNT -le 5 ]; then
           echo "Simulating crash..."
-          sleep 5000
+          sleep 3
           exit 1
         fi
 
         # After that -> run stable for 3 minutes
         if [ $COUNT -eq 6 ]; then
           echo "System stabilized. Running normally for 3 minutes..."
-          sleep 18000
+          sleep 180000
           exit 0
         fi
 
@@ -88,3 +88,66 @@ spec:
         echo "System unstable again..."
         sleep 5000
         exit 1
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad-image-demo
+  namespace: development
+  labels:
+    app: bad-image-demo
+spec:
+  restartPolicy: Always
+  containers:
+  - name: bad-image-container
+    image: busybox
+    command:
+      - /bin/sh
+      - -c
+      - echo "This container should never start because the image tag is invalid" && sleep 36000
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: retention-crashloop-demo
+  namespace: default
+  labels:
+    app: retention-crashloop-demo
+spec:
+  restartPolicy: Always
+  volumes:
+  - name: state
+    emptyDir: {}
+  containers:
+  - name: app
+    image: busybox
+    volumeMounts:
+    - name: state
+      mountPath: /state
+    command:
+      - /bin/sh
+      - -c
+      - |
+        COUNT_FILE=/state/restart-count
+        COUNT=0
+
+        if [ -f "$COUNT_FILE" ]; then
+          COUNT=$(cat "$COUNT_FILE")
+        fi
+
+        COUNT=$((COUNT+1))
+        echo "$COUNT" > "$COUNT_FILE"
+        echo "Retention test start attempt: $COUNT"
+
+        # Fail fast on first attempts so CrashLoopBackOff incident is created.
+        if [ "$COUNT" -le 4 ]; then
+          echo "Intentional crash for retention test"
+          sleep 2
+          exit 1
+        fi
+
+        # Then stay healthy long enough for:
+        # 1) PodHealthy signal (ready stability window) and incident resolution
+        # 2) retention window (incidentRetention: 5m) cleanup to run
+        echo "Recovery phase: staying healthy"
+        sleep 1800

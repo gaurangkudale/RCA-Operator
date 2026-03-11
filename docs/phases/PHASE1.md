@@ -70,6 +70,10 @@ Everything else — LLM analysis, remediation playbooks, autonomy levels, dashbo
   - Compare runtime against `DeletionGracePeriodSeconds`
   - If containers remain running after grace period, raise `Grace Period Violation`
 
+> CrashLoopBackOff detection is threshold-based, not fixed-time based.
+> Current implementation emits when pod state is `CrashLoopBackOff` and container restart count reaches the configured threshold (default: 3 restarts).
+> Detection wall-clock latency depends on the app crash cycle and kubelet backoff behavior.
+
 **Event Watcher**
 - Watch `core/v1` Event stream across watched namespaces
 - Deduplicate repeated events (ring-buffer + time window)
@@ -113,6 +117,12 @@ Everything else — LLM analysis, remediation playbooks, autonomy levels, dashbo
 - Status transitions: `Detecting` → `Active` → `Resolved`
 - Auto-resolve detection (pod healthy again for N minutes)
 - `IncidentReport` CR written to namespace on creation and updated on resolution
+
+CrashLoop resolve semantics in current implementation:
+
+- CrashLoop incidents are resolved from a pod healthy signal, not directly from disappearance of `CrashLoopBackOff` state.
+- Healthy signal is emitted when pod is `Running` + `Ready` for a stability window (default: 60s).
+- Ready scan runs every 30s, so practical resolve latency is usually about 60-90s after pod becomes healthy.
 
 ### 2.5 Notification Layer
 
@@ -192,7 +202,7 @@ spec:
     pagerduty:
       secretRef: pd-api-key
       severity: P2         # minimum severity to page
-  incidentRetentionDays: 30
+  incidentRetention: 30d
 ```
 
 | Field | Type | Description |
@@ -204,7 +214,7 @@ spec:
 | `spec.notifications.slack.mentionOnP1` | `string` | User or group to mention on P1 incidents. |
 | `spec.notifications.pagerduty.secretRef` | `string` | Secret name with PagerDuty Events API v2 key. |
 | `spec.notifications.pagerduty.severity` | `string` | Minimum severity to page (`P1` or `P2`). |
-| `spec.incidentRetentionDays` | `int` | How long to keep IncidentReport CRs. Default: 30. |
+| `spec.incidentRetention` | `string` | How long to keep Resolved IncidentReport CRs. Format: `5m`, `2h`, `30d`. Default: `30d`. |
 
 ### IncidentReport — Phase 1 Status Fields
 
@@ -409,7 +419,7 @@ Phase 1 is complete when **all** of the following pass without exception:
 
 1. **Operator deploys cleanly** into a `kind` cluster with `helm install` in under 60 seconds.
 
-2. **A pod in CrashLoopBackOff** causes an `IncidentReport` CR to be created in the watched namespace within 60 seconds of the first restart.
+2. **A pod in CrashLoopBackOff** causes an `IncidentReport` CR to be created in the watched namespace shortly after the crash loop threshold is reached (default: 3 restarts).
 
 3. **A Slack message is sent** with severity badge, affected resource name, and incident type.
 
