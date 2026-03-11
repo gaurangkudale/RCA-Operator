@@ -77,6 +77,9 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 	if healthy, ok := event.(watcher.PodHealthyEvent); ok {
 		return c.resolveIncidentsForPod(ctx, healthy)
 	}
+	if deleted, ok := event.(watcher.PodDeletedEvent); ok {
+		return c.resolveIncidentsForDeletedPod(ctx, deleted)
+	}
 
 	namespace, podName, agentRef, incidentType, severity, summary := mapEvent(event)
 	if namespace == "" || podName == "" {
@@ -246,6 +249,50 @@ func (c *Consumer) resolveIncidentsForPod(ctx context.Context, event watcher.Pod
 
 	if resolvedCount > 0 {
 		c.log.Info("Resolved IncidentReports from pod healthy signal",
+			"namespace", event.Namespace,
+			"pod", event.PodName,
+			"count", resolvedCount,
+		)
+	}
+
+	return nil
+}
+
+// resolveIncidentsForDeletedPod marks all Active incidents referencing the deleted pod as Resolved.
+func (c *Consumer) resolveIncidentsForDeletedPod(ctx context.Context, event watcher.PodDeletedEvent) error {
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := c.client.List(ctx, list, client.InNamespace(event.Namespace)); err != nil {
+		return fmt.Errorf("failed to list IncidentReports for deleted-pod resolve: %w", err)
+	}
+
+	now := metav1.NewTime(c.now())
+	resolvedCount := 0
+	for i := range list.Items {
+		report := &list.Items[i]
+		if report.Status.Phase != "Active" {
+			continue
+		}
+		if !incidentAffectsPod(report, event.PodName, event.Namespace) {
+			continue
+		}
+
+		base := report.DeepCopy()
+		report.Status.Phase = "Resolved"
+		report.Status.ResolvedTime = &now
+		report.Status.Timeline = append(report.Status.Timeline, rcav1alpha1.TimelineEvent{
+			Time:  now,
+			Event: fmt.Sprintf("Pod %s was deleted from the cluster", event.PodName),
+		})
+		report.Status.Timeline = trimTimeline(report.Status.Timeline)
+
+		if err := c.client.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
+			return fmt.Errorf("failed to patch IncidentReport resolve status for deleted pod: %w", err)
+		}
+		resolvedCount++
+	}
+
+	if resolvedCount > 0 {
+		c.log.Info("Resolved IncidentReports for deleted pod",
 			"namespace", event.Namespace,
 			"pod", event.PodName,
 			"count", resolvedCount,

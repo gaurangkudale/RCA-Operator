@@ -169,6 +169,10 @@ func (r *RCAAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
+	if err := r.resolveOrphanedIncidents(ctx, agent); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	if err := r.cleanupResolvedIncidents(ctx, agent); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -485,6 +489,84 @@ func (r *RCAAgentReconciler) now() time.Time {
 		return r.nowFn()
 	}
 	return time.Now()
+}
+
+// resolveOrphanedIncidents marks Active IncidentReports as Resolved when their referenced pod
+// no longer exists in the cluster. This acts as a safety-net for missed PodDeletedEvents
+// (e.g. controller was down when the pod was deleted).
+func (r *RCAAgentReconciler) resolveOrphanedIncidents(ctx context.Context, agent *rcav1alpha1.RCAAgent) error {
+	namespaces, err := r.retentionNamespaces(ctx, agent)
+	if err != nil {
+		return err
+	}
+
+	now := metav1.NewTime(r.now())
+	resolvedCount := 0
+	for _, namespace := range namespaces {
+		list := &rcav1alpha1.IncidentReportList{}
+		if err := r.List(ctx, list, client.InNamespace(namespace)); err != nil {
+			return fmt.Errorf("failed to list IncidentReports for orphan check in namespace %q: %w", namespace, err)
+		}
+
+		for i := range list.Items {
+			report := &list.Items[i]
+			if report.Status.Phase != "Active" {
+				continue
+			}
+			if !belongsToAgent(report, agent.Name) {
+				continue
+			}
+
+			// Check whether all referenced pods are gone.
+			podGone := false
+			for _, res := range report.Status.AffectedResources {
+				if res.Kind != "Pod" {
+					continue
+				}
+				pod := &corev1.Pod{}
+				getErr := r.Get(ctx, types.NamespacedName{Namespace: res.Namespace, Name: res.Name}, pod)
+				if errors.IsNotFound(getErr) {
+					podGone = true
+					break
+				}
+				if getErr != nil {
+					logf.FromContext(ctx).Error(getErr, "Could not check pod existence for orphaned incident",
+						"incident", report.Name, "pod", res.Name)
+				}
+			}
+			if !podGone {
+				continue
+			}
+
+			base := report.DeepCopy()
+			report.Status.Phase = "Resolved"
+			report.Status.ResolvedTime = &now
+			report.Status.Timeline = append(report.Status.Timeline, rcav1alpha1.TimelineEvent{
+				Time:  now,
+				Event: "Pod no longer exists in cluster; incident auto-resolved",
+			})
+			if len(report.Status.Timeline) > 50 {
+				report.Status.Timeline = report.Status.Timeline[len(report.Status.Timeline)-50:]
+			}
+
+			if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
+				if errors.IsNotFound(err) {
+					continue
+				}
+				return fmt.Errorf("failed to resolve orphaned IncidentReport %s/%s: %w", report.Namespace, report.Name, err)
+			}
+			resolvedCount++
+		}
+	}
+
+	if resolvedCount > 0 {
+		logf.FromContext(ctx).Info("Resolved orphaned IncidentReports for deleted pods",
+			"agent", agent.Name,
+			"resolvedCount", resolvedCount,
+		)
+	}
+
+	return nil
 }
 
 func belongsToAgent(report *rcav1alpha1.IncidentReport, agentName string) bool {

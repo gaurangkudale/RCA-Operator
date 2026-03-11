@@ -11,6 +11,7 @@ const (
 	EventTypeImagePullBackOff  EventType = "ImagePullBackOff"
 	EventTypePodPendingTooLong EventType = "PodPendingTooLong"
 	EventTypePodHealthy        EventType = "PodHealthy"
+	EventTypePodDeleted        EventType = "PodDeleted"
 )
 
 // CorrelatorEvent is the shared typed event interface consumed by the correlator.
@@ -93,5 +94,17 @@ type PodHealthyEvent struct {
 func (e PodHealthyEvent) Type() EventType       { return EventTypePodHealthy }
 func (e PodHealthyEvent) OccurredAt() time.Time { return e.At }
 func (e PodHealthyEvent) DedupKey() string {
+	return string(e.Type()) + ":" + e.Namespace + ":" + e.PodName
+}
+
+// PodDeletedEvent is emitted when a watched pod is removed from the cluster.
+// It triggers immediate resolution of any Active incidents referencing the pod.
+type PodDeletedEvent struct {
+	BaseEvent
+}
+
+func (e PodDeletedEvent) Type() EventType       { return EventTypePodDeleted }
+func (e PodDeletedEvent) OccurredAt() time.Time { return e.At }
+func (e PodDeletedEvent) DedupKey() string {
 	return string(e.Type()) + ":" + e.Namespace + ":" + e.PodName
 }
