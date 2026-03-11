@@ -44,7 +44,15 @@ type RCAAgentSpec struct {
 	// +optional
 	Notifications *NotificationsConfig `json:"notifications,omitempty"`
 
-	// IncidentRetentionDays specifies how long to keep IncidentReport CRs before they are pruned.
+	// IncidentRetention specifies how long to keep Resolved IncidentReport CRs before pruning.
+	// Supported suffixes: m (minutes), h (hours), d (days), for example "5m", "12h", "30d".
+	// +kubebuilder:validation:Pattern=`^[1-9][0-9]*(m|h|d)$`
+	// +kubebuilder:default="30d"
+	// +optional
+	IncidentRetention string `json:"incidentRetention,omitempty"`
+
+	// IncidentRetentionDays is deprecated. Use incidentRetention instead.
+	// This field is retained for backward compatibility.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:default=30
 	// +optional

@@ -248,7 +248,7 @@ spec:
     configMapRef: RCA-runbooks
 
   # Retention
-  incidentRetentionDays: 90
+  incidentRetention: 90d
 ```
 
 ---

@@ -23,6 +23,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -40,10 +41,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
+	"github.com/gaurangkudale/rca-operator/internal/retention"
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
 const rcaAgentFinalizer = "rca.rca-operator.io/finalizer"
+
+const (
+	incidentAgentLabelKey  = "rca.rca-operator.io/agent"
+	retentionRequeuePeriod = time.Minute
+)
 
 // Condition type constants — used in status.conditions
 const (
@@ -62,6 +69,7 @@ type RCAAgentReconciler struct {
 	newPodWatcher    func(ctrlcache.Cache, watcher.EventEmitter, logr.Logger, watcher.PodWatcherConfig) podWatcher
 	watcherRegistry  map[types.NamespacedName]watcherEntry
 	watcherRegistryM sync.Mutex
+	nowFn            func() time.Time
 }
 
 type podWatcher interface {
@@ -161,6 +169,10 @@ func (r *RCAAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
+	if err := r.cleanupResolvedIncidents(ctx, agent); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	// ── 5. UPDATE STATUS — AVAILABLE ─────────────────────────────────────────
 	if err := r.setCondition(ctx, agent, ConditionTypeAvailable, metav1.ConditionTrue,
 		"AgentReady",
@@ -178,7 +190,7 @@ func (r *RCAAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	log.Info("RCAAgent reconciled successfully", "name", agent.Name)
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: retentionRequeuePeriod}, nil
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
@@ -398,4 +410,99 @@ func normalizeNamespaces(namespaces []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func (r *RCAAgentReconciler) cleanupResolvedIncidents(ctx context.Context, agent *rcav1alpha1.RCAAgent) error {
+	retentionDuration, err := retention.ParseIncidentRetention(agent.Spec.IncidentRetention, agent.Spec.IncidentRetentionDays)
+	if err != nil {
+		return fmt.Errorf("invalid incident retention for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
+	}
+
+	namespaces, err := r.retentionNamespaces(ctx, agent)
+	if err != nil {
+		return err
+	}
+
+	now := r.now()
+	deletedCount := 0
+	for _, namespace := range namespaces {
+		list := &rcav1alpha1.IncidentReportList{}
+		if err := r.List(ctx, list, client.InNamespace(namespace)); err != nil {
+			return fmt.Errorf("failed to list IncidentReports in namespace %q for retention cleanup: %w", namespace, err)
+		}
+
+		for i := range list.Items {
+			report := &list.Items[i]
+			if !belongsToAgent(report, agent.Name) {
+				continue
+			}
+			if !shouldPruneIncidentReport(report, now, retentionDuration) {
+				continue
+			}
+
+			if err := r.Delete(ctx, report); err != nil {
+				if errors.IsNotFound(err) {
+					continue
+				}
+				return fmt.Errorf("failed to delete IncidentReport %s/%s during retention cleanup: %w", report.Namespace, report.Name, err)
+			}
+			deletedCount++
+		}
+	}
+
+	if deletedCount > 0 {
+		logf.FromContext(ctx).Info("Deleted IncidentReports by retention policy",
+			"agent", agent.Name,
+			"deletedCount", deletedCount,
+			"retention", retentionDuration.String(),
+		)
+	}
+
+	return nil
+}
+
+func (r *RCAAgentReconciler) retentionNamespaces(ctx context.Context, agent *rcav1alpha1.RCAAgent) ([]string, error) {
+	namespaces := normalizeNamespaces(agent.Spec.WatchNamespaces)
+	if len(namespaces) > 0 {
+		return namespaces, nil
+	}
+
+	list := &corev1.NamespaceList{}
+	if err := r.List(ctx, list); err != nil {
+		return nil, fmt.Errorf("failed to list namespaces for incident retention cleanup: %w", err)
+	}
+
+	out := make([]string, 0, len(list.Items))
+	for i := range list.Items {
+		out = append(out, list.Items[i].Name)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+func (r *RCAAgentReconciler) now() time.Time {
+	if r.nowFn != nil {
+		return r.nowFn()
+	}
+	return time.Now()
+}
+
+func belongsToAgent(report *rcav1alpha1.IncidentReport, agentName string) bool {
+	if report.Spec.AgentRef == agentName {
+		return true
+	}
+	if report.Labels == nil {
+		return false
+	}
+	return report.Labels[incidentAgentLabelKey] == agentName
+}
+
+func shouldPruneIncidentReport(report *rcav1alpha1.IncidentReport, now time.Time, retentionDuration time.Duration) bool {
+	if report.Status.Phase != "Resolved" {
+		return false
+	}
+	if report.Status.ResolvedTime == nil || report.Status.ResolvedTime.IsZero() {
+		return false
+	}
+	return now.Sub(report.Status.ResolvedTime.Time) > retentionDuration
 }

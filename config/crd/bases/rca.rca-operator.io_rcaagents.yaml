@@ -84,10 +84,18 @@ spec:
                 - secretRef
                 - type
                 type: object
+              incidentRetention:
+                default: 30d
+                description: |-
+                  IncidentRetention specifies how long to keep Resolved IncidentReport CRs before pruning.
+                  Supported suffixes: m (minutes), h (hours), d (days), for example "5m", "12h", "30d".
+                pattern: ^[1-9][0-9]*(m|h|d)$
+                type: string
               incidentRetentionDays:
                 default: 30
-                description: IncidentRetentionDays specifies how long to keep IncidentReport
-                  CRs before they are pruned.
+                description: |-
+                  IncidentRetentionDays is deprecated. Use incidentRetention instead.
+                  This field is retained for backward compatibility.
                 minimum: 1
                 type: integer
               notifications:

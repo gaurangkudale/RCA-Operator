@@ -53,6 +53,19 @@ kubectl logs -n rca-operator-system deployment/rca-operator-controller-manager -
 - All exit codes classified (1, 2, 126, 127, 130, 134, 137, 139, 143, 255)
 - Grace period violations
 
+CrashLoopBackOff timing note:
+
+- Detection is not based on a fixed number of seconds.
+- Event is emitted when pod state is `CrashLoopBackOff` and restart count reaches the configured threshold (default: 3).
+- Real-world detection time depends on how fast the container crashes and kubelet restart backoff.
+- For quick local testing, use a short crash loop (for example `sleep 5; exit 1`) rather than long sleeps.
+
+CrashLoop resolve timing note:
+
+- CrashLoop incidents are marked resolved when a `PodHealthy` signal is emitted and correlator confirms the pod is currently `Running` + `Ready`.
+- `PodHealthy` is emitted after ready stability window (default: 60s).
+- Ready scan runs every 30s, so practical resolve latency is typically about 60-90s after pod recovery.
+
 ---
 
 ## 🎯 Next Steps (Phase 1 Continuation)
