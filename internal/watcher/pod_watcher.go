@@ -336,17 +336,17 @@ func (w *PodWatcher) trackReadyState(oldPod, newPod *corev1.Pod) {
 		return
 	}
 
-	oldReady := isPodReady(oldPod)
-	if !oldReady {
-		w.readySince[uid] = now
-		delete(w.healthyAlerted, uid)
-		return
-	}
-
 	since, ok := w.readySince[uid]
+	readyTransition := podReadySince(newPod, now)
+	oldReady := isPodReady(oldPod)
 	if !ok {
-		w.readySince[uid] = now
-		return
+		since = readyTransition
+		w.readySince[uid] = since
+		delete(w.healthyAlerted, uid)
+	} else if oldPod != nil && !oldReady {
+		since = readyTransition
+		w.readySince[uid] = since
+		delete(w.healthyAlerted, uid)
 	}
 
 	if w.healthyAlerted[uid] {
@@ -456,4 +456,23 @@ func isPodReady(pod *corev1.Pod) bool {
 		}
 	}
 	return false
+}
+
+func podReadySince(pod *corev1.Pod, fallback time.Time) time.Time {
+	if pod == nil {
+		return fallback
+	}
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type != corev1.PodReady {
+			continue
+		}
+		if condition.Status != corev1.ConditionTrue {
+			break
+		}
+		if condition.LastTransitionTime.IsZero() {
+			break
+		}
+		return condition.LastTransitionTime.Time
+	}
+	return fallback
 }
