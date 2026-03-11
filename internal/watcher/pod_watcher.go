@@ -159,6 +159,11 @@ func (w *PodWatcher) detectPodHealthy(oldPod, newPod *corev1.Pod) {
 }
 
 func (w *PodWatcher) onPodDelete(pod *corev1.Pod) {
+	if w.shouldWatchNamespace(pod.Namespace) {
+		w.emitter.Emit(PodDeletedEvent{
+			BaseEvent: baseEventFromPod(pod, w.config.AgentName, w.clock()),
+		})
+	}
 	w.mu.Lock()
 	delete(w.pendingAlerted, pod.UID)
 	delete(w.readySince, pod.UID)
