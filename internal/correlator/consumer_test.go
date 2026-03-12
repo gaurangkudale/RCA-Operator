@@ -17,6 +17,8 @@ import (
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
+const testPhaseResolved = "Resolved"
+
 func TestHandleEventResolvesActiveIncidentWhenPodIsHealthy(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
@@ -89,8 +91,8 @@ func TestHandleEventResolvesActiveIncidentWhenPodIsHealthy(t *testing.T) {
 		t.Fatalf("failed to fetch updated incident report: %v", err)
 	}
 
-	if updated.Status.Phase != "Resolved" {
-		t.Fatalf("expected incident phase Resolved, got %q", updated.Status.Phase)
+	if updated.Status.Phase != testPhaseResolved {
+		t.Fatalf("expected incident phase %s, got %q", testPhaseResolved, updated.Status.Phase)
 	}
 	if updated.Status.ResolvedTime == nil {
 		t.Fatal("expected resolved time to be set")
