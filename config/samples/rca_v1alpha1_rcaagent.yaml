@@ -105,6 +105,63 @@ spec:
         echo "Recovery phase: staying healthy"
         sleep 1800
 ---
+## ExitCode demo (optional): uncomment to verify incidentType=ExitCode.
+## Expected signal: exitCode=127 category=CommandNotFound
+apiVersion: v1
+kind: Pod
+metadata:
+  name: exitcode-demo
+  namespace: development
+  labels:
+    app: exitcode-demo
+spec:
+  restartPolicy: Always
+  containers:
+  - name: app
+    image: busybox
+    command:
+      - /bin/sh
+      - -c
+      - |
+        echo "Intentional non-zero exit for ExitCode incident"
+        # 127 = command not found
+        /definitely-not-a-real-command
+        exit 127
+---
+## GracePeriodViolation demo (optional): uncomment to verify incidentType=GracePeriodViolation.
+## Trigger:
+##   kubectl delete pod -n development grace-violation-demo
+## The preStop hook sleeps longer than terminationGracePeriodSeconds to create an overdue
+## termination window while the container is still running.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: grace-violation-demo
+  namespace: development
+  labels:
+    app: grace-violation-demo
+spec:
+  restartPolicy: Always
+  terminationGracePeriodSeconds: 5
+  containers:
+  - name: app
+    image: busybox
+    lifecycle:
+      preStop:
+        exec:
+          command:
+            - /bin/sh
+            - -c
+            - sleep 45
+    command:
+      - /bin/sh
+      - -c
+      - |
+        echo "Running until deleted"
+        while true; do
+          sleep 10
+        done
+---
 apiVersion: v1
 kind: Pod
 metadata:

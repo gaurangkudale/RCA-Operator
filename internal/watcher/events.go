@@ -6,12 +6,14 @@ import "time"
 type EventType string
 
 const (
-	EventTypeCrashLoopBackOff  EventType = "CrashLoopBackOff"
-	EventTypeOOMKilled         EventType = "OOMKilled"
-	EventTypeImagePullBackOff  EventType = "ImagePullBackOff"
-	EventTypePodPendingTooLong EventType = "PodPendingTooLong"
-	EventTypePodHealthy        EventType = "PodHealthy"
-	EventTypePodDeleted        EventType = "PodDeleted"
+	EventTypeCrashLoopBackOff     EventType = "CrashLoopBackOff"
+	EventTypeOOMKilled            EventType = "OOMKilled"
+	EventTypeImagePullBackOff     EventType = "ImagePullBackOff"
+	EventTypeContainerExitCode    EventType = "ContainerExitCode"
+	EventTypePodPendingTooLong    EventType = "PodPendingTooLong"
+	EventTypeGracePeriodViolation EventType = "GracePeriodViolation"
+	EventTypePodHealthy           EventType = "PodHealthy"
+	EventTypePodDeleted           EventType = "PodDeleted"
 )
 
 // CorrelatorEvent is the shared typed event interface consumed by the correlator.
@@ -73,6 +75,22 @@ func (e ImagePullBackOffEvent) DedupKey() string {
 	return string(e.Type()) + ":" + e.Namespace + ":" + e.PodName + ":" + e.ContainerName
 }
 
+// ContainerExitCodeEvent is emitted for non-zero container exits mapped to common categories.
+type ContainerExitCodeEvent struct {
+	BaseEvent
+	ContainerName string
+	ExitCode      int32
+	Reason        string
+	Category      string
+	Description   string
+}
+
+func (e ContainerExitCodeEvent) Type() EventType       { return EventTypeContainerExitCode }
+func (e ContainerExitCodeEvent) OccurredAt() time.Time { return e.At }
+func (e ContainerExitCodeEvent) DedupKey() string {
+	return string(e.Type()) + ":" + e.Namespace + ":" + e.PodName + ":" + e.ContainerName + ":" + e.PodUID + ":" + e.Category
+}
+
 // PodPendingTooLongEvent is emitted when a pod remains Pending beyond configured timeout.
 type PodPendingTooLongEvent struct {
 	BaseEvent
@@ -83,6 +101,20 @@ type PodPendingTooLongEvent struct {
 func (e PodPendingTooLongEvent) Type() EventType       { return EventTypePodPendingTooLong }
 func (e PodPendingTooLongEvent) OccurredAt() time.Time { return e.At }
 func (e PodPendingTooLongEvent) DedupKey() string {
+	return string(e.Type()) + ":" + e.Namespace + ":" + e.PodName + ":" + e.PodUID
+}
+
+// GracePeriodViolationEvent is emitted when a deleting pod exceeds termination grace period
+// while at least one container is still running.
+type GracePeriodViolationEvent struct {
+	BaseEvent
+	GracePeriodSeconds int64
+	OverdueFor         time.Duration
+}
+
+func (e GracePeriodViolationEvent) Type() EventType       { return EventTypeGracePeriodViolation }
+func (e GracePeriodViolationEvent) OccurredAt() time.Time { return e.At }
+func (e GracePeriodViolationEvent) DedupKey() string {
 	return string(e.Type()) + ":" + e.Namespace + ":" + e.PodName + ":" + e.PodUID
 }
 

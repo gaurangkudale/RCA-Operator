@@ -246,7 +246,7 @@ status:
 |---|---|---|
 | `status.severity` | `string` | Enum: `P1` `P2` `P3` `P4` |
 | `status.phase` | `string` | Enum: `Detecting` \| `Active` \| `Resolved` |
-| `status.incidentType` | `string` | Enum: `CrashLoop` \| `OOM` \| `BadDeploy` \| `NodeFailure` \| `Registry` |
+| `status.incidentType` | `string` | Enum: `CrashLoop` \| `OOM` \| `BadDeploy` \| `NodeFailure` \| `Registry` \| `ExitCode` \| `GracePeriodViolation` |
 | `status.startTime` | `*metav1.Time` | RFC3339 timestamp — set when incident is first detected |
 | `status.resolvedTime` | `*metav1.Time` | RFC3339 timestamp — empty while still active |
 | `status.notified` | `bool` | Dedup gate — set to `true` after first notification fires; prevents duplicate alerts |
@@ -299,9 +299,9 @@ status:
 
 ### Week 3 — Watcher Layer
 
-- [ ] `pod_watcher.go` — CrashLoop / OOM / ImagePull / Pending detection
-- [ ] Add exit code intelligence mapping for common termination codes
-- [ ] Add simplified grace period violation detector (non-eBPF)
+- [x] `pod_watcher.go` — CrashLoop / OOM / ImagePull / Pending detection
+- [x] Add exit code intelligence mapping for common termination codes
+- [x] Add simplified grace period violation detector (non-eBPF)
 - [ ] `event_watcher.go` — `core/v1` Event stream, dedup buffer
 - [ ] `node_watcher.go` — NotReady / DiskPressure / MemoryPressure
 - [ ] `deployment_watcher.go` — recent deploy timestamp tracker
