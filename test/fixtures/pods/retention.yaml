@@ -1,0 +1,61 @@
+# Incident Retention scenario
+# ────────────────────────────
+# Expected watcher signal : CrashLoopBackOff → PodHealthy
+# Expected incident lifecycle:
+#   1. Incident created (CrashLoopBackOff)
+#   2. Incident auto-resolved (PodHealthy after readyStabilityWindow = 60 s)
+#   3. Incident pruned after incidentRetention window (5 m in test agents)
+#
+# Watched by : rcaagent-development (watchNamespaces: [default])
+#
+# Apply:
+#   kubectl apply -f test/fixtures/pods/retention.yaml
+# Watch full lifecycle:
+#   kubectl get incidentreports -n default -w
+#
+# Retention pruning runs every ~5 m (retentionRequeuePeriod in controller).
+# To force an immediate requeue after the pod recovers you can delete and recreate
+# the RCAAgent, or wait for the next scheduled reconcile.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: retention-crashloop-demo
+  namespace: default
+  labels:
+    app: retention-crashloop-demo
+    rca.rca-operator.io/fixture: "true"
+    rca.rca-operator.io/scenario: retention
+spec:
+  restartPolicy: Always
+  volumes:
+  - name: state
+    emptyDir: {}
+  containers:
+  - name: app
+    image: busybox
+    volumeMounts:
+    - name: state
+      mountPath: /state
+    command:
+      - /bin/sh
+      - -c
+      - |
+        COUNT_FILE=/state/restart-count
+        COUNT=0
+        if [ -f "$COUNT_FILE" ]; then
+          COUNT=$(cat "$COUNT_FILE")
+        fi
+        COUNT=$((COUNT+1))
+        echo "$COUNT" > "$COUNT_FILE"
+        echo "Retention test: start attempt $COUNT"
+
+        # Crash fast on the first four attempts so CrashLoopBackOff incident is created.
+        if [ "$COUNT" -le 4 ]; then
+          echo "Intentional crash"
+          sleep 2
+          exit 1
+        fi
+
+        # Stay healthy so PodHealthy resolves the incident, then retention cleanup prunes it.
+        echo "Recovery phase: staying healthy"
+        sleep 1800

@@ -1,0 +1,24 @@
+apiVersion: rca.rca-operator.io/v1alpha1
+kind: RCAAgent
+metadata:
+  name: rcaagent-development
+  namespace: development
+spec:
+  # Watches the default namespace so the retention-crashloop-demo pod triggers an incident
+  # via rcaagent-development while incident-scenario pods in development use rcaagent-sample.
+  watchNamespaces:
+    - default
+  aiProviderConfig:
+    type: openai
+    model: gpt-4o
+    secretRef: rca-agent-openai-secret
+  notifications:
+    slack:
+      webhookSecretRef: slack-webhook
+      channel: "#incidents"
+      mentionOnP1: "@sre-oncall"
+    pagerduty:
+      secretRef: pd-api-key
+      severity: P2
+  # Short retention so the retention scenario completes quickly in local testing.
+  incidentRetention: 5m

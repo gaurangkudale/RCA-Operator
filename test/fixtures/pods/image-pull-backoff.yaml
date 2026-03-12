@@ -1,0 +1,35 @@
+# ImagePullBackOff scenario
+# ──────────────────────────
+# Expected watcher signal : ImagePullBackOff
+# Expected incident type  : ImagePullBackOff
+# Resolution              : Manual — delete the pod or fix the image reference
+#
+# The container references a tag that does not exist in the registry, causing Kubernetes
+# to set the container state to ImagePullBackOff.  The watcher emits an event immediately
+# on the first informer update after the backoff is detected.
+#
+# Apply:
+#   kubectl apply -f test/fixtures/pods/image-pull-backoff.yaml
+# Watch:
+#   kubectl get incidentreports -n development -w
+# Cleanup:
+#   kubectl delete pod bad-image-demo -n development
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad-image-demo
+  namespace: development
+  labels:
+    app: bad-image-demo
+    rca.rca-operator.io/fixture: "true"
+    rca.rca-operator.io/scenario: image-pull-backoff
+spec:
+  restartPolicy: Always
+  containers:
+  - name: bad-image-container
+    # The tag "this-tag-does-not-exist" causes an ImagePullBackOff immediately.
+    image: busybox:this-tag-does-not-exist
+    command:
+      - /bin/sh
+      - -c
+      - echo "This container should never start because the image tag is invalid" && sleep 36000

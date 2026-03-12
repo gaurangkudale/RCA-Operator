@@ -1,0 +1,48 @@
+# GracePeriodViolation scenario
+# ──────────────────────────────
+# Expected watcher signal : GracePeriodViolation
+# Expected incident type  : GracePeriodViolation
+# Resolution              : Pod is deleted once the grace period scan detects it
+#
+# The preStop hook sleeps far longer than terminationGracePeriodSeconds (5 s), keeping
+# the container running past its allowed termination window.  The watcher's periodic scan
+# detects this and emits a GracePeriodViolation event.
+#
+# Apply:
+#   kubectl apply -f test/fixtures/pods/grace-period-violation.yaml
+# Trigger:
+#   kubectl delete pod grace-violation-demo -n development
+# Watch:
+#   kubectl get incidentreports -n development -w
+apiVersion: v1
+kind: Pod
+metadata:
+  name: grace-violation-demo
+  namespace: development
+  labels:
+    app: grace-violation-demo
+    rca.rca-operator.io/fixture: "true"
+    rca.rca-operator.io/scenario: grace-period-violation
+spec:
+  restartPolicy: Always
+  # Grace period is intentionally short so the preStop hook exceeds it.
+  terminationGracePeriodSeconds: 5
+  containers:
+  - name: app
+    image: busybox
+    lifecycle:
+      preStop:
+        exec:
+          command:
+            - /bin/sh
+            - -c
+            # Sleeps 45 s — well past the 5 s grace period — to trigger the violation.
+            - sleep 45
+    command:
+      - /bin/sh
+      - -c
+      - |
+        echo "Running until deleted"
+        while true; do
+          sleep 10
+        done
