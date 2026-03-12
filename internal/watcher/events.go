@@ -14,6 +14,11 @@ const (
 	EventTypeGracePeriodViolation EventType = "GracePeriodViolation"
 	EventTypePodHealthy           EventType = "PodHealthy"
 	EventTypePodDeleted           EventType = "PodDeleted"
+
+	// Event-stream-sourced signals (detected from core/v1 Event objects).
+	EventTypeNodeNotReady EventType = "NodeNotReady"
+	EventTypePodEvicted   EventType = "PodEvicted"
+	EventTypeProbeFailure EventType = "ProbeFailure"
 )
 
 // CorrelatorEvent is the shared typed event interface consumed by the correlator.
@@ -139,4 +144,49 @@ func (e PodDeletedEvent) Type() EventType       { return EventTypePodDeleted }
 func (e PodDeletedEvent) OccurredAt() time.Time { return e.At }
 func (e PodDeletedEvent) DedupKey() string {
 	return string(e.Type()) + ":" + e.Namespace + ":" + e.PodName
+}
+
+// NodeNotReadyEvent is emitted when a Kubernetes Node transitions to NotReady.
+// Sourced from the core/v1 Event stream (reason: NodeNotReady or NodeConditionChanged).
+type NodeNotReadyEvent struct {
+	BaseEvent
+	// NodeName is the name of the node that went NotReady.
+	// Overrides BaseEvent.NodeName for clarity; PodName is empty for node-level events.
+	Reason  string
+	Message string
+}
+
+func (e NodeNotReadyEvent) Type() EventType       { return EventTypeNodeNotReady }
+func (e NodeNotReadyEvent) OccurredAt() time.Time { return e.At }
+func (e NodeNotReadyEvent) DedupKey() string {
+	return string(e.Type()) + ":" + e.Namespace + ":" + e.NodeName
+}
+
+// PodEvictedEvent is emitted when a pod is evicted from a node due to resource pressure.
+// Sourced from the core/v1 Event stream (reason: Evicted).
+type PodEvictedEvent struct {
+	BaseEvent
+	Reason  string
+	Message string
+}
+
+func (e PodEvictedEvent) Type() EventType       { return EventTypePodEvicted }
+func (e PodEvictedEvent) OccurredAt() time.Time { return e.At }
+func (e PodEvictedEvent) DedupKey() string {
+	return string(e.Type()) + ":" + e.Namespace + ":" + e.PodName + ":" + e.PodUID
+}
+
+// ProbeFailureEvent is emitted when a container's liveness, readiness, or startup probe fails.
+// Sourced from the core/v1 Event stream (reason: Unhealthy).
+type ProbeFailureEvent struct {
+	BaseEvent
+	// ProbeType is one of "Liveness", "Readiness", or "Startup".
+	ProbeType string
+	Message   string
+}
+
+func (e ProbeFailureEvent) Type() EventType       { return EventTypeProbeFailure }
+func (e ProbeFailureEvent) OccurredAt() time.Time { return e.At }
+func (e ProbeFailureEvent) DedupKey() string {
+	return string(e.Type()) + ":" + e.Namespace + ":" + e.PodName + ":" + e.ProbeType
 }

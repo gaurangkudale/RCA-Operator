@@ -208,6 +208,13 @@ func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, inci
 		return e.Namespace, e.PodName, e.AgentName, "BadDeploy", "P3", fmt.Sprintf("Pod pending too long pendingFor=%s timeout=%s", e.PendingFor.String(), e.Timeout.String())
 	case watcher.GracePeriodViolationEvent:
 		return e.Namespace, e.PodName, e.AgentName, "GracePeriodViolation", "P2", fmt.Sprintf("Pod deletion exceeded grace period grace=%ds overdue=%s", e.GracePeriodSeconds, e.OverdueFor.String())
+	case watcher.NodeNotReadyEvent:
+		// Node-level incident: no pod name, use node name as primary resource identifier.
+		return e.Namespace, e.NodeName, e.AgentName, "NodeFailure", "P1", fmt.Sprintf("Node not ready reason=%s message=%s", e.Reason, e.Message)
+	case watcher.PodEvictedEvent:
+		return e.Namespace, e.PodName, e.AgentName, "NodeFailure", "P2", fmt.Sprintf("Pod evicted from node reason=%s message=%s", e.Reason, e.Message)
+	case watcher.ProbeFailureEvent:
+		return e.Namespace, e.PodName, e.AgentName, "ProbeFailure", "P3", fmt.Sprintf("Probe failed probeType=%s message=%s", e.ProbeType, e.Message)
 	case watcher.PodHealthyEvent:
 		return "", "", "", "", "", ""
 	default:
