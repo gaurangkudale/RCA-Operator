@@ -20,7 +20,7 @@ test/fixtures/
     ├── crashloop.yaml              ← CrashLoopBackOff signal
     ├── oomkill.yaml                ← OOMKilled signal
     ├── image-pull-backoff.yaml     ← ImagePullBackOff signal
-    ├── exit-code.yaml              ← ContainerExitCode (exit 127 = CommandNotFound)
+    ├── exit-code.yaml              ← CrashLoopBackOff with exit-code context (exit 127 = CommandNotFound)
     ├── grace-period-violation.yaml ← GracePeriodViolation signal
     ├── retention.yaml              ← Full create → resolve → prune lifecycle
     ├── probe-failure.yaml          ← ProbeFailure signal   (event_watcher)
@@ -64,7 +64,7 @@ kubectl apply -f test/fixtures/pods/crashloop.yaml
 | `pods/crashloop.yaml` | `default` | `CrashLoopBackOff` | `CrashLoopBackOff` | P3 | Yes — after pod recovers |
 | `pods/oomkill.yaml` | `development` | `OOMKilled` | `OOMKilled` | P2 | Yes — after pod recovers |
 | `pods/image-pull-backoff.yaml` | `development` | `ImagePullBackOff` | `ImagePullBackOff` | P3 | Manual (delete pod) |
-| `pods/exit-code.yaml` | `development` | `ContainerExitCode` (exit 127) | `ExitCode` | P3 | Yes — after pod recovers |
+| `pods/exit-code.yaml` | `development` | `CrashLoopBackOff` + exit-code context (exit 127) | `CrashLoop` | P3 | Yes — after pod recovers |
 | `pods/grace-period-violation.yaml` | `development` | `GracePeriodViolation` | `GracePeriodViolation` | P2 | On pod delete |
 | `pods/retention.yaml` | `default` | `CrashLoopBackOff` → `PodHealthy` | `CrashLoopBackOff` | P3 | Yes → pruned after `incidentRetention` |
 | `pods/probe-failure.yaml` | `development` | `ProbeFailure` (Unhealthy event) | `ProbeFailure` | P3 | Yes — after pod restarts and becomes Ready |
@@ -94,7 +94,7 @@ kubectl describe incidentreport <name> -n <namespace>
 
 # Check operator logs for watcher signals
 kubectl logs -n rca-operator-system deploy/rca-operator-controller-manager -c manager -f \
-  | grep -E 'watcher|incident|CrashLoop|OOM|ImagePull|ExitCode|GracePeriod'
+  | grep -E 'watcher|incident|CrashLoop|OOM|ImagePull|GracePeriod|exitCode'
 
 # Filter event_watcher-specific signals
 kubectl logs -n rca-operator-system deploy/rca-operator-controller-manager -c manager -f \

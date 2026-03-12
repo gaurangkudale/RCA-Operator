@@ -9,7 +9,6 @@ const (
 	EventTypeCrashLoopBackOff     EventType = "CrashLoopBackOff"
 	EventTypeOOMKilled            EventType = "OOMKilled"
 	EventTypeImagePullBackOff     EventType = "ImagePullBackOff"
-	EventTypeContainerExitCode    EventType = "ContainerExitCode"
 	EventTypePodPendingTooLong    EventType = "PodPendingTooLong"
 	EventTypeGracePeriodViolation EventType = "GracePeriodViolation"
 	EventTypePodHealthy           EventType = "PodHealthy"
@@ -83,22 +82,6 @@ func (e ImagePullBackOffEvent) Type() EventType       { return EventTypeImagePul
 func (e ImagePullBackOffEvent) OccurredAt() time.Time { return e.At }
 func (e ImagePullBackOffEvent) DedupKey() string {
 	return string(e.Type()) + ":" + e.Namespace + ":" + e.PodName + ":" + e.ContainerName
-}
-
-// ContainerExitCodeEvent is emitted for non-zero container exits mapped to common categories.
-type ContainerExitCodeEvent struct {
-	BaseEvent
-	ContainerName string
-	ExitCode      int32
-	Reason        string
-	Category      string
-	Description   string
-}
-
-func (e ContainerExitCodeEvent) Type() EventType       { return EventTypeContainerExitCode }
-func (e ContainerExitCodeEvent) OccurredAt() time.Time { return e.At }
-func (e ContainerExitCodeEvent) DedupKey() string {
-	return string(e.Type()) + ":" + e.Namespace + ":" + e.PodName + ":" + e.ContainerName + ":" + e.PodUID + ":" + e.Category
 }
 
 // PodPendingTooLongEvent is emitted when a pod remains Pending beyond configured timeout.

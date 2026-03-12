@@ -143,7 +143,6 @@ func (w *PodWatcher) onPodAdd(pod *corev1.Pod) {
 	w.detectImagePullBackOff(nil, pod)
 	w.detectCrashLoop(nil, pod)
 	w.detectOOMKilled(nil, pod)
-	w.detectContainerExitCode(nil, pod)
 	w.detectGracePeriodViolation(pod)
 	w.updatePendingState(pod)
 }
@@ -156,7 +155,6 @@ func (w *PodWatcher) onPodUpdate(oldPod, newPod *corev1.Pod) {
 	w.detectImagePullBackOff(oldPod, newPod)
 	w.detectCrashLoop(oldPod, newPod)
 	w.detectOOMKilled(oldPod, newPod)
-	w.detectContainerExitCode(oldPod, newPod)
 	w.detectGracePeriodViolation(newPod)
 	w.updatePendingState(newPod)
 }
@@ -230,8 +228,8 @@ func (w *PodWatcher) detectOOMKilled(oldPod, newPod *corev1.Pod) {
 		// Only treat as OOM when kubelet explicitly marks reason="OOMKilled".
 		// Exit code 137 (SIGKILL) alone is insufficient — liveness probe kills,
 		// manual pod deletions, and other SIGKILL scenarios all produce exit code 137
-		// with reason="Error".  Those signals are handled by event_watcher (ProbeFailure)
-		// or detectContainerExitCode, not here.
+		// with reason="Error". Those signals are handled by event_watcher (ProbeFailure)
+		// or included as CrashLoop diagnostic context, not here.
 		if terminated.Reason != string(EventTypeOOMKilled) {
 			continue
 		}
@@ -246,38 +244,6 @@ func (w *PodWatcher) detectOOMKilled(oldPod, newPod *corev1.Pod) {
 			ContainerName: status.Name,
 			ExitCode:      terminated.ExitCode,
 			Reason:        terminated.Reason,
-		})
-	}
-}
-
-func (w *PodWatcher) detectContainerExitCode(oldPod, newPod *corev1.Pod) {
-	if isInCrashLoop(newPod) {
-		return
-	}
-
-	oldStatuses := statusByContainer(oldPod)
-	for _, status := range newPod.Status.ContainerStatuses {
-		exitCode, reason, category, description, ok := classifiedExitInfo(status)
-		if !ok {
-			continue
-		}
-		// Exit code 137 is too ambiguous on its own and is handled elsewhere.
-		if exitCode == 137 {
-			continue
-		}
-
-		oldStatus, hasOld := oldStatuses[status.Name]
-		if hasOld && status.RestartCount <= oldStatus.RestartCount {
-			continue
-		}
-
-		w.emitter.Emit(ContainerExitCodeEvent{
-			BaseEvent:     baseEventFromPod(newPod, w.config.AgentName, w.clock()),
-			ContainerName: status.Name,
-			ExitCode:      exitCode,
-			Reason:        reason,
-			Category:      category,
-			Description:   description,
 		})
 	}
 }
@@ -380,7 +346,6 @@ func (w *PodWatcher) scanCurrentFailureSignals(ctx context.Context) {
 		w.detectImagePullBackOff(nil, pod)
 		w.detectCrashLoop(nil, pod)
 		w.detectOOMKilled(nil, pod)
-		w.detectContainerExitCode(nil, pod)
 		w.detectGracePeriodViolation(pod)
 		w.trackReadyState(nil, pod)
 	}
@@ -611,18 +576,6 @@ func podReadySince(pod *corev1.Pod, fallback time.Time) time.Time {
 		return condition.LastTransitionTime.Time
 	}
 	return fallback
-}
-
-func isInCrashLoop(pod *corev1.Pod) bool {
-	if pod == nil {
-		return false
-	}
-	for _, status := range pod.Status.ContainerStatuses {
-		if status.State.Waiting != nil && status.State.Waiting.Reason == string(EventTypeCrashLoopBackOff) {
-			return true
-		}
-	}
-	return false
 }
 
 func lastTerminatedState(status corev1.ContainerStatus) *corev1.ContainerStateTerminated {

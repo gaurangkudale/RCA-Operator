@@ -246,7 +246,7 @@ status:
 |---|---|---|
 | `status.severity` | `string` | Enum: `P1` `P2` `P3` `P4` |
 | `status.phase` | `string` | Enum: `Detecting` \| `Active` \| `Resolved` |
-| `status.incidentType` | `string` | Enum: `CrashLoop` \| `OOM` \| `BadDeploy` \| `NodeFailure` \| `Registry` \| `ExitCode` \| `GracePeriodViolation` |
+| `status.incidentType` | `string` | Enum: `CrashLoop` \| `OOM` \| `BadDeploy` \| `NodeFailure` \| `Registry` \| `GracePeriodViolation` |
 | `status.startTime` | `*metav1.Time` | RFC3339 timestamp — set when incident is first detected |
 | `status.resolvedTime` | `*metav1.Time` | RFC3339 timestamp — empty while still active |
 | `status.notified` | `bool` | Dedup gate — set to `true` after first notification fires; prevents duplicate alerts |
