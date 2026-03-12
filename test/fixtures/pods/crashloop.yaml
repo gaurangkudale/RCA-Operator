@@ -1,0 +1,56 @@
+# CrashLoopBackOff scenario
+# ─────────────────────────
+# Expected watcher signal : CrashLoopBackOff (restartCount >= 3)
+# Expected incident type  : CrashLoopBackOff
+# Resolution              : Automatic after pod stays Ready for readyStabilityWindow (default 60 s)
+#
+# The container deliberately exits with code 1 on the first four restarts, then stays
+# healthy so the incident is created and resolved within one test run.
+#
+# Apply:
+#   kubectl apply -f test/fixtures/pods/crashloop.yaml
+# Watch:
+#   kubectl get incidentreports -n default -w
+apiVersion: v1
+kind: Pod
+metadata:
+  name: crashloop-demo
+  namespace: default
+  labels:
+    app: crashloop-demo
+    rca.rca-operator.io/fixture: "true"
+    rca.rca-operator.io/scenario: crashloop
+spec:
+  restartPolicy: Always
+  volumes:
+  - name: state
+    emptyDir: {}
+  containers:
+  - name: app
+    image: busybox
+    volumeMounts:
+    - name: state
+      mountPath: /state
+    command:
+      - /bin/sh
+      - -c
+      - |
+        COUNT_FILE=/state/restart-count
+        COUNT=0
+        if [ -f "$COUNT_FILE" ]; then
+          COUNT=$(cat "$COUNT_FILE")
+        fi
+        COUNT=$((COUNT+1))
+        echo "$COUNT" > "$COUNT_FILE"
+        echo "CrashLoop fixture: start attempt $COUNT"
+
+        # Exit on first four attempts so CrashLoopBackOff is detected (threshold = 3).
+        if [ "$COUNT" -le 4 ]; then
+          echo "Intentional crash"
+          sleep 2
+          exit 1
+        fi
+
+        # Stay healthy long enough for PodHealthy signal and incident resolution.
+        echo "Recovery phase: staying healthy"
+        sleep 1800

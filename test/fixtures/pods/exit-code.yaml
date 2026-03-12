@@ -1,0 +1,36 @@
+# ContainerExitCode scenario
+# ──────────────────────────
+# Expected watcher signal : ContainerExitCode  (exitCode=127, category=CommandNotFound)
+# Expected incident type  : ExitCode
+# Resolution              : Automatic after pod stays Ready for readyStabilityWindow (default 60 s)
+#
+# The container deliberately runs a non-existent command to produce exit code 127.
+# The watcher classifies this as category=CommandNotFound.
+#
+# Apply:
+#   kubectl apply -f test/fixtures/pods/exit-code.yaml
+# Watch:
+#   kubectl get incidentreports -n development -w
+# Verify exit code in the incident:
+#   kubectl get incidentreport -n development -o yaml | grep exitCode
+apiVersion: v1
+kind: Pod
+metadata:
+  name: exitcode-demo
+  namespace: development
+  labels:
+    app: exitcode-demo
+    rca.rca-operator.io/fixture: "true"
+    rca.rca-operator.io/scenario: exit-code
+spec:
+  restartPolicy: Always
+  containers:
+  - name: app
+    image: busybox
+    command:
+      - /bin/sh
+      - -c
+      - |
+        echo "Intentional non-zero exit for ContainerExitCode incident"
+        # exit 127 = CommandNotFound — see docs/reference/watcher.md exit code table
+        /definitely-not-a-real-command

@@ -1,0 +1,62 @@
+# OOMKilled scenario
+# ───────────────────
+# Expected watcher signal : OOMKilled (exit code 137)
+# Expected incident type  : OOMKilled
+# Resolution              : Automatic after pod stays Ready for readyStabilityWindow (default 60 s)
+#
+# The container allocates memory past its limit on the first three restarts, triggering
+# a real OOM kill, then recovers.
+#
+# Apply:
+#   kubectl apply -f test/fixtures/pods/oomkill.yaml
+# Watch:
+#   kubectl get incidentreports -n development -w
+apiVersion: v1
+kind: Pod
+metadata:
+  name: oomkill-demo
+  namespace: development
+  labels:
+    app: oomkill-demo
+    rca.rca-operator.io/fixture: "true"
+    rca.rca-operator.io/scenario: oomkill
+spec:
+  restartPolicy: Always
+  volumes:
+  - name: state
+    emptyDir: {}
+  containers:
+  - name: memory-hog
+    image: python:3.12-alpine
+    volumeMounts:
+    - name: state
+      mountPath: /state
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "200m"
+      limits:
+        memory: "512Mi"
+        cpu: "200m"
+    command:
+      - /bin/sh
+      - -c
+      - |
+        COUNT_FILE=/state/restart-count
+        COUNT=0
+        if [ -f "$COUNT_FILE" ]; then
+          COUNT=$(cat "$COUNT_FILE")
+        fi
+        COUNT=$((COUNT+1))
+        echo "$COUNT" > "$COUNT_FILE"
+        echo "OOM fixture: start attempt $COUNT"
+
+        # Force real OOM on the first three restarts.
+        if [ "$COUNT" -le 3 ]; then
+          echo "Intentional OOM attempt"
+          python -c 'exec("chunks=[]\nwhile True:\n    chunks.append(\"X\" * (32 * 1024 * 1024) + str(len(chunks)))")'
+        fi
+
+        # Then stay healthy so the incident is resolved.
+        echo "Recovery phase: staying healthy"
+        sleep 1800

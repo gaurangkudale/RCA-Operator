@@ -1,0 +1,22 @@
+apiVersion: rca.rca-operator.io/v1alpha1
+kind: RCAAgent
+metadata:
+  name: rcaagent-sample
+  namespace: development
+spec:
+  watchNamespaces:
+    - development
+  aiProviderConfig:
+    type: openai
+    model: gpt-4o
+    secretRef: rca-agent-openai-secret
+  notifications:
+    slack:
+      webhookSecretRef: slack-webhook
+      channel: "#incidents"
+      mentionOnP1: "@oncall"
+    pagerduty:
+      secretRef: pd-api-key
+      severity: P2
+  # Short retention so resolved incidents are pruned quickly during local testing.
+  incidentRetention: 5m
