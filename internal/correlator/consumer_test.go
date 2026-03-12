@@ -2,6 +2,7 @@ package correlator
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,22 +103,23 @@ func TestHandleEventResolvesActiveIncidentWhenPodIsHealthy(t *testing.T) {
 	}
 }
 
-func TestMapEventForExitCodeAndGracePeriodViolation(t *testing.T) {
-	namespace, pod, agent, incidentType, severity, summary := mapEvent(watcher.ContainerExitCodeEvent{
-		BaseEvent:   watcher.BaseEvent{Namespace: "development", PodName: "svc", AgentName: "agent-a"},
-		ExitCode:    127,
-		Category:    "CommandNotFound",
-		Reason:      "Error",
-		Description: "Command not found",
+func TestMapEventForCrashLoopAndGracePeriodViolation(t *testing.T) {
+	namespace, pod, agent, incidentType, severity, summary := mapEvent(watcher.CrashLoopBackOffEvent{
+		BaseEvent:           watcher.BaseEvent{Namespace: "development", PodName: "svc", AgentName: "agent-a"},
+		RestartCount:        4,
+		Threshold:           3,
+		LastExitCode:        126,
+		ExitCodeCategory:    "PermissionDenied",
+		ExitCodeDescription: "Command invoked cannot execute",
 	})
 	if namespace != "development" || pod != "svc" || agent != "agent-a" {
-		t.Fatalf("unexpected mapping for exit-code event: namespace=%s pod=%s agent=%s", namespace, pod, agent)
+		t.Fatalf("unexpected mapping for crash-loop event: namespace=%s pod=%s agent=%s", namespace, pod, agent)
 	}
-	if incidentType != "ExitCode" || severity != "P3" {
-		t.Fatalf("unexpected incident mapping for exit-code event: type=%s severity=%s", incidentType, severity)
+	if incidentType != "CrashLoop" || severity != "P3" {
+		t.Fatalf("unexpected incident mapping for crash-loop event: type=%s severity=%s", incidentType, severity)
 	}
-	if summary == "" {
-		t.Fatal("expected non-empty summary for exit-code event")
+	if summary == "" || !strings.Contains(summary, "exitCode=126") || !strings.Contains(summary, "category=PermissionDenied") {
+		t.Fatalf("expected crash-loop summary to include exit-code context, got %q", summary)
 	}
 
 	namespace, pod, agent, incidentType, severity, summary = mapEvent(watcher.GracePeriodViolationEvent{
