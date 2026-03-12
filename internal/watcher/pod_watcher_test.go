@@ -62,6 +62,51 @@ func TestTrackReadyStateDoesNotResetReadyTimerAcrossScans(t *testing.T) {
 	}
 }
 
+func TestDetectCrashLoopIncludesExitCodeContext(t *testing.T) {
+	now := time.Date(2026, 3, 11, 18, 15, 0, 0, time.UTC)
+	emitter := &recordingEmitter{}
+	w := NewPodWatcher(nil, emitter, logr.Discard(), PodWatcherConfig{
+		AgentName:                 "agent-a",
+		CrashLoopRestartThreshold: 3,
+	})
+	w.clock = func() time.Time { return now }
+
+	oldPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "development", Name: "svc", UID: types.UID("pod-cl")},
+		Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{{
+			Name:         "app",
+			RestartCount: 2,
+		}}},
+	}
+	newPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "development", Name: "svc", UID: types.UID("pod-cl")},
+		Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{{
+			Name:         "app",
+			RestartCount: 3,
+			State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{
+				Reason: string(EventTypeCrashLoopBackOff),
+			}},
+			LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+				ExitCode: 126,
+				Reason:   "Error",
+			}},
+		}}},
+	}
+
+	w.detectCrashLoop(oldPod, newPod)
+
+	if len(emitter.events) != 1 {
+		t.Fatalf("expected 1 crash loop event, got %d", len(emitter.events))
+	}
+	event, ok := emitter.events[0].(CrashLoopBackOffEvent)
+	if !ok {
+		t.Fatalf("expected CrashLoopBackOffEvent, got %T", emitter.events[0])
+	}
+	if event.LastExitCode != 126 || event.ExitCodeCategory != "PermissionDenied" {
+		t.Fatalf("unexpected crash loop exit-code context: code=%d category=%s", event.LastExitCode, event.ExitCodeCategory)
+	}
+}
+
 func TestDetectContainerExitCodeEmitsClassifiedEvent(t *testing.T) {
 	now := time.Date(2026, 3, 11, 18, 20, 0, 0, time.UTC)
 	emitter := &recordingEmitter{}
@@ -98,6 +143,34 @@ func TestDetectContainerExitCodeEmitsClassifiedEvent(t *testing.T) {
 	}
 	if event.ExitCode != 127 || event.Category != "CommandNotFound" {
 		t.Fatalf("unexpected exit code classification: code=%d category=%s", event.ExitCode, event.Category)
+	}
+}
+
+func TestDetectContainerExitCodeSkipsCrashLoopPods(t *testing.T) {
+	now := time.Date(2026, 3, 11, 18, 22, 0, 0, time.UTC)
+	emitter := &recordingEmitter{}
+	w := NewPodWatcher(nil, emitter, logr.Discard(), PodWatcherConfig{AgentName: "agent-a"})
+	w.clock = func() time.Time { return now }
+
+	newPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "development", Name: "svc", UID: types.UID("pod-dup")},
+		Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{{
+			Name:         "app",
+			RestartCount: 3,
+			State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{
+				Reason: string(EventTypeCrashLoopBackOff),
+			}},
+			LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+				ExitCode: 127,
+				Reason:   "Error",
+			}},
+		}}},
+	}
+
+	w.detectContainerExitCode(nil, newPod)
+
+	if len(emitter.events) != 0 {
+		t.Fatalf("expected no standalone exit-code event for crash loop pod, got %d", len(emitter.events))
 	}
 }
 

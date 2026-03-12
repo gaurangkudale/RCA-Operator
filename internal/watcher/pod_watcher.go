@@ -199,14 +199,9 @@ func (w *PodWatcher) detectCrashLoop(oldPod, newPod *corev1.Pod) {
 		}
 
 		// Extract last exit code and classification to enrich the incident.
-		exitCode, category, description := int32(0), "", ""
-		terminated := status.LastTerminationState.Terminated
-		if terminated == nil {
-			terminated = status.State.Terminated
-		}
-		if terminated != nil && terminated.ExitCode != 0 && terminated.Reason != string(EventTypeOOMKilled) {
-			exitCode = terminated.ExitCode
-			category, description = classifyExitCode(exitCode)
+		exitCode, _, category, description, ok := classifiedExitInfo(status)
+		if !ok {
+			exitCode, category, description = 0, "", ""
 		}
 
 		w.emitter.Emit(CrashLoopBackOffEvent{
@@ -237,7 +232,7 @@ func (w *PodWatcher) detectOOMKilled(oldPod, newPod *corev1.Pod) {
 		// manual pod deletions, and other SIGKILL scenarios all produce exit code 137
 		// with reason="Error".  Those signals are handled by event_watcher (ProbeFailure)
 		// or detectContainerExitCode, not here.
-		if terminated.Reason != "OOMKilled" {
+		if terminated.Reason != string(EventTypeOOMKilled) {
 			continue
 		}
 
@@ -256,25 +251,18 @@ func (w *PodWatcher) detectOOMKilled(oldPod, newPod *corev1.Pod) {
 }
 
 func (w *PodWatcher) detectContainerExitCode(oldPod, newPod *corev1.Pod) {
+	if isInCrashLoop(newPod) {
+		return
+	}
+
 	oldStatuses := statusByContainer(oldPod)
 	for _, status := range newPod.Status.ContainerStatuses {
-		terminated := status.LastTerminationState.Terminated
-		if terminated == nil {
-			terminated = status.State.Terminated
-		}
-		if terminated == nil {
+		exitCode, reason, category, description, ok := classifiedExitInfo(status)
+		if !ok {
 			continue
 		}
-		if terminated.ExitCode == 0 {
-			continue
-		}
-		// OOM has dedicated handling and incident type; Skip if OOM detected.
-		if terminated.ExitCode == 137 || terminated.Reason == "OOMKilled" {
-			continue
-		}
-		// Skip if pod is in CrashLoopBackOff; exit code is already included in the
-		// CrashLoopBackOffEvent as diagnostic context.
-		if isInCrashLoop(newPod) {
+		// Exit code 137 is too ambiguous on its own and is handled elsewhere.
+		if exitCode == 137 {
 			continue
 		}
 
@@ -283,12 +271,11 @@ func (w *PodWatcher) detectContainerExitCode(oldPod, newPod *corev1.Pod) {
 			continue
 		}
 
-		category, description := classifyExitCode(terminated.ExitCode)
 		w.emitter.Emit(ContainerExitCodeEvent{
 			BaseEvent:     baseEventFromPod(newPod, w.config.AgentName, w.clock()),
 			ContainerName: status.Name,
-			ExitCode:      terminated.ExitCode,
-			Reason:        terminated.Reason,
+			ExitCode:      exitCode,
+			Reason:        reason,
 			Category:      category,
 			Description:   description,
 		})
@@ -631,11 +618,32 @@ func isInCrashLoop(pod *corev1.Pod) bool {
 		return false
 	}
 	for _, status := range pod.Status.ContainerStatuses {
-		if status.State.Waiting != nil && status.State.Waiting.Reason == "CrashLoopBackOff" {
+		if status.State.Waiting != nil && status.State.Waiting.Reason == string(EventTypeCrashLoopBackOff) {
 			return true
 		}
 	}
 	return false
+}
+
+func lastTerminatedState(status corev1.ContainerStatus) *corev1.ContainerStateTerminated {
+	terminated := status.LastTerminationState.Terminated
+	if terminated != nil {
+		return terminated
+	}
+	return status.State.Terminated
+}
+
+func classifiedExitInfo(status corev1.ContainerStatus) (exitCode int32, reason, category, description string, ok bool) {
+	terminated := lastTerminatedState(status)
+	if terminated == nil {
+		return 0, "", "", "", false
+	}
+	if terminated.ExitCode == 0 || terminated.Reason == string(EventTypeOOMKilled) {
+		return 0, "", "", "", false
+	}
+
+	category, description = classifyExitCode(terminated.ExitCode)
+	return terminated.ExitCode, terminated.Reason, category, description, true
 }
 
 func classifyExitCode(exitCode int32) (string, string) {
