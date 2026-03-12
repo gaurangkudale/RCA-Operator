@@ -1,17 +1,12 @@
-# RCA-operator
-An AI-powered SRE Operator that watches your cluster 24x7 and does autonomous root cause analysis. Let me design the full architecture.
-
-That's a brilliant idea! An **AI-powered SRE Operator** that watches your cluster 24x7 and does autonomous root cause analysis. Let me design the full architecture.
+# Architecture
 
 ---
 
-## RCA — AI SRE Operator Architecture
-
-### Core Philosophy
+## Core Philosophy
 
 ```
 Traditional SRE:  Alert → Human → Investigate → Fix → Post-mortem
-RCA SRE:     Alert → Detect → Correlate → RCA → Fix → Report  (autonomous)
+RCA SRE:          Alert → Detect → Correlate → RCA → Fix → Report  (autonomous)
 ```
 
 ---
@@ -20,30 +15,108 @@ RCA SRE:     Alert → Detect → Correlate → RCA → Fix → Report  (autonom
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                        Kubernetes Cluster                                │
+│                         Kubernetes Cluster                              │
 │                                                                         │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                     RCA SRE Operator                        │   │
+│  ┌────────────────────────────────────────────────────────────────-─┐   │
+│  │                     RCA SRE Operator                             │   │
 │  │                                                                  │   │
-│  │  ┌─────────────┐  ┌──────────────┐  ┌────────────────────────┐ │   │
-│  │  │   Watcher   │  │  Correlator  │  │     RCA Engine         │ │   │
-│  │  │   Layer     │─►│   & Triage   │─►│   (AI/Rule-based)      │ │   │
-│  │  └─────────────┘  └──────────────┘  └──────────┬─────────────┘ │   │
-│  │                                                 │               │   │
-│  │  ┌─────────────┐  ┌──────────────┐  ┌──────────▼─────────────┐ │   │
-│  │  │  Remediation│◄─│  Decision    │◄─│   Incident Manager     │ │   │
-│  │  │  Engine     │  │  Engine      │  │                        │ │   │
-│  │  └─────────────┘  └──────────────┘  └────────────────────────┘ │   │
+│  │  ┌─────────────┐  ┌──────────────┐  ┌────────────────────────┐   │   │
+│  │  │   Watcher   │  │  Correlator  │  │     RCA Engine         │   │   │
+│  │  │   Layer     │─►│   & Triage   │─►│  (Rules + AI/LLM)      │   │   │
+│  │  └─────────────┘  └──────────────┘  └──────────┬─────────────┘   │   │
+│  │                                                │                 │   │
+│  │  ┌─────────────┐  ┌──────────────┐  ┌──────────▼─────────────┐   │   │
+│  │  │  Remediation│◄─│  Decision    │◄─│   Incident Manager     │   │   │
+│  │  │  Engine     │  │  Engine      │  │                        │   │   │
+│  │  └─────────────┘  └──────────────┘  └────────────────────────┘   │   │
 │  │                                                                  │   │
-│  │  ┌──────────────────────────────────────────────────────────┐   │   │
-│  │  │               Reporting & Notification Layer              │   │   │
-│  │  └──────────────────────────────────────────────────────────┘   │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
+│  │  ┌──────────────────────────────────────────────────────────┐    │   │
+│  │  │           Reporting & Notification Layer                 │    │   │
+│  │  │    Slack · PagerDuty · Email · Webhooks · K8s Events     │    │   │
+│  │  └──────────────────────────────────────────────────────────┘    │   │
+│  └─────────────────────────────────────────────────────────────────-┘   │
 │                                                                         │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────┐  │
-│  │  Pods    │ │ Services │ │  Nodes   │ │  Events  │ │  Ingress   │  │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └────────────┘  │
+│   Watched Resources:                                                    │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────┐     │
+│  │  Pods    │ │ Services │ │  Nodes   │ │  Events  │ │ Deployments│     │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └────────────┘     │
 └─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## How an Incident Flows
+
+```
+[1]  Pod enters CrashLoopBackOff
+[2]  Watcher detects event stream anomaly
+[3]  Correlator links: CrashLoop + OOMKilled + recent deployment at T-4min
+[4]  Incident created with severity P2
+[5]  Evidence Gatherer pulls logs, describe output, metrics, deploy history
+[6]  Rule Analyzer: "OOM after deploy" → 80% confidence
+     AI Analyzer:   reads logs → "heap not freed in request handler" → 94% confidence
+[7]  RCA Report generated with timeline and blast radius
+[8]  Decision Engine: autonomy level 2 → safe to auto-rollback
+[9]  Remediation: rollback deployment + annotate resource
+[10] Slack: "🔴 P2 Incident | RCA: Memory leak in v2.3.1 | Auto-rolled back ✅"
+[11] IncidentReport CR created in namespace
+[12] Post-mortem draft generated and sent to team
+```
+
+---
+
+## Layer Responsibilities
+
+### Layer 1 — Watcher Layer
+
+The observation engine. Registers controller-runtime informers against the Kubernetes API server, detects failure signals in real time, and emits typed events to the correlator channel.
+
+**Phase 1 implementation:** `PodWatcher` — detects CrashLoopBackOff, OOMKilled, ImagePullBackOff, ContainerExitCode, PodPendingTooLong, GracePeriodViolation, PodHealthy, PodDeleted.
+
+→ See [reference/watcher.md](../reference/watcher.md) for the full event catalog.
+
+### Layer 2 — Correlator & Triage
+
+Consumes the watcher event channel, deduplicates signals, groups related events into a single `IncidentReport`, and assigns severity (P1–P4).
+
+**Correlation rules (examples):**
+- Pod CrashLoop + high memory + OOM event → "Memory Leak"
+- Multiple pods down + node NotReady → "Node Failure cascading to pods"
+- 5xx spike + recent deployment + config change → "Bad deployment"
+
+### Layer 3 — RCA Engine *(Phase 2+)*
+
+Performs deep root cause analysis. An **Evidence Gatherer** collects logs, metrics, and describe output; a **Rule Analyzer** matches known patterns; an **AI/LLM Analyzer** provides natural-language diagnosis and confidence scoring.
+
+### Layer 4 — Decision Engine *(Phase 2+)*
+
+Enforces the configured autonomy level (0–3) before passing actions to the Remediation Engine. See [reference/rcaagent-crd.md](../reference/rcaagent-crd.md#autonomy-levels) for the level definitions.
+
+### Layer 5 — Remediation Engine *(Phase 3+)*
+
+Executes approved actions: pod restarts, deployment rollbacks, scaling, node cordoning. Each action type is implemented as a discrete playbook.
+
+### Layer 6 — Reporting & Notification
+
+Posts incident summaries to Slack / PagerDuty and persists the full timeline as an `IncidentReport` CR in the affected namespace.
+
+---
+
+## Source Layout
+
+```
+cmd/main.go                    Manager entry point
+api/v1alpha1/                  CRD types (RCAAgent, IncidentReport)
+internal/
+  watcher/                     Pod informer + event types
+  correlator/                  Signal correlation + incident creation
+  controller/                  Reconciliation logic for both CRDs
+  retention/                   Periodic cleanup of resolved IncidentReports
+config/
+  crd/bases/                   Generated CRDs (do not edit)
+  rbac/                        Generated RBAC (do not edit)
+  samples/                     Minimal example CRs
+test/fixtures/                 Local scenario fixtures for manual testing
 ```
 
 ---
@@ -56,9 +129,9 @@ This is the data collection brain. It watches everything happening in the cluste
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                        Watcher Layer                          │
+│                        Watcher Layer                         │
 │                                                              │
-│  ┌─────────────────┐   ┌──────────────────┐                 │
+│  ┌─────────────────┐   ┌──────────────────┐                  │
 │  │  K8s Event      │   │  Metrics Watcher  │                 │
 │  │  Watcher        │   │  (cAdvisor/HPA)   │                 │
 │  │                 │   │                   │                 │
@@ -66,16 +139,16 @@ This is the data collection brain. It watches everything happening in the cluste
 │  │ - CrashLoop     │   │ - Memory pressure │                 │
 │  │ - BackoffFailed │   │ - Throttling      │                 │
 │  │ - NodePressure  │   │ - Network I/O     │                 │
-│  └────────┬────────┘   └─────────┬─────────┘                │
+│  └────────┬────────┘   └─────────┬─────────┘                 │
 │           │                      │                           │
-│  ┌────────▼────────┐   ┌─────────▼────────┐                 │
+│  ┌────────▼────────┐   ┌─────────▼────────┐                  │
 │  │  Log Watcher    │   │  Endpoint/Service │                 │
 │  │                 │   │  Health Watcher   │                 │
 │  │ - Error patterns│   │                   │                 │
 │  │ - Stack traces  │   │ - 5xx rates       │                 │
 │  │ - Panic logs    │   │ - Latency spikes  │                 │
 │  │ - OOM messages  │   │ - DNS failures    │                 │
-│  └────────┬────────┘   └─────────┬─────────┘                │
+│  └────────┬────────┘   └─────────┬─────────┘                 │
 │           │                      │                           │
 │           └──────────┬───────────┘                           │
 │                      ▼                                       │
@@ -104,24 +177,24 @@ Takes raw events and correlates them into **meaningful incidents** — not just 
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                    Correlator Engine                          │
+│                    Correlator Engine                         │
 │                                                              │
 │   Raw Events ──► Deduplication ──► Correlation ──► Incident  │
 │                                                              │
 │  Correlation Rules:                                          │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │ IF pod CrashLoop + high memory + OOM event           │   │
-│  │   → Incident: "Memory Leak in pod X"                 │   │
-│  │                                                      │   │
-│  │ IF multiple pods down + node NotReady                │   │
-│  │   → Incident: "Node Failure cascading to pods"       │   │
-│  │                                                      │   │
-│  │ IF 5xx spike + recent deployment + config change     │   │
-│  │   → Incident: "Bad deployment causing errors"        │   │
-│  │                                                      │   │
-│  │ IF PVC pending + storageClass missing                │   │
-│  │   → Incident: "Storage provisioning failure"         │   │
-│  └──────────────────────────────────────────────────────┘   │
+│  ┌──────────────────────────────────────────────────────┐    │
+│  │ IF pod CrashLoop + high memory + OOM event           │    │
+│  │   → Incident: "Memory Leak in pod X"                 │    │
+│  │                                                      │    │
+│  │ IF multiple pods down + node NotReady                │    │
+│  │   → Incident: "Node Failure cascading to pods"       │    │
+│  │                                                      │    │
+│  │ IF 5xx spike + recent deployment + config change     │    │
+│  │   → Incident: "Bad deployment causing errors"        │    │
+│  │                                                      │    │
+│  │ IF PVC pending + storageClass missing                │    │
+│  │   → Incident: "Storage provisioning failure"         │    │
+│  └──────────────────────────────────────────────────────┘    │
 │                                                              │
 │  Severity Scoring:                                           │
 │    P1 (Critical) → cluster-wide impact                       │
@@ -146,19 +219,19 @@ This is the most powerful part. It performs deep root cause analysis using a com
 │      ▼                                                       │
 │  ┌────────────────────┐                                      │
 │  │  Evidence Gatherer │  ← pulls logs, metrics, events,      │
-│  │                    │    k8s describe, recent changes       │
+│  │                    │    k8s describe, recent changes      │
 │  └────────┬───────────┘                                      │
 │           │                                                  │
 │           ▼                                                  │
-│  ┌────────────────────┐   ┌─────────────────────────────┐   │
-│  │  Rule-Based        │   │  AI/LLM Analysis            │   │
-│  │  Analyzer          │   │  (Claude/OpenAI/local LLM)  │   │
-│  │                    │   │                             │   │
-│  │ - Known patterns   │   │ - Analyze logs + events     │   │
-│  │ - Runbook matching │   │ - Correlate timeline        │   │
-│  │ - SLO breach calc  │   │ - Suggest root cause        │   │
-│  │ - Dependency graph │   │ - Propose remediation       │   │
-│  └────────┬───────────┘   └──────────────┬──────────────┘   │
+│  ┌────────────────────┐   ┌─────────────────────────────┐    │
+│  │  Rule-Based        │   │  AI/LLM Analysis            │    │
+│  │  Analyzer          │   │  (Claude/OpenAI/local LLM)  │    │
+│  │                    │   │                             │    │
+│  │ - Known patterns   │   │ - Analyze logs + events     │    │
+│  │ - Runbook matching │   │ - Correlate timeline        │    │
+│  │ - SLO breach calc  │   │ - Suggest root cause        │    │
+│  │ - Dependency graph │   │ - Propose remediation       │    │
+│  └────────┬───────────┘   └──────────────┬──────────────┘    │
 │           │                              │                   │
 │           └──────────────┬───────────────┘                   │
 │                          ▼                                   │
@@ -182,7 +255,7 @@ Critical design — how much should the operator act on its own?
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                    Decision Engine                            │
+│                    Decision Engine                           │
 │                                                              │
 │   Autonomy Levels (configurable per namespace/incident type) │
 │                                                              │
@@ -218,7 +291,7 @@ Pre-built remediation playbooks the operator can execute:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                   Remediation Playbooks                       │
+│                   Remediation Playbooks                      │
 │                                                              │
 │  CrashLoopBackOff                                            │
 │  ├── Capture logs before restart                             │
@@ -256,7 +329,7 @@ Pre-built remediation playbooks the operator can execute:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                  Reporting Layer                              │
+│                  Reporting Layer                             │
 │                                                              │
 │  Real-time Channels:                                         │
 │  ├── Slack     → incident start, RCA, resolution             │
