@@ -248,6 +248,8 @@ status:
 | `status.phase` | `string` | Enum: `Detecting` \| `Active` \| `Resolved` |
 | `status.incidentType` | `string` | Enum: `CrashLoop` \| `OOM` \| `BadDeploy` \| `NodeFailure` \| `Registry` \| `GracePeriodViolation` |
 | `status.startTime` | `*metav1.Time` | RFC3339 timestamp — set when incident is first detected |
+
+For CrashLoop incidents, the correlator may also embed the last classified non-OOM exit code directly into the incident summary, for example `exitCode=126 category=PermissionDenied`.
 | `status.resolvedTime` | `*metav1.Time` | RFC3339 timestamp — empty while still active |
 | `status.notified` | `bool` | Dedup gate — set to `true` after first notification fires; prevents duplicate alerts |
 | `status.affectedResources` | `[]AffectedResource` | `kind`, `name`, `namespace` of each impacted resource (`+listType=atomic`) |

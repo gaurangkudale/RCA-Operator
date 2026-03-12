@@ -2,7 +2,7 @@
 # ────────────────────────────
 # Expected watcher signal : CrashLoopBackOff → PodHealthy
 # Expected incident lifecycle:
-#   1. Incident created (CrashLoopBackOff)
+#   1. Incident created (CrashLoop)
 #   2. Incident auto-resolved (PodHealthy after readyStabilityWindow = 60 s)
 #   3. Incident pruned after incidentRetention window (5 m in test agents)
 #

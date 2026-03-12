@@ -50,7 +50,7 @@ RCA SRE:          Alert → Detect → Correlate → RCA → Fix → Report  (au
 ```
 [1]  Pod enters CrashLoopBackOff
 [2]  Watcher detects event stream anomaly
-[3]  Correlator links: CrashLoop + OOMKilled + recent deployment at T-4min
+[3]  Correlator links: CrashLoop (with exit-code context) + OOMKilled + recent deployment at T-4min
 [4]  Incident created with severity P2
 [5]  Evidence Gatherer pulls logs, describe output, metrics, deploy history
 [6]  Rule Analyzer: "OOM after deploy" → 80% confidence
@@ -80,7 +80,7 @@ The observation engine. Registers controller-runtime informers against the Kuber
 Consumes the watcher event channel, deduplicates signals, groups related events into a single `IncidentReport`, and assigns severity (P1–P4).
 
 **Correlation rules (examples):**
-- Pod CrashLoop + high memory + OOM event → "Memory Leak"
+- Pod CrashLoop + classified exit code + high memory + OOM event → "Memory Leak"
 - Multiple pods down + node NotReady → "Node Failure cascading to pods"
 - 5xx spike + recent deployment + config change → "Bad deployment"
 
