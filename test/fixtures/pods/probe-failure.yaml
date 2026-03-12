@@ -1,0 +1,99 @@
+# ProbeFailure scenario
+# ─────────────────────
+# Expected watcher signal : ProbeFailure  (K8s Event reason=Unhealthy — liveness probe fails)
+# Expected incident type  : ProbeFailure
+# Severity                : P3
+# Resolution              : Automatic — pod restarts after liveness threshold exceeded;
+#                           on second run httpd starts immediately; pod becomes Ready;
+#                           correlator resolves the incident.
+#
+# How it works:
+#   Attempt 1: container sleeps 60 s before starting httpd.
+#              Liveness probe (initialDelay=5s, period=10s, threshold=2) fires the first
+#              "Unhealthy" K8s Event at ≈25 s. event_watcher emits ProbeFailureEvent.
+#              At ≈25 s kubelet kills the container (threshold exceeded) and restarts it.
+#   Attempt 2: state file records restart=2 → httpd starts at once on :8080.
+#              Probe passes; pod becomes Running+Ready; pod_watcher fires PodHealthyEvent;
+#              correlator patches the IncidentReport to phase=Resolved.
+#
+# Apply:
+#   kubectl apply -f test/fixtures/pods/probe-failure.yaml
+# Watch:
+#   kubectl get incidentreports -n development -w
+# Verify probe type in incident:
+#   kubectl get incidentreport -n development -o yaml | grep -E 'probeType|ProbeFailure|P3'
+# Cleanup:
+#   kubectl delete pod probe-failure-demo -n development
+#   kubectl delete incidentreports -n development -l rca.rca-operator.io/incident-type=ProbeFailure
+apiVersion: v1
+kind: Pod
+metadata:
+  name: probe-failure-demo
+  namespace: development
+  labels:
+    app: probe-failure-demo
+    rca.rca-operator.io/fixture: "true"
+    rca.rca-operator.io/scenario: probe-failure
+spec:
+  restartPolicy: Always
+  volumes:
+  - name: state
+    emptyDir: {}
+  containers:
+  - name: app
+    image: busybox
+    volumeMounts:
+    - name: state
+      mountPath: /state
+    command:
+      - /bin/sh
+      - -c
+      - |
+        COUNT_FILE=/state/restart-count
+        COUNT=0
+        if [ -f "$COUNT_FILE" ]; then
+          COUNT=$(cat "$COUNT_FILE")
+        fi
+        COUNT=$((COUNT+1))
+        echo "$COUNT" > "$COUNT_FILE"
+        echo "ProbeFailure fixture: start attempt $COUNT"
+
+        # On the first attempt, delay starting the HTTP server so the liveness probe
+        # fires "Unhealthy" K8s Events.  The probe runs after 5 s (initialDelay),
+        # every 10 s with failureThreshold=2, so the container is killed at ~25 s.
+        if [ "$COUNT" -le 1 ]; then
+          echo "Delaying httpd to trigger liveness probe failures"
+          sleep 60
+        fi
+
+        # From attempt 2 onward, serve immediately so the pod becomes Ready
+        # and the incident is auto-resolved.
+        echo "Starting HTTP server on :8080"
+        mkdir -p /www && echo "OK" > /www/index.html
+        exec busybox httpd -f -p 8080 -h /www
+
+    livenessProbe:
+      httpGet:
+        path: /
+        port: 80
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      failureThreshold: 2
+      successThreshold: 1
+
+    readinessProbe:
+      httpGet:
+        path: /
+        port: 80
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+
+    resources:
+      requests:
+        memory: "32Mi"
+        cpu: "50m"
+      limits:
+        memory: "64Mi"
+        cpu: "100m"

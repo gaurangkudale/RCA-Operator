@@ -1,0 +1,64 @@
+# PodEviction scenario
+# ─────────────────────
+# Expected watcher signal : PodEvicted  (K8s Event reason=Evicted emitted by kubelet)
+# Expected incident type  : NodeFailure
+# Severity                : P2
+# Resolution              : Manual — evicted pods are not rescheduled; delete the pod
+#                           and IncidentReport when done.
+#
+# How to trigger (two methods — use whichever suits your cluster):
+#
+# Method A — Eviction API (safe, works on any cluster):
+#   kubectl evict pod-eviction-demo --namespace development
+#   kubectl get incidentreports -n development -w
+#
+# Method B — Memory pressure eviction (realistic, Kind only):
+#   This pod already requests near-node-maximum RAM so kubelet's eviction manager
+#   eventually evicts it under node memory pressure.  On resource-constrained Kind
+#   clusters the eviction fires within 60–120 s.
+#
+# Apply:
+#   kubectl apply -f test/fixtures/pods/pod-eviction.yaml
+# Then trigger with Method A (recommended):
+#   kubectl evict pod-eviction-demo --namespace development
+# Watch:
+#   kubectl get incidentreports -n development -w
+# Inspect:
+#   kubectl describe incidentreport -n development \
+#     $(kubectl get incidentreports -n development -l rca.rca-operator.io/incident-type=NodeFailure \
+#       -o jsonpath='{.items[0].metadata.name}')
+# Cleanup:
+#   kubectl delete pod pod-eviction-demo -n development --ignore-not-found
+#   kubectl delete incidentreports -n development -l rca.rca-operator.io/incident-type=NodeFailure
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-eviction-demo
+  namespace: development
+  labels:
+    app: pod-eviction-demo
+    rca.rca-operator.io/fixture: "true"
+    rca.rca-operator.io/scenario: pod-eviction
+spec:
+  # Never restart so the evicted pod stays in Failed/Evicted state, making it easy to
+  # observe the incident before manual cleanup.
+  restartPolicy: Never
+  containers:
+  - name: app
+    image: busybox
+    command:
+      - /bin/sh
+      - -c
+      - |
+        echo "PodEviction fixture: running — trigger eviction with:"
+        echo "  kubectl evict pod-eviction-demo --namespace development"
+        while true; do
+          sleep 30
+        done
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+        cpu: "200m"

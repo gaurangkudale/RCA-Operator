@@ -32,6 +32,24 @@ func TestShouldPruneIncidentReport(t *testing.T) {
 	if shouldPruneIncidentReport(active, now, time.Hour) {
 		t.Fatal("expected active incident to be kept")
 	}
+
+	// Empty-phase (zombie) incidents older than retention should be pruned.
+	zombieOld := &rcav1alpha1.IncidentReport{
+		ObjectMeta: metav1.ObjectMeta{CreationTimestamp: metav1.NewTime(now.Add(-2 * time.Hour))},
+		Status:     rcav1alpha1.IncidentReportStatus{Phase: ""},
+	}
+	if !shouldPruneIncidentReport(zombieOld, now, time.Hour) {
+		t.Fatal("expected old zombie incident to be pruned")
+	}
+
+	// Empty-phase incidents created recently should be kept.
+	zombieRecent := &rcav1alpha1.IncidentReport{
+		ObjectMeta: metav1.ObjectMeta{CreationTimestamp: metav1.NewTime(now.Add(-10 * time.Minute))},
+		Status:     rcav1alpha1.IncidentReportStatus{Phase: ""},
+	}
+	if shouldPruneIncidentReport(zombieRecent, now, time.Hour) {
+		t.Fatal("expected recent zombie incident to be kept")
+	}
 }
 
 func TestCleanupResolvedIncidents(t *testing.T) {
@@ -83,11 +101,22 @@ func TestCleanupResolvedIncidents(t *testing.T) {
 			ResolvedTime: ptrTime(metav1.NewTime(now.Add(-4 * time.Hour))),
 		},
 	}
+	// zombie: empty phase, belongs to agent-a, older than retention window.
+	zombie := &rcav1alpha1.IncidentReport{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "zombie",
+			Namespace:         "development",
+			CreationTimestamp: metav1.NewTime(now.Add(-2 * time.Hour)),
+			Labels:            map[string]string{incidentAgentLabelKey: "agent-a"},
+		},
+		Spec:   rcav1alpha1.IncidentReportSpec{AgentRef: "agent-a"},
+		Status: rcav1alpha1.IncidentReportStatus{Phase: ""},
+	}
 
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
-		WithObjects(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "development"}}, oldResolved, recentResolved, active, otherAgent).
+		WithObjects(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "development"}}, oldResolved, recentResolved, active, otherAgent, zombie).
 		Build()
 
 	reconciler := &RCAAgentReconciler{Client: c, nowFn: func() time.Time { return now }}
@@ -109,6 +138,11 @@ func TestCleanupResolvedIncidents(t *testing.T) {
 	}
 	if err := c.Get(context.Background(), types.NamespacedName{Name: "other-agent", Namespace: "development"}, stillThere); err != nil {
 		t.Fatalf("expected other-agent incident to remain: %v", err)
+	}
+
+	// zombie should be pruned — it's old and has no phase.
+	if err := c.Get(context.Background(), types.NamespacedName{Name: "zombie", Namespace: "development"}, notFound); err == nil {
+		t.Fatal("expected zombie (empty-phase) incident to be deleted")
 	}
 }
 

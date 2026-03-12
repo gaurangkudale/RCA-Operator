@@ -178,6 +178,7 @@ spec:
                 - Registry
                 - ExitCode
                 - GracePeriodViolation
+                - ProbeFailure
                 type: string
               notified:
                 description: |-
