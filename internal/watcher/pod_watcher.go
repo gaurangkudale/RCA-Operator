@@ -242,6 +242,13 @@ func (w *PodWatcher) detectOOMKilled(oldPod, newPod *corev1.Pod) {
 }
 
 func (w *PodWatcher) detectContainerExitCode(oldPod, newPod *corev1.Pod) {
+	// If the pod is in CrashLoopBackOff, don't emit ContainerExitCode signals.
+	// CrashLoopBackOff is the higher-level incident type; individual exit codes
+	// are less relevant once a crash loop pattern is detected.
+	if isInCrashLoop(newPod) {
+		return
+	}
+
 	oldStatuses := statusByContainer(oldPod)
 	for _, status := range newPod.Status.ContainerStatuses {
 		terminated := status.LastTerminationState.Terminated
@@ -605,6 +612,18 @@ func podReadySince(pod *corev1.Pod, fallback time.Time) time.Time {
 		return condition.LastTransitionTime.Time
 	}
 	return fallback
+}
+
+func isInCrashLoop(pod *corev1.Pod) bool {
+	if pod == nil {
+		return false
+	}
+	for _, status := range pod.Status.ContainerStatuses {
+		if status.State.Waiting != nil && status.State.Waiting.Reason == "CrashLoopBackOff" {
+			return true
+		}
+	}
+	return false
 }
 
 func classifyExitCode(exitCode int32) (string, string) {

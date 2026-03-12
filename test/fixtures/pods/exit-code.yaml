@@ -34,3 +34,86 @@ spec:
         echo "Intentional non-zero exit for ContainerExitCode incident"
         # exit 127 = CommandNotFound — see docs/reference/watcher.md exit code table
         /definitely-not-a-real-command
+---
+
+
+# PermissionDenied scenario (exit code 126)
+# ─────────────────────────────────────────
+# Expected watcher signal : ContainerExitCode  (exitCode=126, category=PermissionDenied)
+# Expected incident type  : ExitCode
+# Severity                : P3
+# Resolution              : Automatic after pod stays Ready for readyStabilityWindow (default 60 s)
+#
+# How it works:
+#   The container creates a script file but does NOT mark it executable.
+#   When the script tries to run the file, the shell returns exit code 126
+#   (Command invoked cannot execute — permission denied).
+#   The pod restarts, this time with execute permission granted, so it runs
+#   successfully and the pod becomes Ready.
+#
+# Apply:
+#   kubectl apply -f test/fixtures/pods/permission-denied.yaml
+# Watch:
+#   kubectl get incidentreports -n development -w
+# Verify exit code and category in the incident:
+#   kubectl get incidentreport -n development -o yaml | grep -E 'exitCode|PermissionDenied|P3'
+# Cleanup:
+#   kubectl delete pod permission-denied-demo -n development
+#   kubectl delete incidentreports -n development -l rca.rca-operator.io/incident-type=ExitCode
+apiVersion: v1
+kind: Pod
+metadata:
+  name: permission-denied-demo
+  namespace: development
+  labels:
+    app: permission-denied-demo
+    rca.rca-operator.io/fixture: "true"
+    rca.rca-operator.io/scenario: permission-denied
+spec:
+  restartPolicy: Always
+  volumes:
+  - name: state
+    emptyDir: {}
+  containers:
+  - name: app
+    image: busybox
+    volumeMounts:
+    - name: state
+      mountPath: /state
+    command:
+      - /bin/sh
+      - -c
+      - |
+        COUNT_FILE=/state/restart-count
+        COUNT=0
+        if [ -f "$COUNT_FILE" ]; then
+          COUNT=$(cat "$COUNT_FILE")
+        fi
+        COUNT=$((COUNT+1))
+        echo "$COUNT" > "$COUNT_FILE"
+        echo "PermissionDenied fixture: start attempt $COUNT"
+
+        # On the first attempt, create a script without execute permission.
+        # Trying to run it will return exit code 126.
+        if [ "$COUNT" -le 1 ]; then
+          echo "Creating non-executable script to trigger exit code 126"
+          cat > /tmp/script.sh << 'SCRIPT'
+        #!/bin/sh
+        echo "This will never run"
+        SCRIPT
+          # Do NOT chmod +x — leave it non-executable so execution fails with 126
+          /tmp/script.sh
+        fi
+
+        # From attempt 2 onward, make the script executable so it runs successfully.
+        echo "Making script executable and running it"
+        chmod +x /tmp/script.sh
+        exec /tmp/script.sh
+
+    resources:
+      requests:
+        memory: "32Mi"
+        cpu: "50m"
+      limits:
+        memory: "64Mi"
+        cpu: "100m"
