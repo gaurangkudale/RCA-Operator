@@ -48,6 +48,8 @@ kubectl apply -f test/fixtures/pods/crashloop.yaml
 kubectl get incidentreports -n default -w
 ```
 
+For exit-code validation, use `test/fixtures/pods/exit-code.yaml`. The operator no longer creates a standalone `ExitCode` incident; instead, the resulting `CrashLoop` incident includes the classified exit-code context in its summary and timeline.
+
 ## Build and Push the Docker Image
 
 ```bash

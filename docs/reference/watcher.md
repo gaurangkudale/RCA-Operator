@@ -30,7 +30,7 @@ The channel is shared across all `RCAAgent` instances managed by the same operat
 
 ## Event Types
 
-The watcher emits eight discrete event types. Each type carries a `BaseEvent` (shared context) plus event-specific fields.
+The `PodWatcher` emits seven discrete event types. Each type carries a `BaseEvent` (shared context) plus event-specific fields.
 
 ### BaseEvent — Fields Carried by All Events
 
@@ -55,8 +55,13 @@ The watcher emits eight discrete event types. Each type carries a `BaseEvent` (s
 | `ContainerName` | `string` | Name of the crashing container                     |
 | `RestartCount`  | `int32`  | Current container restart count                    |
 | `Threshold`     | `int32`  | Configured restart threshold that was exceeded     |
+| `LastExitCode`  | `int32`  | Last non-zero, non-OOM exit code seen before the loop, if available |
+| `ExitCodeCategory` | `string` | Classified category for `LastExitCode` (for example `PermissionDenied`) |
+| `ExitCodeDescription` | `string` | Human-readable explanation for `ExitCodeCategory` |
 
 **Dedup key:** `CrashLoopBackOff:<namespace>:<pod>:<container>`
+
+When the crashing container has a recent non-zero termination, the watcher attaches that exit code to the `CrashLoopBackOff` event instead of emitting a separate `ExitCode` incident. This keeps the incident model to a single `CrashLoop` incident while preserving the diagnostic detail needed to understand why the container is looping.
 
 ---
 
@@ -170,6 +175,12 @@ Events are only emitted for pods in listed namespaces. Filtering is enforced in 
 ## Exit Code Classification
 
 CrashLoop incidents attach the last non-zero, non-OOM exit code as diagnostic context using the categories below.
+
+Example incident summary:
+
+```text
+CrashLoopBackOff restarts=5 threshold=3 exitCode=126 category=PermissionDenied description=Command invoked cannot execute
+```
 
 | Exit Code | Category            | Description                             |
 |-----------|---------------------|-----------------------------------------|

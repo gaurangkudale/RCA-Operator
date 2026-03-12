@@ -95,7 +95,7 @@ kubectl apply -f config/samples/rca_v1alpha1_rcaagent.yaml
 | [Quick Start](docs/getting-started/quickstart.md) | Deploy your first agent in 5 minutes |
 | [Architecture](docs/concepts/Architecture.md) | System design and data flow |
 | [RCAAgent CRD Reference](docs/reference/rcaagent-crd.md) | Full field reference, autonomy levels |
-| [Watcher Reference](docs/reference/watcher.md) | Event catalog, detection thresholds, exit code table |
+| [Watcher Reference](docs/reference/watcher.md) | Event catalog, detection thresholds, and CrashLoop exit-code context |
 | [RBAC Reference](docs/reference/rbac.md) | Permissions explained |
 | [Local Development](docs/development/local-setup.md) | Run the operator locally with Kind |
 | [Testing Guide](docs/development/testing.md) | Unit, integration, and e2e testing |

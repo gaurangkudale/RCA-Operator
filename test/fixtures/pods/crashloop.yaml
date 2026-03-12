@@ -1,11 +1,12 @@
 # CrashLoopBackOff scenario
 # ─────────────────────────
 # Expected watcher signal : CrashLoopBackOff (restartCount >= 3)
-# Expected incident type  : CrashLoopBackOff
+# Expected incident type  : CrashLoop
 # Resolution              : Automatic after pod stays Ready for readyStabilityWindow (default 60 s)
 #
 # The container deliberately exits with code 1 on the first four restarts, then stays
 # healthy so the incident is created and resolved within one test run.
+# The incident summary may include the latest exit-code classification when available.
 #
 # Apply:
 #   kubectl apply -f test/fixtures/pods/crashloop.yaml
