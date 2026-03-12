@@ -193,9 +193,17 @@ func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, inci
 		return e.Namespace, e.PodName, e.AgentName, "OOM", "P2", fmt.Sprintf("OOMKilled exitCode=%d reason=%s", e.ExitCode, e.Reason)
 	case watcher.ImagePullBackOffEvent:
 		return e.Namespace, e.PodName, e.AgentName, "Registry", "P3", fmt.Sprintf("Image pull failure reason=%s", e.Reason)
+	case watcher.ContainerExitCodeEvent:
+		reason := e.Reason
+		if reason == "" {
+			reason = "unknown"
+		}
+		return e.Namespace, e.PodName, e.AgentName, "ExitCode", "P3", fmt.Sprintf("Container exited with non-zero code exitCode=%d category=%s reason=%s description=%s", e.ExitCode, e.Category, reason, e.Description)
 	case watcher.PodPendingTooLongEvent:
 		// Pending can be caused by scheduling/capacity/image/constraints; treat as bad deployment signal for now.
 		return e.Namespace, e.PodName, e.AgentName, "BadDeploy", "P3", fmt.Sprintf("Pod pending too long pendingFor=%s timeout=%s", e.PendingFor.String(), e.Timeout.String())
+	case watcher.GracePeriodViolationEvent:
+		return e.Namespace, e.PodName, e.AgentName, "GracePeriodViolation", "P2", fmt.Sprintf("Pod deletion exceeded grace period grace=%ds overdue=%s", e.GracePeriodSeconds, e.OverdueFor.String())
 	case watcher.PodHealthyEvent:
 		return "", "", "", "", "", ""
 	default:

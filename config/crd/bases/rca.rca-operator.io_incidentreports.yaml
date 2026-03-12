@@ -176,6 +176,8 @@ spec:
                 - BadDeploy
                 - NodeFailure
                 - Registry
+                - ExitCode
+                - GracePeriodViolation
                 type: string
               notified:
                 description: |-

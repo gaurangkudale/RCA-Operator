@@ -62,6 +62,87 @@ func TestTrackReadyStateDoesNotResetReadyTimerAcrossScans(t *testing.T) {
 	}
 }
 
+func TestDetectContainerExitCodeEmitsClassifiedEvent(t *testing.T) {
+	now := time.Date(2026, 3, 11, 18, 20, 0, 0, time.UTC)
+	emitter := &recordingEmitter{}
+	w := NewPodWatcher(nil, emitter, logr.Discard(), PodWatcherConfig{AgentName: "agent-a"})
+	w.clock = func() time.Time { return now }
+
+	oldPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "development", Name: "svc", UID: types.UID("pod-ec")},
+		Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{{
+			Name:         "app",
+			RestartCount: 1,
+		}}},
+	}
+	newPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "development", Name: "svc", UID: types.UID("pod-ec")},
+		Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{{
+			Name:         "app",
+			RestartCount: 2,
+			LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+				ExitCode: 127,
+				Reason:   "Error",
+			}},
+		}}},
+	}
+
+	w.detectContainerExitCode(oldPod, newPod)
+
+	if len(emitter.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(emitter.events))
+	}
+	event, ok := emitter.events[0].(ContainerExitCodeEvent)
+	if !ok {
+		t.Fatalf("expected ContainerExitCodeEvent, got %T", emitter.events[0])
+	}
+	if event.ExitCode != 127 || event.Category != "CommandNotFound" {
+		t.Fatalf("unexpected exit code classification: code=%d category=%s", event.ExitCode, event.Category)
+	}
+}
+
+func TestDetectGracePeriodViolationEmitsOnceAfterDeadline(t *testing.T) {
+	now := time.Date(2026, 3, 11, 18, 25, 0, 0, time.UTC)
+	emitter := &recordingEmitter{}
+	w := NewPodWatcher(nil, emitter, logr.Discard(), PodWatcherConfig{AgentName: "agent-a"})
+	w.clock = func() time.Time { return now }
+
+	deletionTime := metav1.NewTime(now.Add(-40 * time.Second))
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:                  "development",
+			Name:                       "slow-terminating-pod",
+			UID:                        types.UID("pod-gp"),
+			DeletionTimestamp:          &deletionTime,
+			DeletionGracePeriodSeconds: int64Ptr(30),
+		},
+		Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{{
+			Name: "app",
+			State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{
+				StartedAt: metav1.NewTime(now.Add(-10 * time.Minute)),
+			}},
+		}}},
+	}
+
+	w.detectGracePeriodViolation(pod)
+	w.detectGracePeriodViolation(pod)
+
+	if len(emitter.events) != 1 {
+		t.Fatalf("expected 1 grace period violation event, got %d", len(emitter.events))
+	}
+	event, ok := emitter.events[0].(GracePeriodViolationEvent)
+	if !ok {
+		t.Fatalf("expected GracePeriodViolationEvent, got %T", emitter.events[0])
+	}
+	if event.GracePeriodSeconds != 30 {
+		t.Fatalf("expected grace period 30s, got %d", event.GracePeriodSeconds)
+	}
+}
+
+func int64Ptr(v int64) *int64 {
+	return &v
+}
+
 func readyPod(namespace, name, uid string, readySince time.Time) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{

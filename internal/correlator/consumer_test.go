@@ -99,3 +99,37 @@ func TestHandleEventResolvesActiveIncidentWhenPodIsHealthy(t *testing.T) {
 		t.Fatal("expected timeline to include resolve entry")
 	}
 }
+
+func TestMapEventForExitCodeAndGracePeriodViolation(t *testing.T) {
+	namespace, pod, agent, incidentType, severity, summary := mapEvent(watcher.ContainerExitCodeEvent{
+		BaseEvent:   watcher.BaseEvent{Namespace: "development", PodName: "svc", AgentName: "agent-a"},
+		ExitCode:    127,
+		Category:    "CommandNotFound",
+		Reason:      "Error",
+		Description: "Command not found",
+	})
+	if namespace != "development" || pod != "svc" || agent != "agent-a" {
+		t.Fatalf("unexpected mapping for exit-code event: namespace=%s pod=%s agent=%s", namespace, pod, agent)
+	}
+	if incidentType != "ExitCode" || severity != "P3" {
+		t.Fatalf("unexpected incident mapping for exit-code event: type=%s severity=%s", incidentType, severity)
+	}
+	if summary == "" {
+		t.Fatal("expected non-empty summary for exit-code event")
+	}
+
+	namespace, pod, agent, incidentType, severity, summary = mapEvent(watcher.GracePeriodViolationEvent{
+		BaseEvent:          watcher.BaseEvent{Namespace: "development", PodName: "svc", AgentName: "agent-a"},
+		GracePeriodSeconds: 30,
+		OverdueFor:         15 * time.Second,
+	})
+	if namespace != "development" || pod != "svc" || agent != "agent-a" {
+		t.Fatalf("unexpected mapping for grace-period event: namespace=%s pod=%s agent=%s", namespace, pod, agent)
+	}
+	if incidentType != "GracePeriodViolation" || severity != "P2" {
+		t.Fatalf("unexpected incident mapping for grace-period event: type=%s severity=%s", incidentType, severity)
+	}
+	if summary == "" {
+		t.Fatal("expected non-empty summary for grace-period event")
+	}
+}

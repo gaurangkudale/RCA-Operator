@@ -50,8 +50,8 @@ kubectl logs -n rca-operator-system deployment/rca-operator-controller-manager -
 - OOMKilled (exit code 137)
 - ImagePullBackOff
 - Pod pending too long (> 5 minutes)
-- All exit codes classified (1, 2, 126, 127, 130, 134, 137, 139, 143, 255)
-- Grace period violations
+- Non-zero exit code classification for common codes (1, 2, 126, 127, 130, 134, 139, 143, 255)
+- Grace period violation when a deleting pod runs past `DeletionGracePeriodSeconds`
 
 CrashLoopBackOff timing note:
 
