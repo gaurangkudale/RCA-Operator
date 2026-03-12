@@ -17,7 +17,6 @@ Every doc should answer exactly one version of that question.
 
 ## Complete Docs Directory Structure
 
-> TODO: Create a `docs/reference` folder and documentation of CRDs Phase 2
 ```
 rca-operator/
 │
@@ -54,6 +53,7 @@ rca-operator/
 │   │   └── production-checklist.md    ← what to verify before go-live
 │   │
 │   ├── reference/
+│   │   ├── watcher.md                 ← watcher event catalog, config defaults, exit codes ✅
 │   │   ├── rcaagent-crd.md            ← full CRD field reference
 │   │   ├── incidentreport-crd.md      ← full IncidentReport field reference
 │   │   ├── metrics.md                 ← all Prometheus metrics exposed
