@@ -39,11 +39,16 @@ type BaseEvent struct {
 }
 
 // CrashLoopBackOffEvent is emitted when a pod container repeatedly restarts in CrashLoopBackOff.
+// It may include the last exit code and classification to provide diagnostic context.
 type CrashLoopBackOffEvent struct {
 	BaseEvent
 	ContainerName string
 	RestartCount  int32
 	Threshold     int32
+	// Exit code info (optional) — captured from last container termination
+	LastExitCode        int32  // 0 if not available
+	ExitCodeCategory    string // e.g., "PermissionDenied", or empty if not available
+	ExitCodeDescription string // human-readable description, or empty if not available
 }
 
 func (e CrashLoopBackOffEvent) Type() EventType       { return EventTypeCrashLoopBackOff }
