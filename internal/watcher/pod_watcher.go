@@ -218,7 +218,12 @@ func (w *PodWatcher) detectOOMKilled(oldPod, newPod *corev1.Pod) {
 			continue
 		}
 
-		if terminated.ExitCode != 137 && terminated.Reason != "OOMKilled" {
+		// Only treat as OOM when kubelet explicitly marks reason="OOMKilled".
+		// Exit code 137 (SIGKILL) alone is insufficient — liveness probe kills,
+		// manual pod deletions, and other SIGKILL scenarios all produce exit code 137
+		// with reason="Error".  Those signals are handled by event_watcher (ProbeFailure)
+		// or detectContainerExitCode, not here.
+		if terminated.Reason != "OOMKilled" {
 			continue
 		}
 

@@ -126,6 +126,19 @@ func (f *fakePodWatcher) firstCtx() context.Context {
 	return f.startCtxs[0]
 }
 
+type fakeEventWatcher struct {
+	mu        sync.Mutex
+	startErr  error
+	startCtxs []context.Context
+}
+
+func (f *fakeEventWatcher) Start(ctx context.Context) error {
+	f.mu.Lock()
+	f.startCtxs = append(f.startCtxs, ctx)
+	f.mu.Unlock()
+	return f.startErr
+}
+
 var _ = Describe("RCAAgent watcher registry", func() {
 	It("starts watcher once and restarts on watch namespace changes", func() {
 		ctx := context.Background()
@@ -140,6 +153,9 @@ var _ = Describe("RCAAgent watcher registry", func() {
 			w := &fakePodWatcher{}
 			watchers = append(watchers, w)
 			return w
+		}
+		reconciler.newEventWatcher = func(_ ctrlcache.Cache, _ watcher.EventEmitter, _ logr.Logger, _ watcher.EventWatcherConfig) eventWatcher {
+			return &fakeEventWatcher{}
 		}
 
 		agent := &rcav1alpha1.RCAAgent{ObjectMeta: metav1.ObjectMeta{Name: "agent-a", Namespace: "default"}, Spec: rcav1alpha1.RCAAgentSpec{WatchNamespaces: []string{"default"}}}

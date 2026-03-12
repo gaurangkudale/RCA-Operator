@@ -50,6 +50,7 @@ const rcaAgentFinalizer = "rca.rca-operator.io/finalizer"
 const (
 	incidentAgentLabelKey  = "rca.rca-operator.io/agent"
 	retentionRequeuePeriod = time.Minute
+	phaseResolved          = "Resolved"
 )
 
 // Condition type constants — used in status.conditions
@@ -67,12 +68,17 @@ type RCAAgentReconciler struct {
 	WatcherEmitter   watcher.EventEmitter
 	ManagerContext   context.Context
 	newPodWatcher    func(ctrlcache.Cache, watcher.EventEmitter, logr.Logger, watcher.PodWatcherConfig) podWatcher
+	newEventWatcher  func(ctrlcache.Cache, watcher.EventEmitter, logr.Logger, watcher.EventWatcherConfig) eventWatcher
 	watcherRegistry  map[types.NamespacedName]watcherEntry
 	watcherRegistryM sync.Mutex
 	nowFn            func() time.Time
 }
 
 type podWatcher interface {
+	Start(ctx context.Context) error
+}
+
+type eventWatcher interface {
 	Start(ctx context.Context) error
 }
 
@@ -324,13 +330,19 @@ func (r *RCAAgentReconciler) ensureWatcherRunning(ctx context.Context, agent *rc
 	key := types.NamespacedName{Name: agent.Name, Namespace: agent.Namespace}
 	desiredNamespaces := normalizeNamespaces(agent.Spec.WatchNamespaces)
 
-	factory := r.newPodWatcher
-	if factory == nil {
+	podFactory := r.newPodWatcher
+	if podFactory == nil {
 		if r.Cache == nil {
 			return nil
 		}
-		factory = func(cache ctrlcache.Cache, emitter watcher.EventEmitter, logger logr.Logger, cfg watcher.PodWatcherConfig) podWatcher {
+		podFactory = func(cache ctrlcache.Cache, emitter watcher.EventEmitter, logger logr.Logger, cfg watcher.PodWatcherConfig) podWatcher {
 			return watcher.NewPodWatcher(cache, emitter, logger, cfg)
+		}
+	}
+	eventFactory := r.newEventWatcher
+	if eventFactory == nil {
+		eventFactory = func(cache ctrlcache.Cache, emitter watcher.EventEmitter, logger logr.Logger, cfg watcher.EventWatcherConfig) eventWatcher {
+			return watcher.NewEventWatcher(cache, emitter, logger, cfg)
 		}
 	}
 
@@ -355,22 +367,33 @@ func (r *RCAAgentReconciler) ensureWatcherRunning(ctx context.Context, agent *rc
 	watcherCtx, cancel := context.WithCancel(baseCtx)
 
 	log := logf.FromContext(ctx)
-	podWatcher := factory(r.Cache, r.WatcherEmitter, log,
+	pw := podFactory(r.Cache, r.WatcherEmitter, log,
 		watcher.PodWatcherConfig{
 			AgentName:       agent.Name,
 			WatchNamespaces: desiredNamespaces,
 		},
 	)
-	if err := podWatcher.Start(watcherCtx); err != nil {
+	if err := pw.Start(watcherCtx); err != nil {
 		cancel()
 		return fmt.Errorf("failed to start pod watcher for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
+	}
+
+	ew := eventFactory(r.Cache, r.WatcherEmitter, log,
+		watcher.EventWatcherConfig{
+			AgentName:       agent.Name,
+			WatchNamespaces: desiredNamespaces,
+		},
+	)
+	if err := ew.Start(watcherCtx); err != nil {
+		cancel()
+		return fmt.Errorf("failed to start event watcher for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
 	}
 
 	r.watcherRegistryM.Lock()
 	defer r.watcherRegistryM.Unlock()
 	r.watcherRegistry[key] = watcherEntry{cancel: cancel, watchNamespaces: desiredNamespaces}
 
-	log.Info("Started pod watcher for RCAAgent",
+	log.Info("Started watchers for RCAAgent",
 		"name", agent.Name,
 		"namespace", agent.Namespace,
 		"watchNamespaces", desiredNamespaces,
@@ -580,11 +603,22 @@ func belongsToAgent(report *rcav1alpha1.IncidentReport, agentName string) bool {
 }
 
 func shouldPruneIncidentReport(report *rcav1alpha1.IncidentReport, now time.Time, retentionDuration time.Duration) bool {
-	if report.Status.Phase != "Resolved" {
-		return false
+	// Prune Resolved incidents older than the retention window.
+	if report.Status.Phase == phaseResolved {
+		if report.Status.ResolvedTime == nil || report.Status.ResolvedTime.IsZero() {
+			return false
+		}
+		return now.Sub(report.Status.ResolvedTime.Time) > retentionDuration
 	}
-	if report.Status.ResolvedTime == nil || report.Status.ResolvedTime.IsZero() {
-		return false
+
+	// Prune uninitialized incidents (status.phase == "") — these are zombie CRs
+	// where the Create succeeded but the subsequent Status().Patch failed (e.g.
+	// before a CRD enum was updated). Fall back to creationTimestamp age so they
+	// are cleaned up within one retention period even though they were never
+	// properly initialized.
+	if report.Status.Phase == "" {
+		return now.Sub(report.CreationTimestamp.Time) > retentionDuration
 	}
-	return now.Sub(report.Status.ResolvedTime.Time) > retentionDuration
+
+	return false
 }
