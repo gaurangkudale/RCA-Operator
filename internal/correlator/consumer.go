@@ -192,7 +192,12 @@ func (c *Consumer) findActiveIncidentForPodType(ctx context.Context, namespace, 
 func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, incidentType, severity, summary string) {
 	switch e := event.(type) {
 	case watcher.CrashLoopBackOffEvent:
-		return e.Namespace, e.PodName, e.AgentName, "CrashLoop", "P3", fmt.Sprintf("CrashLoopBackOff restarts=%d threshold=%d", e.RestartCount, e.Threshold)
+		summary := fmt.Sprintf("CrashLoopBackOff restarts=%d threshold=%d", e.RestartCount, e.Threshold)
+		// Include exit code diagnostic info if available.
+		if e.LastExitCode != 0 && e.ExitCodeCategory != "" {
+			summary = fmt.Sprintf("%s exitCode=%d category=%s description=%s", summary, e.LastExitCode, e.ExitCodeCategory, e.ExitCodeDescription)
+		}
+		return e.Namespace, e.PodName, e.AgentName, "CrashLoop", "P3", summary
 	case watcher.OOMKilledEvent:
 		return e.Namespace, e.PodName, e.AgentName, "OOM", "P2", fmt.Sprintf("OOMKilled exitCode=%d reason=%s", e.ExitCode, e.Reason)
 	case watcher.ImagePullBackOffEvent:
