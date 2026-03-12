@@ -31,6 +31,10 @@ const (
 	labelIncidentType = "rca.rca-operator.io/incident-type"
 	labelPodName      = "rca.rca-operator.io/pod"
 
+	phaseActive   = "Active"
+	phaseResolved = "Resolved"
+	valueUnknown  = "unknown"
+
 	maxTimelineEntries = 50
 	maxSignalEntries   = 20
 )
@@ -131,7 +135,7 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 	statusBase := report.DeepCopy()
 	report.Status = rcav1alpha1.IncidentReportStatus{
 		Severity:     severity,
-		Phase:        "Active",
+		Phase:        phaseActive,
 		IncidentType: incidentType,
 		StartTime:    &startTime,
 		ResolvedTime: nil,
@@ -170,7 +174,7 @@ func (c *Consumer) findActiveIncidentForPodType(ctx context.Context, namespace, 
 	}
 	for i := range list.Items {
 		report := &list.Items[i]
-		if report.Status.Phase != "Active" {
+		if report.Status.Phase != phaseActive {
 			continue
 		}
 		if report.Status.IncidentType != incidentType {
@@ -196,7 +200,7 @@ func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, inci
 	case watcher.ContainerExitCodeEvent:
 		reason := e.Reason
 		if reason == "" {
-			reason = "unknown"
+			reason = valueUnknown
 		}
 		return e.Namespace, e.PodName, e.AgentName, "ExitCode", "P3", fmt.Sprintf("Container exited with non-zero code exitCode=%d category=%s reason=%s description=%s", e.ExitCode, e.Category, reason, e.Description)
 	case watcher.PodPendingTooLongEvent:
@@ -233,7 +237,7 @@ func (c *Consumer) resolveIncidentsForPod(ctx context.Context, event watcher.Pod
 	resolvedCount := 0
 	for i := range list.Items {
 		report := &list.Items[i]
-		if report.Status.Phase != "Active" {
+		if report.Status.Phase != phaseActive {
 			continue
 		}
 		if !incidentAffectsPod(report, event.PodName, event.Namespace) {
@@ -241,7 +245,7 @@ func (c *Consumer) resolveIncidentsForPod(ctx context.Context, event watcher.Pod
 		}
 
 		base := report.DeepCopy()
-		report.Status.Phase = "Resolved"
+		report.Status.Phase = phaseResolved
 		report.Status.ResolvedTime = &now
 		report.Status.Timeline = append(report.Status.Timeline, rcav1alpha1.TimelineEvent{
 			Time:  now,
@@ -277,7 +281,7 @@ func (c *Consumer) resolveIncidentsForDeletedPod(ctx context.Context, event watc
 	resolvedCount := 0
 	for i := range list.Items {
 		report := &list.Items[i]
-		if report.Status.Phase != "Active" {
+		if report.Status.Phase != phaseActive {
 			continue
 		}
 		if !incidentAffectsPod(report, event.PodName, event.Namespace) {
@@ -285,7 +289,7 @@ func (c *Consumer) resolveIncidentsForDeletedPod(ctx context.Context, event watc
 		}
 
 		base := report.DeepCopy()
-		report.Status.Phase = "Resolved"
+		report.Status.Phase = phaseResolved
 		report.Status.ResolvedTime = &now
 		report.Status.Timeline = append(report.Status.Timeline, rcav1alpha1.TimelineEvent{
 			Time:  now,
@@ -421,7 +425,7 @@ func higherSeverity(current, incoming string) string {
 
 func safeLabelValue(in string) string {
 	if in == "" {
-		return "unknown"
+		return valueUnknown
 	}
 	replaced := strings.ToLower(in)
 	b := strings.Builder{}
@@ -440,7 +444,7 @@ func safeLabelValue(in string) string {
 	}
 	out := strings.Trim(b.String(), "-._")
 	if out == "" {
-		return "unknown"
+		return valueUnknown
 	}
 	if len(out) > 63 {
 		return out[:63]

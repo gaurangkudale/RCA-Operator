@@ -399,7 +399,7 @@ func (w *PodWatcher) detectGracePeriodViolation(pod *corev1.Pod) {
 
 	graceSeconds := gracePeriodSeconds(pod)
 	now := w.clock()
-	deadline := pod.DeletionTimestamp.Time.Add(time.Duration(graceSeconds) * time.Second)
+	deadline := pod.DeletionTimestamp.Add(time.Duration(graceSeconds) * time.Second)
 	if !now.After(deadline) || !hasRunningContainers(pod) {
 		return
 	}
