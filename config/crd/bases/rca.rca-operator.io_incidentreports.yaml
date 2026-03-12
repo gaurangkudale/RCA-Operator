@@ -176,7 +176,6 @@ spec:
                 - BadDeploy
                 - NodeFailure
                 - Registry
-                - ExitCode
                 - GracePeriodViolation
                 - ProbeFailure
                 type: string

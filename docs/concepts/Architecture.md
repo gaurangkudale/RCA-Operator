@@ -71,7 +71,7 @@ RCA SRE:          Alert → Detect → Correlate → RCA → Fix → Report  (au
 
 The observation engine. Registers controller-runtime informers against the Kubernetes API server, detects failure signals in real time, and emits typed events to the correlator channel.
 
-**Phase 1 implementation:** `PodWatcher` — detects CrashLoopBackOff, OOMKilled, ImagePullBackOff, ContainerExitCode, PodPendingTooLong, GracePeriodViolation, PodHealthy, PodDeleted.
+**Phase 1 implementation:** `PodWatcher` — detects CrashLoopBackOff, OOMKilled, ImagePullBackOff, PodPendingTooLong, GracePeriodViolation, PodHealthy, PodDeleted, and enriches CrashLoop incidents with last non-OOM exit-code context.
 
 → See [reference/watcher.md](../reference/watcher.md) for the full event catalog.
 

@@ -1,17 +1,17 @@
-# ContainerExitCode scenario
-# ──────────────────────────
-# Expected watcher signal : ContainerExitCode  (exitCode=127, category=CommandNotFound)
-# Expected incident type  : ExitCode
+# CrashLoopBackOff with exit-code context scenario
+# ────────────────────────────────────────────────
+# Expected watcher signal : CrashLoopBackOff  (exitCode=127, category=CommandNotFound)
+# Expected incident type  : CrashLoop
 # Resolution              : Automatic after pod stays Ready for readyStabilityWindow (default 60 s)
 #
 # The container deliberately runs a non-existent command to produce exit code 127.
-# The watcher classifies this as category=CommandNotFound.
+# The watcher attaches the classified exit code to the CrashLoop incident summary.
 #
 # Apply:
 #   kubectl apply -f test/fixtures/pods/exit-code.yaml
 # Watch:
 #   kubectl get incidentreports -n development -w
-# Verify exit code in the incident:
+# Verify exit code in the CrashLoop incident:
 #   kubectl get incidentreport -n development -o yaml | grep exitCode
 apiVersion: v1
 kind: Pod
@@ -31,16 +31,16 @@ spec:
       - /bin/sh
       - -c
       - |
-        echo "Intentional non-zero exit for ContainerExitCode incident"
-        # exit 127 = CommandNotFound — see docs/reference/watcher.md exit code table
+        echo "Intentional non-zero exit for CrashLoop incident context"
+        # exit 127 = CommandNotFound — attached to the CrashLoop incident summary
         /definitely-not-a-real-command
 ---
 
 
 # PermissionDenied scenario (exit code 126)
 # ─────────────────────────────────────────
-# Expected watcher signal : ContainerExitCode  (exitCode=126, category=PermissionDenied)
-# Expected incident type  : ExitCode
+      # Expected watcher signal : CrashLoopBackOff  (exitCode=126, category=PermissionDenied)
+      # Expected incident type  : CrashLoop
 # Severity                : P3
 # Resolution              : Automatic after pod stays Ready for readyStabilityWindow (default 60 s)
 #
@@ -55,11 +55,11 @@ spec:
 #   kubectl apply -f test/fixtures/pods/permission-denied.yaml
 # Watch:
 #   kubectl get incidentreports -n development -w
-# Verify exit code and category in the incident:
+# Verify exit code and category in the CrashLoop incident:
 #   kubectl get incidentreport -n development -o yaml | grep -E 'exitCode|PermissionDenied|P3'
 # Cleanup:
 #   kubectl delete pod permission-denied-demo -n development
-#   kubectl delete incidentreports -n development -l rca.rca-operator.io/incident-type=ExitCode
+#   kubectl delete incidentreports -n development -l rca.rca-operator.io/incident-type=CrashLoop
 apiVersion: v1
 kind: Pod
 metadata:

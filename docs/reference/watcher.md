@@ -62,7 +62,7 @@ The watcher emits eight discrete event types. Each type carries a `BaseEvent` (s
 
 ### OOMKilled
 
-**Trigger:** A container terminates with exit code `137` or Kubernetes reason `OOMKilled`.
+**Trigger:** A container terminates with Kubernetes reason `OOMKilled`.
 
 | Field           | Type     | Description                                      |
 |-----------------|----------|--------------------------------------------------|
@@ -86,22 +86,6 @@ The pod UID keeps each new pod incarnation unique — a restarted pod produces a
 | `Message`       | `string` | Kubernetes waiting message (registry error detail)|
 
 **Dedup key:** `ImagePullBackOff:<namespace>:<pod>:<container>`
-
----
-
-### ContainerExitCode
-
-**Trigger:** A container terminates with a non-zero exit code that is **not** `137` / `OOMKilled` (those are handled by `OOMKilled` above).
-
-| Field           | Type     | Description                                              |
-|-----------------|----------|----------------------------------------------------------|
-| `ContainerName` | `string` | Name of the terminated container                         |
-| `ExitCode`      | `int32`  | Numeric exit code                                        |
-| `Reason`        | `string` | Kubernetes termination reason string                     |
-| `Category`      | `string` | Classified category name (see [Exit Code Classification](#exit-code-classification)) |
-| `Description`   | `string` | Human-readable description of the category               |
-
-**Dedup key:** `ContainerExitCode:<namespace>:<pod>:<container>:<podUID>:<category>`
 
 ---
 
@@ -185,7 +169,7 @@ Events are only emitted for pods in listed namespaces. Filtering is enforced in 
 
 ## Exit Code Classification
 
-The `ContainerExitCode` event classifies every non-zero, non-OOM exit code into a human-readable category.
+CrashLoop incidents attach the last non-zero, non-OOM exit code as diagnostic context using the categories below.
 
 | Exit Code | Category            | Description                             |
 |-----------|---------------------|-----------------------------------------|
@@ -235,7 +219,6 @@ In-memory state (pending-alerted set, ready-since timestamps, healthy-alerted se
 | `CrashLoopBackOff`     | `CrashLoopBackOff:<namespace>:<pod>:<container>`                                 |
 | `OOMKilled`            | `OOMKilled:<namespace>:<pod>:<container>:<podUID>`                               |
 | `ImagePullBackOff`     | `ImagePullBackOff:<namespace>:<pod>:<container>`                                 |
-| `ContainerExitCode`    | `ContainerExitCode:<namespace>:<pod>:<container>:<podUID>:<category>`            |
 | `PodPendingTooLong`    | `PodPendingTooLong:<namespace>:<pod>`                                            |
 | `GracePeriodViolation` | `GracePeriodViolation:<namespace>:<pod>:<podUID>`                                |
 | `PodHealthy`           | `PodHealthy:<namespace>:<pod>`                                                   |
