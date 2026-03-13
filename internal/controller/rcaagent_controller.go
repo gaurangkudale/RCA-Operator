@@ -70,6 +70,7 @@ type RCAAgentReconciler struct {
 	newPodWatcher    func(ctrlcache.Cache, watcher.EventEmitter, logr.Logger, watcher.PodWatcherConfig) podWatcher
 	newEventWatcher  func(ctrlcache.Cache, watcher.EventEmitter, logr.Logger, watcher.EventWatcherConfig) eventWatcher
 	newDeployWatcher func(ctrlcache.Cache, watcher.EventEmitter, logr.Logger, watcher.DeploymentWatcherConfig) deploymentWatcher
+	newNodeWatcher   func(ctrlcache.Cache, watcher.EventEmitter, logr.Logger, watcher.NodeWatcherConfig) nodeWatcher
 	watcherRegistry  map[types.NamespacedName]watcherEntry
 	watcherRegistryM sync.Mutex
 	nowFn            func() time.Time
@@ -87,6 +88,10 @@ type deploymentWatcher interface {
 	Start(ctx context.Context) error
 }
 
+type nodeWatcher interface {
+	Start(ctx context.Context) error
+}
+
 type watcherEntry struct {
 	cancel          context.CancelFunc
 	watchNamespaces []string
@@ -97,6 +102,7 @@ type watcherEntry struct {
 // +kubebuilder:rbac:groups=rca.rca-operator.io,resources=rcaagents/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 
 func (r *RCAAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
@@ -414,6 +420,28 @@ func (r *RCAAgentReconciler) ensureWatcherRunning(ctx context.Context, agent *rc
 		if err := dw.Start(watcherCtx); err != nil {
 			cancel()
 			return fmt.Errorf("failed to start deployment watcher for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
+		}
+	}
+
+	// NodeWatcher monitors corev1.Node objects for NotReady/Pressure conditions.
+	// Same graceful-skip pattern as DeploymentWatcher: silently skipped when
+	// there is neither an injected factory nor a real cache (unit-test paths).
+	nodeFactory := r.newNodeWatcher
+	if nodeFactory == nil && r.Cache != nil {
+		nodeFactory = func(cache ctrlcache.Cache, emitter watcher.EventEmitter, logger logr.Logger, cfg watcher.NodeWatcherConfig) nodeWatcher {
+			return watcher.NewNodeWatcher(cache, emitter, logger, cfg)
+		}
+	}
+	if nodeFactory != nil {
+		nw := nodeFactory(r.Cache, r.WatcherEmitter, log,
+			watcher.NodeWatcherConfig{
+				AgentName:         agent.Name,
+				IncidentNamespace: agent.Namespace,
+			},
+		)
+		if err := nw.Start(watcherCtx); err != nil {
+			cancel()
+			return fmt.Errorf("failed to start node watcher for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
 		}
 	}
 
