@@ -20,6 +20,14 @@ import (
 
 const testPhaseResolved = "Resolved"
 
+const (
+	testAgentA                    = "agent-a"
+	testIncidentTypeBadDeploy     = "BadDeploy"
+	testIncidentTypeNodeFailure   = "NodeFailure"
+	testIncidentTypeResSaturation = "ResourceSaturation"
+	testNamespaceDev              = "development"
+)
+
 func TestHandleEventResolvesActiveIncidentWhenPodIsHealthy(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
@@ -32,7 +40,7 @@ func TestHandleEventResolvesActiveIncidentWhenPodIsHealthy(t *testing.T) {
 	now := time.Date(2026, 3, 11, 18, 30, 0, 0, time.UTC)
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: "development",
+			Namespace: testNamespaceDev,
 			Name:      "flaky-app-demo",
 			UID:       types.UID("pod-1"),
 		},
@@ -48,9 +56,9 @@ func TestHandleEventResolvesActiveIncidentWhenPodIsHealthy(t *testing.T) {
 	report := &rcav1alpha1.IncidentReport{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "crashloop-flaky-app-demo-z5ffx",
-			Namespace: "development",
+			Namespace: testNamespaceDev,
 		},
-		Spec: rcav1alpha1.IncidentReportSpec{AgentRef: "agent-a"},
+		Spec: rcav1alpha1.IncidentReportSpec{AgentRef: testAgentA},
 		Status: rcav1alpha1.IncidentReportStatus{
 			Severity:     "P3",
 			Phase:        "Active",
@@ -58,7 +66,7 @@ func TestHandleEventResolvesActiveIncidentWhenPodIsHealthy(t *testing.T) {
 			AffectedResources: []rcav1alpha1.AffectedResource{{
 				Kind:      "Pod",
 				Name:      "flaky-app-demo",
-				Namespace: "development",
+				Namespace: testNamespaceDev,
 			}},
 			Timeline: []rcav1alpha1.TimelineEvent{{
 				Time:  metav1.NewTime(now.Add(-10 * time.Minute)),
@@ -78,8 +86,8 @@ func TestHandleEventResolvesActiveIncidentWhenPodIsHealthy(t *testing.T) {
 
 	err := consumer.handleEvent(context.Background(), watcher.PodHealthyEvent{BaseEvent: watcher.BaseEvent{
 		At:        now,
-		AgentName: "agent-a",
-		Namespace: "development",
+		AgentName: testAgentA,
+		Namespace: testNamespaceDev,
 		PodName:   "flaky-app-demo",
 		PodUID:    "pod-1",
 	}})
@@ -105,14 +113,14 @@ func TestHandleEventResolvesActiveIncidentWhenPodIsHealthy(t *testing.T) {
 
 func TestMapEventForCrashLoopAndGracePeriodViolation(t *testing.T) {
 	namespace, pod, agent, incidentType, severity, summary := mapEvent(watcher.CrashLoopBackOffEvent{
-		BaseEvent:           watcher.BaseEvent{Namespace: "development", PodName: "svc", AgentName: "agent-a"},
+		BaseEvent:           watcher.BaseEvent{Namespace: testNamespaceDev, PodName: "svc", AgentName: testAgentA},
 		RestartCount:        4,
 		Threshold:           3,
 		LastExitCode:        126,
 		ExitCodeCategory:    "PermissionDenied",
 		ExitCodeDescription: "Command invoked cannot execute",
 	})
-	if namespace != "development" || pod != "svc" || agent != "agent-a" {
+	if namespace != testNamespaceDev || pod != "svc" || agent != testAgentA {
 		t.Fatalf("unexpected mapping for crash-loop event: namespace=%s pod=%s agent=%s", namespace, pod, agent)
 	}
 	if incidentType != "CrashLoop" || severity != "P3" {
@@ -123,11 +131,11 @@ func TestMapEventForCrashLoopAndGracePeriodViolation(t *testing.T) {
 	}
 
 	namespace, pod, agent, incidentType, severity, summary = mapEvent(watcher.GracePeriodViolationEvent{
-		BaseEvent:          watcher.BaseEvent{Namespace: "development", PodName: "svc", AgentName: "agent-a"},
+		BaseEvent:          watcher.BaseEvent{Namespace: testNamespaceDev, PodName: "svc", AgentName: testAgentA},
 		GracePeriodSeconds: 30,
 		OverdueFor:         15 * time.Second,
 	})
-	if namespace != "development" || pod != "svc" || agent != "agent-a" {
+	if namespace != testNamespaceDev || pod != "svc" || agent != testAgentA {
 		t.Fatalf("unexpected mapping for grace-period event: namespace=%s pod=%s agent=%s", namespace, pod, agent)
 	}
 	if incidentType != "GracePeriodViolation" || severity != "P2" {
@@ -142,7 +150,7 @@ func TestMapEventForCrashLoopAndGracePeriodViolation(t *testing.T) {
 
 func TestMapEventForStalledRollout(t *testing.T) {
 	ev := watcher.StalledRolloutEvent{
-		BaseEvent:       watcher.BaseEvent{Namespace: "development", AgentName: "agent-a"},
+		BaseEvent:       watcher.BaseEvent{Namespace: testNamespaceDev, AgentName: testAgentA},
 		DeploymentName:  "payment-service",
 		Reason:          "ProgressDeadlineExceeded",
 		DesiredReplicas: 3,
@@ -152,17 +160,17 @@ func TestMapEventForStalledRollout(t *testing.T) {
 
 	namespace, pod, agent, incidentType, severity, summary := mapEvent(ev)
 
-	if namespace != "development" {
-		t.Errorf("namespace: got %q, want %q", namespace, "development")
+	if namespace != testNamespaceDev {
+		t.Errorf("namespace: got %q, want %q", namespace, testNamespaceDev)
 	}
 	if pod != "payment-service" {
 		t.Errorf("pod/resource: got %q, want %q", pod, "payment-service")
 	}
-	if agent != "agent-a" {
-		t.Errorf("agent: got %q, want %q", agent, "agent-a")
+	if agent != testAgentA {
+		t.Errorf("agent: got %q, want %q", agent, testAgentA)
 	}
-	if incidentType != "BadDeploy" {
-		t.Errorf("incidentType: got %q, want %q", incidentType, "BadDeploy")
+	if incidentType != testIncidentTypeBadDeploy {
+		t.Errorf("incidentType: got %q, want %q", incidentType, testIncidentTypeBadDeploy)
 	}
 	if severity != "P2" {
 		t.Errorf("severity: got %q, want %q", severity, "P2")
@@ -193,7 +201,7 @@ func TestHandleEventCreatesStalledRolloutIncident(t *testing.T) {
 	consumer.now = func() time.Time { return now }
 
 	err := consumer.handleEvent(context.Background(), watcher.StalledRolloutEvent{
-		BaseEvent:       watcher.BaseEvent{At: now, AgentName: "agent-a", Namespace: "development"},
+		BaseEvent:       watcher.BaseEvent{At: now, AgentName: testAgentA, Namespace: testNamespaceDev},
 		DeploymentName:  "payment-service",
 		Reason:          "ProgressDeadlineExceeded",
 		DesiredReplicas: 3,
@@ -212,7 +220,7 @@ func TestHandleEventCreatesStalledRolloutIncident(t *testing.T) {
 		t.Fatalf("expected 1 IncidentReport, got %d", len(list.Items))
 	}
 	report := list.Items[0]
-	if report.Status.IncidentType != "BadDeploy" {
+	if report.Status.IncidentType != testIncidentTypeBadDeploy {
 		t.Errorf("incidentType: got %q, want BadDeploy", report.Status.IncidentType)
 	}
 	if report.Status.Severity != "P2" {
@@ -248,7 +256,7 @@ func TestHandleEventDedupsStalledRolloutOnRepeat(t *testing.T) {
 	consumer.now = func() time.Time { return now }
 
 	ev := watcher.StalledRolloutEvent{
-		BaseEvent:       watcher.BaseEvent{At: now, AgentName: "agent-a", Namespace: "development"},
+		BaseEvent:       watcher.BaseEvent{At: now, AgentName: testAgentA, Namespace: testNamespaceDev},
 		DeploymentName:  "payment-service",
 		Reason:          "ProgressDeadlineExceeded",
 		DesiredReplicas: 3,
@@ -292,7 +300,7 @@ func TestMapEventForNodePressure(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.pressureType, func(t *testing.T) {
 			ev := watcher.NodePressureEvent{
-				BaseEvent:    watcher.BaseEvent{Namespace: "default", AgentName: "agent-a", NodeName: "worker-1"},
+				BaseEvent:    watcher.BaseEvent{Namespace: "default", AgentName: testAgentA, NodeName: "worker-1"},
 				PressureType: tc.pressureType,
 				Message:      "threshold exceeded",
 			}
@@ -304,10 +312,10 @@ func TestMapEventForNodePressure(t *testing.T) {
 			if node != "worker-1" {
 				t.Errorf("resource: got %q, want worker-1", node)
 			}
-			if agent != "agent-a" {
+			if agent != testAgentA {
 				t.Errorf("agent: got %q", agent)
 			}
-			if incidentType != "NodeFailure" {
+			if incidentType != testIncidentTypeNodeFailure {
 				t.Errorf("incidentType: got %q, want NodeFailure", incidentType)
 			}
 			if severity != tc.wantSeverity {
@@ -324,23 +332,23 @@ func TestMapEventForNodePressure(t *testing.T) {
 
 func TestMapEventForCPUThrottling(t *testing.T) {
 	ev := watcher.CPUThrottlingEvent{
-		BaseEvent:     watcher.BaseEvent{Namespace: "development", PodName: "cpu-throttle-demo", AgentName: "agent-a"},
+		BaseEvent:     watcher.BaseEvent{Namespace: testNamespaceDev, PodName: "cpu-throttle-demo", AgentName: testAgentA},
 		ContainerName: "throttle-demo",
 		Message:       "45% throttling of CPU",
 	}
 
 	namespace, pod, agent, incidentType, severity, summary := mapEvent(ev)
 
-	if namespace != "development" {
+	if namespace != testNamespaceDev {
 		t.Errorf("namespace: got %q, want development", namespace)
 	}
 	if pod != "cpu-throttle-demo" {
 		t.Errorf("pod: got %q, want cpu-throttle-demo", pod)
 	}
-	if agent != "agent-a" {
+	if agent != testAgentA {
 		t.Errorf("agent: got %q", agent)
 	}
-	if incidentType != "ResourceSaturation" {
+	if incidentType != testIncidentTypeResSaturation {
 		t.Errorf("incidentType: got %q, want ResourceSaturation", incidentType)
 	}
 	if severity != "P3" {
@@ -373,7 +381,7 @@ func TestHandleEventCreatesCPUThrottlingIncident(t *testing.T) {
 	consumer.now = func() time.Time { return now }
 
 	err := consumer.handleEvent(context.Background(), watcher.CPUThrottlingEvent{
-		BaseEvent:     watcher.BaseEvent{At: now, AgentName: "agent-a", Namespace: "development", PodName: "cpu-throttle-demo"},
+		BaseEvent:     watcher.BaseEvent{At: now, AgentName: testAgentA, Namespace: testNamespaceDev, PodName: "cpu-throttle-demo"},
 		ContainerName: "throttle-demo",
 		Message:       "45% throttling of CPU",
 	})
@@ -389,7 +397,7 @@ func TestHandleEventCreatesCPUThrottlingIncident(t *testing.T) {
 		t.Fatalf("expected 1 IncidentReport, got %d", len(list.Items))
 	}
 	report := list.Items[0]
-	if report.Status.IncidentType != "ResourceSaturation" {
+	if report.Status.IncidentType != testIncidentTypeResSaturation {
 		t.Errorf("incidentType: got %q, want ResourceSaturation", report.Status.IncidentType)
 	}
 	if report.Status.Severity != "P3" {
@@ -400,5 +408,580 @@ func TestHandleEventCreatesCPUThrottlingIncident(t *testing.T) {
 	}
 	if !strings.HasPrefix(report.Name, "resourcesaturation-cpu-throttle-demo-") {
 		t.Errorf("name prefix: got %q", report.Name)
+	}
+}
+
+// ── resolveIncidentsForDeletedPod ─────────────────────────────────────────────
+
+func TestHandleEventResolvesActivePodIncidentOnPodDeleted(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add core scheme: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add RCA scheme: %v", err)
+	}
+
+	now := time.Date(2026, 3, 14, 11, 0, 0, 0, time.UTC)
+	report := &rcav1alpha1.IncidentReport{
+		ObjectMeta: metav1.ObjectMeta{Name: "crashloop-my-pod-abc", Namespace: testNamespaceDev},
+		Spec:       rcav1alpha1.IncidentReportSpec{AgentRef: testAgentA},
+		Status: rcav1alpha1.IncidentReportStatus{
+			Phase:        "Active",
+			IncidentType: "CrashLoop",
+			AffectedResources: []rcav1alpha1.AffectedResource{{
+				Kind: "Pod", Name: "my-pod", Namespace: testNamespaceDev,
+			}},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		WithObjects(report).
+		Build()
+
+	consumer := NewConsumer(cl, nil, logr.Discard())
+	consumer.now = func() time.Time { return now }
+
+	err := consumer.handleEvent(context.Background(), watcher.PodDeletedEvent{
+		BaseEvent: watcher.BaseEvent{
+			At:        now,
+			AgentName: testAgentA,
+			Namespace: testNamespaceDev,
+			PodName:   "my-pod",
+		},
+	})
+	if err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+
+	updated := &rcav1alpha1.IncidentReport{}
+	if err := cl.Get(context.Background(), types.NamespacedName{Name: report.Name, Namespace: report.Namespace}, updated); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if updated.Status.Phase != testPhaseResolved {
+		t.Errorf("phase: got %q, want Resolved", updated.Status.Phase)
+	}
+	if updated.Status.ResolvedTime == nil {
+		t.Error("expected ResolvedTime to be set")
+	}
+}
+
+// ── incrementCounter ──────────────────────────────────────────────────────────
+
+func TestIncrementCounter(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"", "1"},
+		{"0", "1"},
+		{"1", "2"},
+		{"5", "6"},
+		{"99", "100"},
+		{"not-a-number", "1"},
+		{"-1", "1"},
+	}
+	for _, tc := range cases {
+		got := incrementCounter(tc.input)
+		if got != tc.want {
+			t.Errorf("incrementCounter(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+// ── higherSeverity ────────────────────────────────────────────────────────────
+
+func TestHigherSeverity(t *testing.T) {
+	cases := []struct {
+		current, incoming, want string
+	}{
+		{"P3", "P2", "P2"}, // incoming is higher
+		{"P2", "P3", "P2"}, // current is higher
+		{"P2", "P2", "P2"}, // equal
+		{"P3", "P1", "P1"}, // P1 beats P3
+		{"", "P3", "P3"},   // empty current → return incoming
+		{"P1", "", "P1"},   // empty incoming → current wins
+		{"", "", ""},       // both empty
+	}
+	for _, tc := range cases {
+		got := higherSeverity(tc.current, tc.incoming)
+		if got != tc.want {
+			t.Errorf("higherSeverity(%q, %q) = %q, want %q", tc.current, tc.incoming, got, tc.want)
+		}
+	}
+}
+
+// ── safeLabelValue ────────────────────────────────────────────────────────────
+
+func TestSafeLabelValue(t *testing.T) {
+	cases := []struct {
+		input, want string
+	}{
+		{"", "unknown"},
+		{"my-pod", "my-pod"},
+		{"My Pod", "my-pod"}, // space → hyphen, uppercase → lower
+		{"---", "unknown"},   // all hyphens stripped → fallback
+		{"a/b:c", "a-b-c"},   // special chars → hyphens
+		{strings.Repeat("x", 70), strings.Repeat("x", 63)}, // truncated to 63
+	}
+	for _, tc := range cases {
+		got := safeLabelValue(tc.input)
+		if got != tc.want {
+			t.Errorf("safeLabelValue(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+// ── safeNameToken ─────────────────────────────────────────────────────────────
+
+func TestSafeNameToken(t *testing.T) {
+	cases := []struct {
+		input, want string
+	}{
+		{"", "incident"},
+		{"my-pod", "my-pod"},
+		{"My Pod", "my-pod"},
+		{"---", "incident"},  // all hyphens stripped → fallback
+		{"pod.v2", "pod-v2"}, // dot replaced with hyphen
+	}
+	for _, tc := range cases {
+		got := safeNameToken(tc.input)
+		if got != tc.want {
+			t.Errorf("safeNameToken(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+// ── trimTimeline / trimSignals ────────────────────────────────────────────────
+
+func TestTrimTimeline(t *testing.T) {
+	tl := make([]rcav1alpha1.TimelineEvent, 55)
+	result := trimTimeline(tl)
+	if len(result) != maxTimelineEntries {
+		t.Errorf("expected %d entries after trim, got %d", maxTimelineEntries, len(result))
+	}
+	// Short slice — must not be trimmed.
+	short := make([]rcav1alpha1.TimelineEvent, 3)
+	if len(trimTimeline(short)) != 3 {
+		t.Error("short timeline must not be trimmed")
+	}
+}
+
+func TestTrimSignals(t *testing.T) {
+	signals := make([]string, 25)
+	result := trimSignals(signals)
+	if len(result) != maxSignalEntries {
+		t.Errorf("expected %d signals after trim, got %d", maxSignalEntries, len(result))
+	}
+	short := make([]string, 5)
+	if len(trimSignals(short)) != 5 {
+		t.Error("short signals must not be trimmed")
+	}
+}
+
+// ── incidentAffectsPod ────────────────────────────────────────────────────────
+
+func TestIncidentAffectsPod(t *testing.T) {
+	report := &rcav1alpha1.IncidentReport{
+		Status: rcav1alpha1.IncidentReportStatus{
+			AffectedResources: []rcav1alpha1.AffectedResource{
+				{Kind: "Pod", Name: "my-pod", Namespace: "dev"},
+				{Kind: "Deployment", Name: "my-deploy", Namespace: "dev"},
+			},
+		},
+	}
+	if !incidentAffectsPod(report, "my-pod", "dev") {
+		t.Error("expected true for matching pod")
+	}
+	if incidentAffectsPod(report, "other-pod", "dev") {
+		t.Error("expected false for different pod name")
+	}
+	if incidentAffectsPod(report, "my-pod", "staging") {
+		t.Error("expected false for different namespace")
+	}
+	if incidentAffectsPod(report, "my-deploy", "dev") {
+		t.Error("expected false for non-Pod kind")
+	}
+}
+
+// ── updateActiveIncident ──────────────────────────────────────────────────────
+
+func TestUpdateActiveIncident_UpdatesSeverityAndTimeline(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add core scheme: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add RCA scheme: %v", err)
+	}
+
+	now := time.Date(2026, 3, 14, 11, 30, 0, 0, time.UTC)
+	report := &rcav1alpha1.IncidentReport{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "crashloop-svc-abc", Namespace: testNamespaceDev,
+			Labels:      map[string]string{labelSeverity: "P3"},
+			Annotations: map[string]string{annotationSignalSeen: "1"},
+		},
+		Spec: rcav1alpha1.IncidentReportSpec{AgentRef: testAgentA},
+		Status: rcav1alpha1.IncidentReportStatus{
+			Phase:        "Active",
+			Severity:     "P3",
+			IncidentType: "CrashLoop",
+			AffectedResources: []rcav1alpha1.AffectedResource{
+				{Kind: "Pod", Name: "svc", Namespace: testNamespaceDev},
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		WithObjects(report).
+		Build()
+
+	consumer := NewConsumer(cl, nil, logr.Discard())
+	consumer.now = func() time.Time { return now }
+
+	// Second CrashLoopBackOff signal — should upgrade severity if higher and append timeline.
+	err := consumer.handleEvent(context.Background(), watcher.CrashLoopBackOffEvent{
+		BaseEvent:    watcher.BaseEvent{At: now, AgentName: testAgentA, Namespace: testNamespaceDev, PodName: "svc"},
+		RestartCount: 5,
+		Threshold:    3,
+	})
+	if err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+
+	updated := &rcav1alpha1.IncidentReport{}
+	if err := cl.Get(context.Background(), types.NamespacedName{Name: report.Name, Namespace: testNamespaceDev}, updated); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if updated.Annotations[annotationSignalSeen] != "2" {
+		t.Errorf("signal-count: got %q, want 2", updated.Annotations[annotationSignalSeen])
+	}
+	if len(updated.Status.Timeline) == 0 {
+		t.Error("expected timeline to be updated")
+	}
+}
+
+// ── mapEvent ──────────────────────────────────────────────────────────────────
+
+func TestMapEvent_AllBranches(t *testing.T) {
+	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name         string
+		event        watcher.CorrelatorEvent
+		wantNS       string
+		wantPod      string
+		wantType     string
+		wantSeverity string
+		wantEmpty    bool // true when both namespace and pod must be ""
+	}{
+		{
+			name:         "CrashLoopBackOff basic",
+			event:        watcher.CrashLoopBackOffEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", PodName: "pod-a", AgentName: "ag"}, RestartCount: 3, Threshold: 3},
+			wantNS:       "dev",
+			wantPod:      "pod-a",
+			wantType:     "CrashLoop",
+			wantSeverity: "P3",
+		},
+		{
+			name:         "CrashLoopBackOff with exitCode",
+			event:        watcher.CrashLoopBackOffEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", PodName: "pod-a", AgentName: "ag"}, RestartCount: 3, Threshold: 3, LastExitCode: 137, ExitCodeCategory: "OOM", ExitCodeDescription: "container oom"},
+			wantNS:       "dev",
+			wantPod:      "pod-a",
+			wantType:     "CrashLoop",
+			wantSeverity: "P3",
+		},
+		{
+			name:         "OOMKilled",
+			event:        watcher.OOMKilledEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", PodName: "pod-b", AgentName: "ag"}},
+			wantNS:       "dev",
+			wantPod:      "pod-b",
+			wantType:     "OOM",
+			wantSeverity: "P2",
+		},
+		{
+			name:         "ImagePullBackOff",
+			event:        watcher.ImagePullBackOffEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", PodName: "pod-c", AgentName: "ag"}, Reason: "ErrImagePull"},
+			wantNS:       "dev",
+			wantPod:      "pod-c",
+			wantType:     "Registry",
+			wantSeverity: "P3",
+		},
+		{
+			name:         "PodPendingTooLong",
+			event:        watcher.PodPendingTooLongEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", PodName: "pod-d", AgentName: "ag"}, PendingFor: 5 * time.Minute, Timeout: 3 * time.Minute},
+			wantNS:       "dev",
+			wantPod:      "pod-d",
+			wantType:     testIncidentTypeBadDeploy,
+			wantSeverity: "P3",
+		},
+		{
+			name:         "GracePeriodViolation",
+			event:        watcher.GracePeriodViolationEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", PodName: "pod-e", AgentName: "ag"}, GracePeriodSeconds: 30, OverdueFor: 5 * time.Second},
+			wantNS:       "dev",
+			wantPod:      "pod-e",
+			wantType:     "GracePeriodViolation",
+			wantSeverity: "P2",
+		},
+		{
+			name:         "NodeNotReady",
+			event:        watcher.NodeNotReadyEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", NodeName: "node-1", AgentName: "ag"}, Reason: "KubeletNotReady"},
+			wantNS:       "dev",
+			wantPod:      "node-1",
+			wantType:     testIncidentTypeNodeFailure,
+			wantSeverity: "P1",
+		},
+		{
+			name:         "PodEvicted",
+			event:        watcher.PodEvictedEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", PodName: "pod-f", AgentName: "ag"}, Reason: "Evicted"},
+			wantNS:       "dev",
+			wantPod:      "pod-f",
+			wantType:     testIncidentTypeNodeFailure,
+			wantSeverity: "P2",
+		},
+		{
+			name:         "ProbeFailure",
+			event:        watcher.ProbeFailureEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", PodName: "pod-g", AgentName: "ag"}, ProbeType: "Liveness"},
+			wantNS:       "dev",
+			wantPod:      "pod-g",
+			wantType:     "ProbeFailure",
+			wantSeverity: "P3",
+		},
+		{
+			name:         "StalledRollout",
+			event:        watcher.StalledRolloutEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", AgentName: "ag"}, DeploymentName: "my-deploy", Reason: "ProgressDeadlineExceeded"},
+			wantNS:       "dev",
+			wantPod:      "my-deploy",
+			wantType:     testIncidentTypeBadDeploy,
+			wantSeverity: "P2",
+		},
+		{
+			name:         "NodePressure DiskPressure → P2",
+			event:        watcher.NodePressureEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", NodeName: "node-2", AgentName: "ag"}, PressureType: "DiskPressure"},
+			wantNS:       "dev",
+			wantPod:      "node-2",
+			wantType:     testIncidentTypeNodeFailure,
+			wantSeverity: "P2",
+		},
+		{
+			name:         "NodePressure PIDPressure → P3",
+			event:        watcher.NodePressureEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", NodeName: "node-3", AgentName: "ag"}, PressureType: "PIDPressure"},
+			wantNS:       "dev",
+			wantPod:      "node-3",
+			wantType:     testIncidentTypeNodeFailure,
+			wantSeverity: "P3",
+		},
+		{
+			name:         "CPUThrottling",
+			event:        watcher.CPUThrottlingEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", PodName: "pod-h", AgentName: "ag"}, ContainerName: "app"},
+			wantNS:       "dev",
+			wantPod:      "pod-h",
+			wantType:     testIncidentTypeResSaturation,
+			wantSeverity: "P3",
+		},
+		{
+			name:      "PodHealthy returns empty",
+			event:     watcher.PodHealthyEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", PodName: "pod-i"}},
+			wantEmpty: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ns, pod, _, incType, sev, _ := mapEvent(tc.event)
+			if tc.wantEmpty {
+				if ns != "" || pod != "" {
+					t.Errorf("expected empty namespace/pod, got ns=%q pod=%q", ns, pod)
+				}
+				return
+			}
+			if ns != tc.wantNS {
+				t.Errorf("namespace: got %q, want %q", ns, tc.wantNS)
+			}
+			if pod != tc.wantPod {
+				t.Errorf("pod/resource: got %q, want %q", pod, tc.wantPod)
+			}
+			if incType != tc.wantType {
+				t.Errorf("incidentType: got %q, want %q", incType, tc.wantType)
+			}
+			if sev != tc.wantSeverity {
+				t.Errorf("severity: got %q, want %q", sev, tc.wantSeverity)
+			}
+		})
+	}
+}
+
+// ── isPodCurrentlyReady ───────────────────────────────────────────────────────
+
+func TestIsPodCurrentlyReady(t *testing.T) {
+	makePod := func(phase corev1.PodPhase, readyStatus corev1.ConditionStatus) *corev1.Pod {
+		return &corev1.Pod{
+			Status: corev1.PodStatus{
+				Phase: phase,
+				Conditions: []corev1.PodCondition{
+					{Type: corev1.PodReady, Status: readyStatus},
+				},
+			},
+		}
+	}
+
+	t.Run("nil pod → false", func(t *testing.T) {
+		if isPodCurrentlyReady(nil) {
+			t.Error("expected false for nil pod")
+		}
+	})
+	t.Run("Running + Ready → true", func(t *testing.T) {
+		if !isPodCurrentlyReady(makePod(corev1.PodRunning, corev1.ConditionTrue)) {
+			t.Error("expected true for Running+Ready pod")
+		}
+	})
+	t.Run("Running + NotReady → false", func(t *testing.T) {
+		if isPodCurrentlyReady(makePod(corev1.PodRunning, corev1.ConditionFalse)) {
+			t.Error("expected false for Running+NotReady pod")
+		}
+	})
+	t.Run("Pending + Ready condition → false (wrong phase)", func(t *testing.T) {
+		if isPodCurrentlyReady(makePod(corev1.PodPending, corev1.ConditionTrue)) {
+			t.Error("expected false for non-Running pod even when Ready condition is True")
+		}
+	})
+	t.Run("Running + no conditions → false", func(t *testing.T) {
+		pod := &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodRunning}}
+		if isPodCurrentlyReady(pod) {
+			t.Error("expected false when Ready condition is absent")
+		}
+	})
+}
+
+// ── resolveIncidentsForPod ────────────────────────────────────────────────────
+
+func TestResolveIncidentsForPod_ResolvesWhenPodReady(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add rca: %v", err)
+	}
+
+	now := time.Date(2026, 3, 14, 14, 0, 0, 0, time.UTC)
+
+	// Running+Ready pod.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-pod", Namespace: "dev"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+	active := &rcav1alpha1.IncidentReport{
+		ObjectMeta: metav1.ObjectMeta{Name: "crashloop-my-pod-abc", Namespace: "dev"},
+		Spec:       rcav1alpha1.IncidentReportSpec{AgentRef: "ag"},
+		Status: rcav1alpha1.IncidentReportStatus{
+			Phase:        "Active",
+			IncidentType: "CrashLoop",
+			AffectedResources: []rcav1alpha1.AffectedResource{
+				{Kind: "Pod", Name: "my-pod", Namespace: "dev"},
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		WithObjects(pod, active).
+		Build()
+
+	c := NewConsumer(cl, nil, logr.Discard())
+	c.now = func() time.Time { return now }
+
+	if err := c.handleEvent(context.Background(), watcher.PodHealthyEvent{
+		BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", PodName: "my-pod"},
+	}); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+
+	updated := &rcav1alpha1.IncidentReport{}
+	if err := cl.Get(context.Background(), types.NamespacedName{Name: active.Name, Namespace: "dev"}, updated); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if updated.Status.Phase != "Resolved" {
+		t.Errorf("expected Resolved, got %q", updated.Status.Phase)
+	}
+}
+
+func TestResolveIncidentsForPod_PodNotFound_ReturnsNil(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add rca: %v", err)
+	}
+
+	// No pod in the store — simulates deleted pod.
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	c := NewConsumer(cl, nil, logr.Discard())
+
+	// Should NOT return an error when pod is not found.
+	if err := c.handleEvent(context.Background(), watcher.PodHealthyEvent{
+		BaseEvent: watcher.BaseEvent{Namespace: "dev", PodName: "gone-pod"},
+	}); err != nil {
+		t.Errorf("expected nil for deleted pod, got: %v", err)
+	}
+}
+
+func TestResolveIncidentsForPod_PodNotReady_SkipsResolve(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add rca: %v", err)
+	}
+
+	// Pod in Pending state — not ready.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "pending-pod", Namespace: "dev"},
+		Status:     corev1.PodStatus{Phase: corev1.PodPending},
+	}
+	active := &rcav1alpha1.IncidentReport{
+		ObjectMeta: metav1.ObjectMeta{Name: "crashloop-pending-pod-abc", Namespace: "dev"},
+		Spec:       rcav1alpha1.IncidentReportSpec{AgentRef: "ag"},
+		Status: rcav1alpha1.IncidentReportStatus{
+			Phase:        "Active",
+			IncidentType: "CrashLoop",
+			AffectedResources: []rcav1alpha1.AffectedResource{
+				{Kind: "Pod", Name: "pending-pod", Namespace: "dev"},
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		WithObjects(pod, active).
+		Build()
+	c := NewConsumer(cl, nil, logr.Discard())
+
+	if err := c.handleEvent(context.Background(), watcher.PodHealthyEvent{
+		BaseEvent: watcher.BaseEvent{Namespace: "dev", PodName: "pending-pod"},
+	}); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+
+	// Incident should still be Active since pod isn't ready.
+	got := &rcav1alpha1.IncidentReport{}
+	if err := cl.Get(context.Background(), types.NamespacedName{Name: active.Name, Namespace: "dev"}, got); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Status.Phase != "Active" {
+		t.Errorf("expected Active (pod not ready), got %q", got.Status.Phase)
 	}
 }

@@ -388,11 +388,11 @@ func (w *EventWatcher) handleCPUThrottling(ev *corev1.Event) {
 // InvolvedObject.FieldPath string of the form "spec.containers{containerName}".
 // Returns an empty string when the format is not recognised.
 func parseContainerFromFieldPath(fieldPath string) string {
-	open := strings.Index(fieldPath, "{")
-	if open < 0 {
+	_, after, ok := strings.Cut(fieldPath, "{")
+	if !ok {
 		return ""
 	}
-	name := fieldPath[open+1:]
+	name := after
 	name = strings.TrimSuffix(name, "}")
 	return name
 }
