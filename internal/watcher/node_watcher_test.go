@@ -12,11 +12,13 @@ import (
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
+const testIncidentNamespace = "production"
+
 func newTestNodeWatcher() (*NodeWatcher, *recordingEmitter) {
 	em := &recordingEmitter{}
 	w := NewNodeWatcher(nil, em, logr.Discard(), NodeWatcherConfig{
 		AgentName:         "agent-test",
-		IncidentNamespace: "production",
+		IncidentNamespace: testIncidentNamespace,
 	})
 	return w, em
 }
@@ -74,8 +76,8 @@ func TestNodeWatcher_NotReady_EmitsNodeNotReadyEvent(t *testing.T) {
 	if ev.NodeName != "node-1" {
 		t.Errorf("NodeName: want %q, got %q", "node-1", ev.NodeName)
 	}
-	if ev.Namespace != "production" {
-		t.Errorf("Namespace: want %q, got %q", "production", ev.Namespace)
+	if ev.Namespace != testIncidentNamespace {
+		t.Errorf("Namespace: want %q, got %q", testIncidentNamespace, ev.Namespace)
 	}
 	if ev.Reason != "KubeletNotReady" {
 		t.Errorf("Reason: want %q, got %q", "KubeletNotReady", ev.Reason)
@@ -262,16 +264,16 @@ func TestNodeWatcher_MultiplePressuresFireIndependently(t *testing.T) {
 	}
 
 	// Verify each event type is present.
-	types := map[string]bool{}
+	seenTypes := map[string]bool{}
 	for _, ev := range em.events {
 		if p, ok := ev.(NodePressureEvent); ok {
-			types[p.PressureType] = true
+			seenTypes[p.PressureType] = true
 		}
 	}
-	if !types["DiskPressure"] {
+	if !seenTypes["DiskPressure"] {
 		t.Error("DiskPressure event missing")
 	}
-	if !types["MemoryPressure"] {
+	if !seenTypes["MemoryPressure"] {
 		t.Error("MemoryPressure event missing")
 	}
 }
@@ -415,5 +417,32 @@ func TestNodePressureEvent_DedupKey_IncludesNodeNameAndPressureType(t *testing.T
 	want := "NodePressure:node-1:MemoryPressure"
 	if ev.DedupKey() != want {
 		t.Errorf("DedupKey: want %q, got %q", want, ev.DedupKey())
+	}
+}
+
+// ── handlePressureCondition — zero LastTransitionTime fallback ────────────────
+
+func TestHandlePressureCondition_ZeroLastTransitionTime_UsesClock(t *testing.T) {
+	now := time.Date(2026, 3, 14, 10, 0, 0, 0, time.UTC)
+	w, em := newTestNodeWatcher()
+	w.clock = func() time.Time { return now }
+
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-z", UID: types.UID("uid-z")},
+	}
+	// LastTransitionTime is zero — should fall back to w.clock()
+	cond := corev1.NodeCondition{
+		Type:               corev1.NodeDiskPressure,
+		Status:             corev1.ConditionTrue,
+		LastTransitionTime: metav1.Time{}, // zero
+	}
+	w.handlePressureCondition(node, cond, "DiskPressure")
+
+	if len(em.events) != 1 {
+		t.Fatalf("expected 1 NodePressureEvent, got %d", len(em.events))
+	}
+	ev := em.events[0].(NodePressureEvent)
+	if !ev.OccurredAt().Equal(now) {
+		t.Errorf("expected event time %v (from clock), got %v", now, ev.OccurredAt())
 	}
 }

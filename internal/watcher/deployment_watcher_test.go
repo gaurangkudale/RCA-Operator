@@ -431,3 +431,58 @@ func TestDeploymentWatcher_DedupKey_IsStable(t *testing.T) {
 		t.Errorf("DedupKey: want %q, got %q", want, key)
 	}
 }
+
+// ── onDeploymentUpdate ────────────────────────────────────────────────────────
+
+func TestOnDeploymentUpdate_SkipsUnwatchedNamespace(t *testing.T) {
+	w, em := newTestDeploymentWatcher([]string{"production"})
+
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "svc", Namespace: "staging", UID: "uid-skip"},
+	}
+	w.onDeploymentUpdate(nil, dep)
+	if len(em.events) != 0 {
+		t.Errorf("expected no events for unwatched namespace, got %d", len(em.events))
+	}
+}
+
+func TestOnDeploymentUpdate_EmitsForStalledRollout(t *testing.T) {
+	w, em := newTestDeploymentWatcher([]string{"production"})
+	now := time.Date(2026, 3, 14, 10, 0, 0, 0, time.UTC)
+	w.clock = func() time.Time { return now }
+
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "svc", Namespace: "production", UID: "uid-stall"},
+		Status: appsv1.DeploymentStatus{
+			ObservedGeneration: 2,
+			Conditions: []appsv1.DeploymentCondition{
+				{Type: "Progressing", Status: corev1.ConditionFalse, Reason: "ProgressDeadlineExceeded", LastTransitionTime: metav1.NewTime(now)},
+			},
+		},
+	}
+	w.onDeploymentUpdate(nil, dep)
+	if len(em.events) != 1 {
+		t.Errorf("expected 1 stalled rollout event, got %d", len(em.events))
+	}
+}
+
+func TestOnDeploymentUpdate_NoDuplicateEmitForSameGeneration(t *testing.T) {
+	w, em := newTestDeploymentWatcher([]string{"production"})
+	now := time.Date(2026, 3, 14, 10, 0, 0, 0, time.UTC)
+	w.clock = func() time.Time { return now }
+
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "svc", Namespace: "production", UID: "uid-dup"},
+		Status: appsv1.DeploymentStatus{
+			ObservedGeneration: 3,
+			Conditions: []appsv1.DeploymentCondition{
+				{Type: "Progressing", Status: corev1.ConditionFalse, Reason: "ProgressDeadlineExceeded", LastTransitionTime: metav1.NewTime(now)},
+			},
+		},
+	}
+	w.onDeploymentUpdate(nil, dep)
+	w.onDeploymentUpdate(nil, dep) // same generation — should be deduped
+	if len(em.events) != 1 {
+		t.Errorf("expected exactly 1 event (dedup), got %d", len(em.events))
+	}
+}

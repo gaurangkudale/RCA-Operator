@@ -35,6 +35,8 @@ const (
 	phaseResolved = "Resolved"
 	valueUnknown  = "unknown"
 
+	incidentTypeNodeFailure = "NodeFailure"
+
 	maxTimelineEntries = 50
 	maxSignalEntries   = 20
 )
@@ -209,9 +211,9 @@ func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, inci
 		return e.Namespace, e.PodName, e.AgentName, "GracePeriodViolation", "P2", fmt.Sprintf("Pod deletion exceeded grace period grace=%ds overdue=%s", e.GracePeriodSeconds, e.OverdueFor.String())
 	case watcher.NodeNotReadyEvent:
 		// Node-level incident: no pod name, use node name as primary resource identifier.
-		return e.Namespace, e.NodeName, e.AgentName, "NodeFailure", "P1", fmt.Sprintf("Node not ready reason=%s message=%s", e.Reason, e.Message)
+		return e.Namespace, e.NodeName, e.AgentName, incidentTypeNodeFailure, "P1", fmt.Sprintf("Node not ready reason=%s message=%s", e.Reason, e.Message)
 	case watcher.PodEvictedEvent:
-		return e.Namespace, e.PodName, e.AgentName, "NodeFailure", "P2", fmt.Sprintf("Pod evicted from node reason=%s message=%s", e.Reason, e.Message)
+		return e.Namespace, e.PodName, e.AgentName, incidentTypeNodeFailure, "P2", fmt.Sprintf("Pod evicted from node reason=%s message=%s", e.Reason, e.Message)
 	case watcher.ProbeFailureEvent:
 		return e.Namespace, e.PodName, e.AgentName, "ProbeFailure", "P3", fmt.Sprintf("Probe failed probeType=%s message=%s", e.ProbeType, e.Message)
 	case watcher.StalledRolloutEvent:
@@ -230,7 +232,7 @@ func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, inci
 			severity = "P3"
 		}
 		// Node-level incident: NodeName doubles as the resource identifier (no pod).
-		return e.Namespace, e.NodeName, e.AgentName, "NodeFailure", severity,
+		return e.Namespace, e.NodeName, e.AgentName, incidentTypeNodeFailure, severity,
 			fmt.Sprintf("Node %s condition=%s message=%s", e.NodeName, e.PressureType, e.Message)
 	case watcher.CPUThrottlingEvent:
 		// CPU throttling indicates a container is hitting its cpu-limit; surfaced as

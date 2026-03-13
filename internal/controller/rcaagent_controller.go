@@ -50,6 +50,7 @@ const rcaAgentFinalizer = "rca.rca-operator.io/finalizer"
 const (
 	incidentAgentLabelKey  = "rca.rca-operator.io/agent"
 	retentionRequeuePeriod = time.Minute
+	phaseActive            = "Active"
 	phaseResolved          = "Resolved"
 
 	// annotationLastSeen mirrors the key written by consumer.go so the controller
@@ -602,7 +603,7 @@ func (r *RCAAgentReconciler) resolveOrphanedIncidents(ctx context.Context, agent
 
 		for i := range list.Items {
 			report := &list.Items[i]
-			if report.Status.Phase != "Active" {
+			if report.Status.Phase != phaseActive {
 				continue
 			}
 			if !belongsToAgent(report, agent.Name) {
@@ -631,7 +632,7 @@ func (r *RCAAgentReconciler) resolveOrphanedIncidents(ctx context.Context, agent
 			}
 
 			base := report.DeepCopy()
-			report.Status.Phase = "Resolved"
+			report.Status.Phase = phaseResolved
 			report.Status.ResolvedTime = &now
 			report.Status.Timeline = append(report.Status.Timeline, rcav1alpha1.TimelineEvent{
 				Time:  now,
@@ -681,7 +682,7 @@ func (r *RCAAgentReconciler) resolveStaleThrottlingIncidents(ctx context.Context
 
 		for i := range list.Items {
 			report := &list.Items[i]
-			if report.Status.Phase != "Active" {
+			if report.Status.Phase != phaseActive {
 				continue
 			}
 			if report.Status.IncidentType != "ResourceSaturation" {
@@ -707,7 +708,7 @@ func (r *RCAAgentReconciler) resolveStaleThrottlingIncidents(ctx context.Context
 			// TTL exceeded — auto-resolve.
 			nowMeta := metav1.NewTime(now)
 			base := report.DeepCopy()
-			report.Status.Phase = "Resolved"
+			report.Status.Phase = phaseResolved
 			report.Status.ResolvedTime = &nowMeta
 			report.Status.Timeline = append(report.Status.Timeline, rcav1alpha1.TimelineEvent{
 				Time:  nowMeta,

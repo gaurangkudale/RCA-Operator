@@ -13,6 +13,8 @@ import (
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
+const testContainerFieldPath = "spec.containers{app}"
+
 func makeK8sEvent(namespace, name, reason, message, objKind, objName, objUID string, ts time.Time) *corev1.Event {
 	return &corev1.Event{
 		ObjectMeta: metav1.ObjectMeta{
@@ -314,7 +316,7 @@ func TestParseContainerFromFieldPath(t *testing.T) {
 		fieldPath string
 		want      string
 	}{
-		{"spec.containers{app}", "app"},
+		{testContainerFieldPath, "app"},
 		{"spec.containers{sidecar-proxy}", "sidecar-proxy"},
 		{"spec.initContainers{init-db}", "init-db"},
 		{"", ""},
@@ -346,7 +348,7 @@ func TestCPUThrottling_ThresholdSuppresses(t *testing.T) {
 
 	ev := makeK8sEvent("default", "ev-1", reasonCPUThrottlingHigh, "45% throttling",
 		"Pod", "cpu-pod", "pod-uid-1", now)
-	ev.InvolvedObject.FieldPath = "spec.containers{app}"
+	ev.InvolvedObject.FieldPath = testContainerFieldPath
 
 	w.route(ev) // hit 1 — below threshold
 	w.route(ev) // hit 2 — below threshold
@@ -371,7 +373,7 @@ func TestCPUThrottling_ThresholdTriggers(t *testing.T) {
 
 	ev := makeK8sEvent("default", "ev-1", reasonCPUThrottlingHigh, "45% throttling",
 		"Pod", "cpu-pod", "pod-uid-1", now)
-	ev.InvolvedObject.FieldPath = "spec.containers{app}"
+	ev.InvolvedObject.FieldPath = testContainerFieldPath
 
 	w.route(ev) // hit 1
 	w.route(ev) // hit 2
@@ -405,7 +407,7 @@ func TestCPUThrottling_CounterResetsAfterEmit(t *testing.T) {
 
 	ev := makeK8sEvent("default", "ev-1", reasonCPUThrottlingHigh, "45% throttling",
 		"Pod", "cpu-pod", "pod-uid-1", base)
-	ev.InvolvedObject.FieldPath = "spec.containers{app}"
+	ev.InvolvedObject.FieldPath = testContainerFieldPath
 
 	// First burst: 3 events → should emit once.
 	w.route(ev)
@@ -448,7 +450,7 @@ func TestCPUThrottling_SweepResetsIdleCounter(t *testing.T) {
 
 	ev := makeK8sEvent("default", "ev-1", reasonCPUThrottlingHigh, "45% throttling",
 		"Pod", "cpu-pod", "pod-uid-1", base)
-	ev.InvolvedObject.FieldPath = "spec.containers{app}"
+	ev.InvolvedObject.FieldPath = testContainerFieldPath
 
 	// Two hits, then go idle for longer than ThrottleWindow.
 	w.route(ev)
@@ -466,5 +468,83 @@ func TestCPUThrottling_SweepResetsIdleCounter(t *testing.T) {
 	w.route(ev)
 	if len(em.events) != 1 {
 		t.Errorf("after sweep: expected 1 event at fresh threshold, got %d", len(em.events))
+	}
+}
+
+// ── onEventUpdate ─────────────────────────────────────────────────────────────
+
+func TestOnEventUpdate_SkipsUnwatchedNamespace(t *testing.T) {
+	w, em := newTestEventWatcher([]string{"production"}, time.Hour)
+
+	ev := makeK8sEvent("staging", "ev", reasonOOMKilling, "", "Pod", "pod-a", "uid-1", time.Now())
+	w.onEventUpdate(ev)
+	if len(em.events) != 0 {
+		t.Errorf("expected no events for unwatched namespace, got %d", len(em.events))
+	}
+}
+
+func TestOnEventUpdate_RoutesEventInWatchedNamespace(t *testing.T) {
+	w, em := newTestEventWatcher([]string{"production"}, time.Hour)
+	now := time.Date(2026, 3, 14, 10, 0, 0, 0, time.UTC)
+
+	ev := makeK8sEvent("production", "ev", reasonOOMKilling, "OOM killed", "Pod", "pod-a", "uid-2", now)
+	w.onEventUpdate(ev)
+	if len(em.events) != 1 {
+		t.Errorf("expected 1 OOMKilled event via onEventUpdate, got %d", len(em.events))
+	}
+}
+
+// ── onEventAdd full-route path ────────────────────────────────────────────────
+
+func TestOnEventAdd_RoutesEventInWatchedNamespace(t *testing.T) {
+	w, em := newTestEventWatcher([]string{"production"}, time.Hour)
+	now := time.Date(2026, 3, 14, 11, 0, 0, 0, time.UTC)
+
+	ev := makeK8sEvent("production", "ev-add", reasonOOMKilling, "oom", "Pod", "pod-a", "uid-add", now)
+	w.onEventAdd(ev)
+	if len(em.events) != 1 {
+		t.Errorf("expected 1 OOMKilled event via onEventAdd, got %d", len(em.events))
+	}
+}
+
+// ── handleProbeFailure / handleNodeNotReady non-target-kind guards ─────────────
+
+func TestHandleProbeFailure_IgnoresNonPodKind(t *testing.T) {
+	w, em := newTestEventWatcher(nil, time.Hour)
+
+	ev := makeK8sEvent("dev", "ev", reasonUnhealthy, "probe failed", "Node", "node-a", "uid-x", time.Now())
+	w.handleProbeFailure(ev)
+	if len(em.events) != 0 {
+		t.Errorf("expected no event for non-Pod involved object, got %d", len(em.events))
+	}
+}
+
+func TestHandleNodeNotReady_IgnoresNonNodeKind(t *testing.T) {
+	w, em := newTestEventWatcher(nil, time.Hour)
+
+	ev := makeK8sEvent("dev", "ev", reasonNodeNotReady, "not ready", "Pod", "pod-a", "uid-y", time.Now())
+	w.handleNodeNotReady(ev)
+	if len(em.events) != 0 {
+		t.Errorf("expected no event for non-Node involved object, got %d", len(em.events))
+	}
+}
+
+// ── handleOOMKilling / handleEviction — non-Pod kind guards ───────────────────
+
+func TestHandleOOMKilling_IgnoresNonPodKind(t *testing.T) {
+	w, em := newTestEventWatcher(nil, time.Hour)
+	ev := makeK8sEvent("dev", "ev", reasonOOMKilling, "", "Node", "node-a", "uid-oom", time.Now())
+	w.handleOOMKilling(ev)
+	if len(em.events) != 0 {
+		t.Errorf("expected no event for non-Pod kind, got %d", len(em.events))
+	}
+}
+
+func TestHandleEviction_IgnoresNonPodKind(t *testing.T) {
+	w, em := newTestEventWatcher(nil, time.Hour)
+	ev := makeK8sEvent("dev", "ev", reasonEvicted, "", "Node", "node-a", "uid-evict", time.Now())
+	w.handleEviction(ev)
+	if len(em.events) != 0 {
+		t.Errorf("expected no event for non-Pod kind in handleEviction, got %d", len(em.events))
 	}
 }
