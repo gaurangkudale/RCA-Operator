@@ -109,6 +109,21 @@ func TestEventWatcher_ReasonRouting(t *testing.T) {
 			message:      "OOM on node",
 			wantNonEmpty: false,
 		},
+		{
+			name:         "CPUThrottlingHigh on pod emits CPUThrottlingEvent",
+			reason:       reasonCPUThrottlingHigh,
+			objKind:      "Pod",
+			message:      "25% throttling of CPU in namespace default",
+			wantType:     EventTypeCPUThrottling,
+			wantNonEmpty: true,
+		},
+		{
+			name:         "CPUThrottlingHigh on non-Pod kind emits nothing",
+			reason:       reasonCPUThrottlingHigh,
+			objKind:      "Node",
+			message:      "25% throttling",
+			wantNonEmpty: false,
+		},
 	}
 
 	for _, tc := range cases {
@@ -290,5 +305,25 @@ func TestSweepDedupMap(t *testing.T) {
 	}
 	if _, ok := w.dedupSeen["fresh-key"]; !ok {
 		t.Error("sweepDedupMap: fresh-key should have been retained")
+	}
+}
+
+func TestParseContainerFromFieldPath(t *testing.T) {
+	cases := []struct {
+		fieldPath string
+		want      string
+	}{
+		{"spec.containers{app}", "app"},
+		{"spec.containers{sidecar-proxy}", "sidecar-proxy"},
+		{"spec.initContainers{init-db}", "init-db"},
+		{"", ""},
+		{"spec.containers", ""},
+		{"nobraces", ""},
+	}
+	for _, tc := range cases {
+		got := parseContainerFromFieldPath(tc.fieldPath)
+		if got != tc.want {
+			t.Errorf("parseContainerFromFieldPath(%q) = %q, want %q", tc.fieldPath, got, tc.want)
+		}
 	}
 }

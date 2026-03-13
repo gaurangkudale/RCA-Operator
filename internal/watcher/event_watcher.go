@@ -35,6 +35,10 @@ const (
 	reasonUnhealthy            = "Unhealthy"
 	reasonNodeNotReady         = "NodeNotReady"
 	reasonNodeConditionChanged = "NodeConditionChanged"
+	// reasonCPUThrottlingHigh is emitted by the kubelet when a container is
+	// throttled by the CPU CFS scheduler beyond a configurable threshold.
+	// The InvolvedObject is the Pod; FieldPath identifies the container.
+	reasonCPUThrottlingHigh = "CPUThrottlingHigh"
 
 	// involvedObjectKindPod and involvedObjectKindNode are the InvolvedObject.Kind
 	// values used to route K8s Event records to the correct handler.
@@ -173,6 +177,8 @@ func (w *EventWatcher) route(ev *corev1.Event) {
 		w.handleProbeFailure(ev)
 	case reasonNodeNotReady, reasonNodeConditionChanged:
 		w.handleNodeNotReady(ev)
+	case reasonCPUThrottlingHigh:
+		w.handleCPUThrottling(ev)
 	}
 	// All other reasons are intentionally ignored in Phase 1.
 }
@@ -287,6 +293,50 @@ func (w *EventWatcher) handleNodeNotReady(ev *corev1.Event) {
 		Reason:  ev.Reason,
 		Message: ev.Message,
 	})
+}
+
+// handleCPUThrottling emits a CPUThrottlingEvent when the kubelet reports that a
+// container is being throttled by the CPU CFS scheduler.  The container name is
+// extracted from InvolvedObject.FieldPath (format: "spec.containers{name}").
+// This event is used to feed correlation Rule 6: CPU throttling + probe failures
+// → ResourceSaturation incident.
+func (w *EventWatcher) handleCPUThrottling(ev *corev1.Event) {
+	if ev.InvolvedObject.Kind != involvedObjectKindPod {
+		return
+	}
+
+	containerName := parseContainerFromFieldPath(ev.InvolvedObject.FieldPath)
+	key := dedupKey(ev.Namespace, string(ev.InvolvedObject.UID), ev.Reason+"/"+containerName)
+	if !w.shouldEmit(key) {
+		return
+	}
+
+	at := eventTimestamp(ev, w.clock())
+	w.emitter.Emit(CPUThrottlingEvent{
+		BaseEvent: BaseEvent{
+			At:        at,
+			AgentName: w.config.AgentName,
+			Namespace: ev.Namespace,
+			PodName:   ev.InvolvedObject.Name,
+			PodUID:    string(ev.InvolvedObject.UID),
+			NodeName:  ev.Source.Host,
+		},
+		ContainerName: containerName,
+		Message:       ev.Message,
+	})
+}
+
+// parseContainerFromFieldPath extracts the container name from a kubelet
+// InvolvedObject.FieldPath string of the form "spec.containers{containerName}".
+// Returns an empty string when the format is not recognised.
+func parseContainerFromFieldPath(fieldPath string) string {
+	open := strings.Index(fieldPath, "{")
+	if open < 0 {
+		return ""
+	}
+	name := fieldPath[open+1:]
+	name = strings.TrimSuffix(name, "}")
+	return name
 }
 
 // bootstrapScan replays recent K8s Events so that a watcher restart does not

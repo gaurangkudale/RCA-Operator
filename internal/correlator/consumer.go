@@ -221,6 +221,22 @@ func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, inci
 		return e.Namespace, e.DeploymentName, e.AgentName, "BadDeploy", "P2",
 			fmt.Sprintf("Deployment rollout stalled reason=%s desiredReplicas=%d readyReplicas=%d message=%s",
 				e.Reason, e.DesiredReplicas, e.ReadyReplicas, e.Message)
+	case watcher.NodePressureEvent:
+		// Node resource-pressure is a NodeFailure variant.  Severity varies by type:
+		// DiskPressure and MemoryPressure threaten workload stability (P2);
+		// PIDPressure is less common and treated as P3.
+		severity := "P2"
+		if e.PressureType == "PIDPressure" {
+			severity = "P3"
+		}
+		// Node-level incident: NodeName doubles as the resource identifier (no pod).
+		return e.Namespace, e.NodeName, e.AgentName, "NodeFailure", severity,
+			fmt.Sprintf("Node %s condition=%s message=%s", e.NodeName, e.PressureType, e.Message)
+	case watcher.CPUThrottlingEvent:
+		// CPU throttling indicates a container is hitting its cpu-limit; surfaced as
+		// ResourceSaturation so it can be correlated with probe failures in Rule 6.
+		return e.Namespace, e.PodName, e.AgentName, "ResourceSaturation", "P3",
+			fmt.Sprintf("CPU throttling high container=%s message=%s", e.ContainerName, e.Message)
 	case watcher.PodHealthyEvent:
 		return "", "", "", "", "", ""
 	default:
