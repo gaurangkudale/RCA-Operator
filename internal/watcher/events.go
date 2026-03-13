@@ -18,6 +18,9 @@ const (
 	EventTypeNodeNotReady EventType = "NodeNotReady"
 	EventTypePodEvicted   EventType = "PodEvicted"
 	EventTypeProbeFailure EventType = "ProbeFailure"
+
+	// Deployment-sourced signals (detected from apps/v1 Deployment objects).
+	EventTypeStalledRollout EventType = "StalledRollout"
 )
 
 // CorrelatorEvent is the shared typed event interface consumed by the correlator.
@@ -177,4 +180,38 @@ func (e ProbeFailureEvent) Type() EventType       { return EventTypeProbeFailure
 func (e ProbeFailureEvent) OccurredAt() time.Time { return e.At }
 func (e ProbeFailureEvent) DedupKey() string {
 	return string(e.Type()) + ":" + e.Namespace + ":" + e.PodName + ":" + e.ProbeType
+}
+
+// StalledRolloutEvent is emitted when an apps/v1 Deployment rollout fails to make
+// forward progress within its configured progressDeadlineSeconds window.
+//
+// The kubelet marks this state by setting a Progressing condition with
+// Status=False and Reason=ProgressDeadlineExceeded on the Deployment.
+//
+// DeploymentName is also stored in BaseEvent.PodName so the correlator can use
+// the same resource-key routing as other event types without a separate code path.
+type StalledRolloutEvent struct {
+	BaseEvent
+	// DeploymentName is the name of the stalled Deployment.
+	DeploymentName string
+	// Revision is the status.observedGeneration at the time of detection.
+	// It is included in the dedup key so that a new rollout attempt that
+	// also stalls produces a fresh event.
+	Revision int64
+	// DesiredReplicas is the replica count requested in spec.replicas (default 1).
+	DesiredReplicas int32
+	// ReadyReplicas is the number of replicas that are currently Ready.
+	ReadyReplicas int32
+	// Reason is always "ProgressDeadlineExceeded" for Phase-1 detection.
+	Reason string
+	// Message is the human-readable detail from the Progressing condition.
+	Message string
+}
+
+func (e StalledRolloutEvent) Type() EventType       { return EventTypeStalledRollout }
+func (e StalledRolloutEvent) OccurredAt() time.Time { return e.At }
+func (e StalledRolloutEvent) DedupKey() string {
+	// Include DeploymentName and Revision so a re-deployed (new generation)
+	// that stalls again emits a separate, distinct event.
+	return string(e.Type()) + ":" + e.Namespace + ":" + e.DeploymentName
 }
