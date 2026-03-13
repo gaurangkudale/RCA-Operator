@@ -214,6 +214,13 @@ func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, inci
 		return e.Namespace, e.PodName, e.AgentName, "NodeFailure", "P2", fmt.Sprintf("Pod evicted from node reason=%s message=%s", e.Reason, e.Message)
 	case watcher.ProbeFailureEvent:
 		return e.Namespace, e.PodName, e.AgentName, "ProbeFailure", "P3", fmt.Sprintf("Probe failed probeType=%s message=%s", e.ProbeType, e.Message)
+	case watcher.StalledRolloutEvent:
+		// The deployment name travels in both DeploymentName and BaseEvent.PodName
+		// so the standard correlator routing path (findActiveIncidentForPodType,
+		// label indexing, dedup key) works without a separate code path.
+		return e.Namespace, e.DeploymentName, e.AgentName, "BadDeploy", "P2",
+			fmt.Sprintf("Deployment rollout stalled reason=%s desiredReplicas=%d readyReplicas=%d message=%s",
+				e.Reason, e.DesiredReplicas, e.ReadyReplicas, e.Message)
 	case watcher.PodHealthyEvent:
 		return "", "", "", "", "", ""
 	default:

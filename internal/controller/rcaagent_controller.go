@@ -69,6 +69,7 @@ type RCAAgentReconciler struct {
 	ManagerContext   context.Context
 	newPodWatcher    func(ctrlcache.Cache, watcher.EventEmitter, logr.Logger, watcher.PodWatcherConfig) podWatcher
 	newEventWatcher  func(ctrlcache.Cache, watcher.EventEmitter, logr.Logger, watcher.EventWatcherConfig) eventWatcher
+	newDeployWatcher func(ctrlcache.Cache, watcher.EventEmitter, logr.Logger, watcher.DeploymentWatcherConfig) deploymentWatcher
 	watcherRegistry  map[types.NamespacedName]watcherEntry
 	watcherRegistryM sync.Mutex
 	nowFn            func() time.Time
@@ -79,6 +80,10 @@ type podWatcher interface {
 }
 
 type eventWatcher interface {
+	Start(ctx context.Context) error
+}
+
+type deploymentWatcher interface {
 	Start(ctx context.Context) error
 }
 
@@ -387,6 +392,29 @@ func (r *RCAAgentReconciler) ensureWatcherRunning(ctx context.Context, agent *rc
 	if err := ew.Start(watcherCtx); err != nil {
 		cancel()
 		return fmt.Errorf("failed to start event watcher for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
+	}
+
+	// DeploymentWatcher is started when either an injected factory is provided
+	// or a real cache is available.  When neither is true (e.g. unit tests that
+	// inject pod/event fakes but have no cache) the watcher is simply skipped so
+	// test compatibility is preserved without requiring changes to existing tests.
+	deployFactory := r.newDeployWatcher
+	if deployFactory == nil && r.Cache != nil {
+		deployFactory = func(cache ctrlcache.Cache, emitter watcher.EventEmitter, logger logr.Logger, cfg watcher.DeploymentWatcherConfig) deploymentWatcher {
+			return watcher.NewDeploymentWatcher(cache, emitter, logger, cfg)
+		}
+	}
+	if deployFactory != nil {
+		dw := deployFactory(r.Cache, r.WatcherEmitter, log,
+			watcher.DeploymentWatcherConfig{
+				AgentName:       agent.Name,
+				WatchNamespaces: desiredNamespaces,
+			},
+		)
+		if err := dw.Start(watcherCtx); err != nil {
+			cancel()
+			return fmt.Errorf("failed to start deployment watcher for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
+		}
 	}
 
 	r.watcherRegistryM.Lock()
