@@ -178,6 +178,7 @@ spec:
                 - Registry
                 - GracePeriodViolation
                 - ProbeFailure
+                - ResourceSaturation
                 type: string
               notified:
                 description: |-
