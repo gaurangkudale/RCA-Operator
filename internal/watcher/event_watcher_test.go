@@ -35,9 +35,10 @@ func makeK8sEvent(namespace, name, reason, message, objKind, objName, objUID str
 func newTestEventWatcher(namespaces []string, dedupWindow time.Duration) (*EventWatcher, *recordingEmitter) {
 	em := &recordingEmitter{}
 	w := NewEventWatcher(nil, em, logr.Discard(), EventWatcherConfig{
-		AgentName:       "agent-test",
-		WatchNamespaces: namespaces,
-		DedupWindow:     dedupWindow,
+		AgentName:         "agent-test",
+		WatchNamespaces:   namespaces,
+		DedupWindow:       dedupWindow,
+		ThrottleThreshold: 1, // threshold=1 so existing tests emit on the first event
 	})
 	return w, em
 }
@@ -325,5 +326,145 @@ func TestParseContainerFromFieldPath(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("parseContainerFromFieldPath(%q) = %q, want %q", tc.fieldPath, got, tc.want)
 		}
+	}
+}
+
+// ── Test 27: CPUThrottling threshold gate ────────────────────────────────────
+
+// TestCPUThrottling_ThresholdSuppresses verifies that events below the threshold
+// are silently dropped and no CPUThrottlingEvent is emitted.
+func TestCPUThrottling_ThresholdSuppresses(t *testing.T) {
+	now := time.Date(2026, 3, 14, 10, 0, 0, 0, time.UTC)
+	em := &recordingEmitter{}
+	w := NewEventWatcher(nil, em, logr.Discard(), EventWatcherConfig{
+		AgentName:         "agent-test",
+		DedupWindow:       time.Hour,
+		ThrottleThreshold: 3,
+		ThrottleWindow:    5 * time.Minute,
+	})
+	w.clock = func() time.Time { return now }
+
+	ev := makeK8sEvent("default", "ev-1", reasonCPUThrottlingHigh, "45% throttling",
+		"Pod", "cpu-pod", "pod-uid-1", now)
+	ev.InvolvedObject.FieldPath = "spec.containers{app}"
+
+	w.route(ev) // hit 1 — below threshold
+	w.route(ev) // hit 2 — below threshold
+
+	if len(em.events) != 0 {
+		t.Errorf("expected 0 events below threshold, got %d", len(em.events))
+	}
+}
+
+// TestCPUThrottling_ThresholdTriggers verifies that reaching the threshold emits
+// exactly one CPUThrottlingEvent.
+func TestCPUThrottling_ThresholdTriggers(t *testing.T) {
+	now := time.Date(2026, 3, 14, 10, 0, 0, 0, time.UTC)
+	em := &recordingEmitter{}
+	w := NewEventWatcher(nil, em, logr.Discard(), EventWatcherConfig{
+		AgentName:         "agent-test",
+		DedupWindow:       time.Hour,
+		ThrottleThreshold: 3,
+		ThrottleWindow:    5 * time.Minute,
+	})
+	w.clock = func() time.Time { return now }
+
+	ev := makeK8sEvent("default", "ev-1", reasonCPUThrottlingHigh, "45% throttling",
+		"Pod", "cpu-pod", "pod-uid-1", now)
+	ev.InvolvedObject.FieldPath = "spec.containers{app}"
+
+	w.route(ev) // hit 1
+	w.route(ev) // hit 2
+	w.route(ev) // hit 3 — threshold reached → should emit
+
+	if len(em.events) != 1 {
+		t.Fatalf("expected 1 CPUThrottlingEvent at threshold, got %d", len(em.events))
+	}
+	got, ok := em.events[0].(CPUThrottlingEvent)
+	if !ok {
+		t.Fatalf("expected CPUThrottlingEvent, got %T", em.events[0])
+	}
+	if got.ContainerName != "app" {
+		t.Errorf("ContainerName: got %q, want \"app\"", got.ContainerName)
+	}
+}
+
+// TestCPUThrottling_CounterResetsAfterEmit verifies that after an emission the
+// counter resets so the next burst must again accumulate to the threshold.
+func TestCPUThrottling_CounterResetsAfterEmit(t *testing.T) {
+	base := time.Date(2026, 3, 14, 10, 0, 0, 0, time.UTC)
+	tick := base
+	em := &recordingEmitter{}
+	w := NewEventWatcher(nil, em, logr.Discard(), EventWatcherConfig{
+		AgentName:         "agent-test",
+		DedupWindow:       2 * time.Minute,
+		ThrottleThreshold: 3,
+		ThrottleWindow:    5 * time.Minute,
+	})
+	w.clock = func() time.Time { return tick }
+
+	ev := makeK8sEvent("default", "ev-1", reasonCPUThrottlingHigh, "45% throttling",
+		"Pod", "cpu-pod", "pod-uid-1", base)
+	ev.InvolvedObject.FieldPath = "spec.containers{app}"
+
+	// First burst: 3 events → should emit once.
+	w.route(ev)
+	w.route(ev)
+	w.route(ev)
+	if len(em.events) != 1 {
+		t.Fatalf("first burst: expected 1 event, got %d", len(em.events))
+	}
+
+	// Advance past the dedup window so shouldEmit allows re-emission.
+	tick = base.Add(3 * time.Minute)
+
+	// Second burst: only 2 events — counter reset, threshold not reached again.
+	w.route(ev)
+	w.route(ev)
+	if len(em.events) != 1 {
+		t.Errorf("second burst below threshold: expected still 1 event total, got %d", len(em.events))
+	}
+
+	// Third event in second burst reaches threshold → emit again.
+	w.route(ev)
+	if len(em.events) != 2 {
+		t.Errorf("second burst at threshold: expected 2 events total, got %d", len(em.events))
+	}
+}
+
+// TestCPUThrottling_SweepResetsIdleCounter verifies that the sweep resets the
+// throttle counter for keys idle longer than ThrottleWindow.
+func TestCPUThrottling_SweepResetsIdleCounter(t *testing.T) {
+	base := time.Date(2026, 3, 14, 10, 0, 0, 0, time.UTC)
+	tick := base
+	em := &recordingEmitter{}
+	w := NewEventWatcher(nil, em, logr.Discard(), EventWatcherConfig{
+		AgentName:         "agent-test",
+		DedupWindow:       time.Hour,
+		ThrottleThreshold: 3,
+		ThrottleWindow:    5 * time.Minute,
+	})
+	w.clock = func() time.Time { return tick }
+
+	ev := makeK8sEvent("default", "ev-1", reasonCPUThrottlingHigh, "45% throttling",
+		"Pod", "cpu-pod", "pod-uid-1", base)
+	ev.InvolvedObject.FieldPath = "spec.containers{app}"
+
+	// Two hits, then go idle for longer than ThrottleWindow.
+	w.route(ev)
+	w.route(ev)
+	if len(em.events) != 0 {
+		t.Fatalf("expected 0 events before threshold, got %d", len(em.events))
+	}
+
+	tick = base.Add(6 * time.Minute) // past ThrottleWindow
+	w.sweepDedupMap(context.Background())
+
+	// After sweep the counter is reset — 3 fresh events should trigger again.
+	w.route(ev)
+	w.route(ev)
+	w.route(ev)
+	if len(em.events) != 1 {
+		t.Errorf("after sweep: expected 1 event at fresh threshold, got %d", len(em.events))
 	}
 }

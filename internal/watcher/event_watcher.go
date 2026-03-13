@@ -29,6 +29,17 @@ const (
 	// so that a watcher restart does not miss signals that arrived just before.
 	bootstrapLookback = 5 * time.Minute
 
+	// defaultThrottleThreshold is the number of CPUThrottlingHigh K8s Events that
+	// must be observed for the same pod/container before a CPUThrottlingEvent is
+	// sent to the correlator. This prevents transient one-off throttle spikes from
+	// raising ResourceSaturation incidents.
+	defaultThrottleThreshold = 3
+
+	// defaultThrottleWindow is the inactivity duration after which the per-key
+	// throttle hit counter resets. If no CPUThrottlingHigh event arrives within
+	// this window the counter starts fresh and the threshold must be reached again.
+	defaultThrottleWindow = 5 * time.Minute
+
 	// k8s Event reason constants that event_watcher acts on.
 	reasonOOMKilling           = "OOMKilling"
 	reasonEvicted              = "Evicted"
@@ -62,6 +73,15 @@ type EventWatcherConfig struct {
 	// DedupSweepInterval controls how often the dedup map is compacted.
 	// Defaults to defaultEventDedupSweepInterval.
 	DedupSweepInterval time.Duration
+
+	// ThrottleThreshold is the number of CPUThrottlingHigh K8s Events that must
+	// be observed for the same pod/container before a CPUThrottlingEvent is emitted.
+	// Defaults to defaultThrottleThreshold (3).
+	ThrottleThreshold int
+
+	// ThrottleWindow is the inactivity period after which the throttle hit counter
+	// for a pod/container resets to zero. Defaults to defaultThrottleWindow (5 min).
+	ThrottleWindow time.Duration
 }
 
 // EventWatcher watches the core/v1 Event stream and emits typed CorrelatorEvents
@@ -75,9 +95,11 @@ type EventWatcher struct {
 	config  EventWatcherConfig
 	clock   func() time.Time
 
-	mu           sync.Mutex
-	dedupSeen    map[string]time.Time // key: namespace/objectUID/reason → lastEmittedAt
-	namespaceSet map[string]struct{}
+	mu              sync.Mutex
+	dedupSeen       map[string]time.Time // key: namespace/objectUID/reason → lastEmittedAt
+	namespaceSet    map[string]struct{}
+	throttleHits    map[string]int       // key: dedup key → number of CPUThrottlingHigh hits seen
+	throttleLastHit map[string]time.Time // key: dedup key → time of most recent hit
 }
 
 // NewEventWatcher creates an EventWatcher backed by a controller-runtime cache.
@@ -89,15 +111,23 @@ func NewEventWatcher(cache ctrlcache.Cache, emitter EventEmitter, logger logr.Lo
 	if cfg.DedupSweepInterval <= 0 {
 		cfg.DedupSweepInterval = defaultEventDedupSweepInterval
 	}
+	if cfg.ThrottleThreshold <= 0 {
+		cfg.ThrottleThreshold = defaultThrottleThreshold
+	}
+	if cfg.ThrottleWindow <= 0 {
+		cfg.ThrottleWindow = defaultThrottleWindow
+	}
 
 	return &EventWatcher{
-		cache:        cache,
-		emitter:      emitter,
-		log:          logger.WithName("event-watcher"),
-		config:       cfg,
-		clock:        time.Now,
-		dedupSeen:    make(map[string]time.Time),
-		namespaceSet: toNamespaceSet(cfg.WatchNamespaces),
+		cache:           cache,
+		emitter:         emitter,
+		log:             logger.WithName("event-watcher"),
+		config:          cfg,
+		clock:           time.Now,
+		dedupSeen:       make(map[string]time.Time),
+		namespaceSet:    toNamespaceSet(cfg.WatchNamespaces),
+		throttleHits:    make(map[string]int),
+		throttleLastHit: make(map[string]time.Time),
 	}
 }
 
@@ -298,8 +328,11 @@ func (w *EventWatcher) handleNodeNotReady(ev *corev1.Event) {
 // handleCPUThrottling emits a CPUThrottlingEvent when the kubelet reports that a
 // container is being throttled by the CPU CFS scheduler.  The container name is
 // extracted from InvolvedObject.FieldPath (format: "spec.containers{name}").
-// This event is used to feed correlation Rule 6: CPU throttling + probe failures
-// → ResourceSaturation incident.
+//
+// A threshold gate suppresses emission until ThrottleThreshold events have been
+// observed for the same pod/container. This prevents transient one-off spikes
+// from raising ResourceSaturation incidents. The counter resets to zero after a
+// successful emit so the next burst must accumulate again.
 func (w *EventWatcher) handleCPUThrottling(ev *corev1.Event) {
 	if ev.InvolvedObject.Kind != involvedObjectKindPod {
 		return
@@ -307,9 +340,34 @@ func (w *EventWatcher) handleCPUThrottling(ev *corev1.Event) {
 
 	containerName := parseContainerFromFieldPath(ev.InvolvedObject.FieldPath)
 	key := dedupKey(ev.Namespace, string(ev.InvolvedObject.UID), ev.Reason+"/"+containerName)
+
+	// Accumulate hit count; record time of last hit for the sweep.
+	w.mu.Lock()
+	w.throttleHits[key]++
+	w.throttleLastHit[key] = w.clock()
+	hitCount := w.throttleHits[key]
+	w.mu.Unlock()
+
+	// Threshold not yet reached — suppress and log at debug level.
+	if hitCount < w.config.ThrottleThreshold {
+		w.log.V(1).Info("CPUThrottling hit below threshold — suppressing",
+			"key", key,
+			"hits", hitCount,
+			"threshold", w.config.ThrottleThreshold,
+		)
+		return
+	}
+
+	// Threshold reached — apply the standard dedup guard so we don't re-emit
+	// within DedupWindow even while the counter keeps ticking.
 	if !w.shouldEmit(key) {
 		return
 	}
+
+	// Reset counter after a successful emit so the next burst re-accumulates.
+	w.mu.Lock()
+	w.throttleHits[key] = 0
+	w.mu.Unlock()
 
 	at := eventTimestamp(ev, w.clock())
 	w.emitter.Emit(CPUThrottlingEvent{
@@ -368,13 +426,23 @@ func (w *EventWatcher) bootstrapScan(ctx context.Context) {
 
 // sweepDedupMap removes entries that have been idle longer than 2× DedupWindow
 // to prevent the map from growing unboundedly over the operator's lifetime.
+// It also resets the throttle hit counter for keys idle longer than ThrottleWindow
+// so infrequent throttle events don't prevent future threshold triggering.
 func (w *EventWatcher) sweepDedupMap(_ context.Context) {
-	cutoff := w.clock().Add(-2 * w.config.DedupWindow)
+	now := w.clock()
+	dedupCutoff := now.Add(-2 * w.config.DedupWindow)
+	throttleCutoff := now.Add(-w.config.ThrottleWindow)
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for key, lastSeen := range w.dedupSeen {
-		if lastSeen.Before(cutoff) {
+		if lastSeen.Before(dedupCutoff) {
 			delete(w.dedupSeen, key)
+		}
+	}
+	for key, lastHit := range w.throttleLastHit {
+		if lastHit.Before(throttleCutoff) {
+			delete(w.throttleHits, key)
+			delete(w.throttleLastHit, key)
 		}
 	}
 }
