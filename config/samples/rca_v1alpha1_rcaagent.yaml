@@ -22,4 +22,4 @@ spec:
       # Name of a Secret in this namespace with key "apiKey".
       secretRef: pd-api-key
   # How long to keep Resolved IncidentReport CRs. Supported: m, h, d (e.g. 24h, 30d).
-  incidentRetention: 2h
+  incidentRetention: 5m
