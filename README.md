@@ -9,6 +9,7 @@
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-1.26+-326CE5?logo=kubernetes)](https://kubernetes.io)
 [![kubebuilder](https://img.shields.io/badge/Built%20with-kubebuilder-FF6B6B)](https://book.kubebuilder.io)
 [![Go Report Card](https://goreportcard.com/badge/github.com/gaurangkudale/RCA-operator)](https://goreportcard.com/report/github.com/gaurangkudale/RCA-operator)
+[![codecov](https://codecov.io/gh/gaurangkudale/RCA-operator/branch/main-gk/graph/badge.svg)](https://codecov.io/gh/gaurangkudale/RCA-operator)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 </div>

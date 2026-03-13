@@ -21,3 +21,9 @@ jobs:
         run: |
           go mod tidy
           make test
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: cover.out
+          fail_ci_if_error: false
