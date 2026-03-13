@@ -1,0 +1,82 @@
+# CPUThrottling scenario
+# ──────────────────────────────────────────────────────────────────────────────
+# Expected watcher signal : CPUThrottlingEvent
+#                           (K8s Event reason=CPUThrottlingHigh emitted by kubelet
+#                           via the ThrottlingData eviction signal)
+# Expected incident type  : ResourceSaturation  (severity P3)
+# Detected by             : EventWatcher.handleCPUThrottling()
+# Detection method        : InvolvedObject.FieldPath "spec.containers{throttle-demo}"
+#
+# How it works:
+#   The container runs an infinite arithmetic busy-loop using only shell built-ins
+#   (no external binaries needed).  The CPU limit is deliberately set to 10m
+#   (10 millicores) — far below what even a trivial loop consumes.  The Linux
+#   CFS scheduler throttles the container, and the kubelet's eviction manager
+#   emits a CPUThrottlingHigh K8s Event once the throttled-period ratio exceeds
+#   the configured threshold (default 25 %, controlled by --cpu-throttling-percent
+#   or the kubelet CPUThrottlingFraction feature).
+#
+# Note: CPUThrottlingHigh events are rate-limited by the kubelet.  You will
+#   typically see the first event within 30–120 s after the pod enters Running.
+#   If using Kind, ensure cpuManagerPolicy is not "static" for the node.
+#
+# Apply:
+#   kubectl apply -f test/fixtures/pods/cpu-throttle.yaml
+#
+# Watch K8s events for the throttling signal:
+#   kubectl get events -n development --field-selector reason=CPUThrottlingHigh -w
+#
+# Watch IncidentReports:
+#   kubectl get incidentreports -n development -w
+#
+# Verify the throttling event fired:
+#   kubectl describe pod cpu-throttle-demo -n development | grep -A5 Events
+#
+# Clean up:
+#   kubectl delete -f test/fixtures/pods/cpu-throttle.yaml
+#   kubectl delete incidentreports -n development -l rca.rca-operator.io/incident-type=ResourceSaturation
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cpu-throttle-demo
+  namespace: development
+  labels:
+    app: cpu-throttle-demo
+    rca.rca-operator.io/fixture: "true"
+    rca.rca-operator.io/scenario: cpu-throttling
+spec:
+  restartPolicy: Never
+  containers:
+  - name: throttle-demo
+    image: busybox:1.36
+    # Intentionally tiny CPU limit — 10 millicores.
+    # The busy-loop below saturates this immediately, causing the Linux CFS
+    # scheduler to throttle the container heavily.  The kubelet detects the
+    # high throttle ratio and emits CPUThrottlingHigh K8s Events.
+    resources:
+      requests:
+        cpu: 10m
+        memory: 8Mi
+      limits:
+        cpu: 10m
+        memory: 16Mi
+    command:
+      - /bin/sh
+      - -c
+      - |
+        echo "CPU throttle demo: starting busy-loop with 10m CPU limit"
+        echo "The CFS scheduler will throttle this container heavily."
+        echo "Watch for CPUThrottlingHigh K8s events (may take 30-120s):"
+        echo "  kubectl get events -n development --field-selector reason=CPUThrottlingHigh -w"
+        echo ""
+        # Infinite arithmetic busy-loop using only shell built-ins.
+        # No sleep — runs as hot as the CFS scheduler permits within the 10m limit.
+        i=0
+        while true; do
+          i=$((i + 1))
+          # Occasionally print progress so the pod isn't completely silent
+          if [ $((i % 500000)) -eq 0 ]; then
+            echo "iterations: $i"
+          fi
+        done
