@@ -100,8 +100,17 @@ func (r *IncidentReportReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 }
 
 // reconcileDetecting handles Detecting-phase incidents.
-// If the pod recovers before the stabilisation window elapses the incident is
-// resolved immediately; otherwise, after stabilisationDelay it is promoted to Active.
+// The stabilisation window (stabilizationDelay) must fully elapse before any
+// decision is made.  Checking pod health mid-window is intentionally skipped:
+// pods in a failure cycle (OOMKilled, CrashLoop) briefly restart as Running+Ready
+// every few seconds, and an early health check would cause spurious resolution.
+//
+// After the window:
+//   - If a new watcher signal arrived during the window (annotationLastSeen is
+//     recent), the failure is still ongoing → promote to Active.
+//   - If all affected pods are Running+Ready and no new signal arrived, the
+//     incident was a transient blip → resolve.
+//   - Otherwise → promote to Active.
 func (r *IncidentReportReconciler) reconcileDetecting(ctx context.Context, log logr.Logger, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
 	if report.Status.StartTime == nil {
 		// Malformed or legacy report — promote immediately to avoid being stuck.
@@ -112,28 +121,47 @@ func (r *IncidentReportReconciler) reconcileDetecting(ctx context.Context, log l
 	elapsed := r.now().Sub(report.Status.StartTime.Time)
 
 	if elapsed < stabilizationDelay {
-		// During the stabilisation window check whether pods have already recovered.
-		for _, res := range report.Status.AffectedResources {
-			if res.Kind != resourceKindPod {
-				continue
-			}
-			pod := &corev1.Pod{}
-			if err := r.Get(ctx, types.NamespacedName{Namespace: res.Namespace, Name: res.Name}, pod); err != nil {
-				// Pod not found or transient error — do not resolve yet; wait.
-				continue
-			}
-			if isPodReady(pod) {
-				log.Info("Pod recovered during stabilisation; resolving before Active",
-					"pod", res.Name, "incident", report.Name)
-				return r.transitionToResolved(ctx, report,
-					fmt.Sprintf("Pod %s recovered before incident was confirmed active", res.Name))
-			}
-		}
+		// Wait out the full stabilisation window.  Do NOT check pod health here:
+		// a briefly-healthy OOMKilled pod would cause immediate spurious resolution.
 		remaining := stabilizationDelay - elapsed
 		return ctrl.Result{RequeueAfter: remaining}, nil
 	}
 
-	// Stabilisation window elapsed and pod is still unhealthy → confirm as Active.
+	// Stabilisation window elapsed.  If a new signal arrived during the window
+	// (annotationLastSeen is within stabilizationDelay of now), the pod is still
+	// in a failure cycle.  Promote directly to Active so the idle-window logic
+	// in reconcileActive can handle the eventual resolve.
+	if report.Annotations != nil {
+		if lastSeenStr := report.Annotations[annotationLastSeen]; lastSeenStr != "" {
+			if t, err := time.Parse(time.RFC3339, lastSeenStr); err == nil {
+				if r.now().Sub(t) < stabilizationDelay {
+					log.Info("Signal received during stabilisation window; promoting to Active",
+						"incident", report.Name, "lastSeen", t)
+					return r.transitionToActive(ctx, report)
+				}
+			}
+		}
+	}
+
+	// No new signal during the window.  Check if pods have recovered.
+	for _, res := range report.Status.AffectedResources {
+		if res.Kind != resourceKindPod {
+			continue
+		}
+		pod := &corev1.Pod{}
+		if err := r.Get(ctx, types.NamespacedName{Namespace: res.Namespace, Name: res.Name}, pod); err != nil {
+			// Pod not found or transient error — proceed to Active.
+			break
+		}
+		if isPodReady(pod) {
+			log.Info("Pod recovered after stabilisation delay; resolving",
+				"pod", res.Name, "incident", report.Name)
+			return r.transitionToResolved(ctx, report,
+				fmt.Sprintf("Pod %s recovered before incident was confirmed active", res.Name))
+		}
+	}
+
+	// Pod not healthy (or no pods) → confirm as Active.
 	return r.transitionToActive(ctx, report)
 }
 

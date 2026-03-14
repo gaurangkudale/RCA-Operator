@@ -37,6 +37,14 @@ const (
 	valueUnknown   = "unknown"
 
 	incidentTypeNodeFailure = "NodeFailure"
+	incidentTypeRegistry    = "Registry"
+
+	// signalCooldown is the minimum time after the last watcher signal before an
+	// incident may be resolved by a PodHealthy event. It prevents pods that briefly
+	// restart between failure cycles (OOMKilled, CrashLoop) from being marked
+	// Resolved immediately, which would cause a new incident to be created on the
+	// next failure.
+	signalCooldown = 5 * time.Minute
 
 	maxTimelineEntries = 50
 	maxSignalEntries   = 20
@@ -127,7 +135,7 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 		return err
 	}
 	if active != nil {
-		return c.updateActiveIncident(ctx, active, event, severity, summary)
+		return c.updateActiveIncident(ctx, active, event, podName, severity, summary)
 	}
 
 	if agentRef == "" {
@@ -201,6 +209,10 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 
 // findOpenIncident returns the first non-Resolved IncidentReport (Detecting or
 // Active) for the given pod and incident type, or nil if none exists.
+//
+// Registry incidents are namespace-scoped: all pods that fail to pull the same
+// image consolidate into a single report, so the pod-name check is skipped for
+// that type.
 func (c *Consumer) findOpenIncident(ctx context.Context, namespace, podName, incidentType string) (*rcav1alpha1.IncidentReport, error) {
 	list := &rcav1alpha1.IncidentReportList{}
 	if err := c.client.List(ctx, list, client.InNamespace(namespace)); err != nil {
@@ -213,6 +225,12 @@ func (c *Consumer) findOpenIncident(ctx context.Context, namespace, podName, inc
 		}
 		if report.Status.IncidentType != incidentType {
 			continue
+		}
+		// Registry incidents are namespace-scoped: one report per namespace for
+		// image-pull failures — all pods from the same (broken) deployment share it.
+		if incidentType == incidentTypeRegistry {
+			copy := report.DeepCopy()
+			return copy, nil
 		}
 		if !incidentAffectsPod(report, podName, namespace) {
 			continue
@@ -306,6 +324,18 @@ func (c *Consumer) resolveIncidentsForPod(ctx context.Context, event watcher.Pod
 		if !incidentAffectsPod(report, event.PodName, event.Namespace) {
 			continue
 		}
+		// Guard: skip incidents that received a watcher signal within signalCooldown.
+		// Pods that briefly restart between failure cycles (OOMKilled, CrashLoop)
+		// become Running+Ready for a few seconds, which would otherwise prematurely
+		// resolve the incident and cause a new one to be created on the next cycle.
+		// The reconciler's idle-window logic handles final resolution for these cases.
+		if lastSeen := report.Annotations[annotationLastSeen]; lastSeen != "" {
+			if t, err := time.Parse(time.RFC3339, lastSeen); err == nil {
+				if c.now().Sub(t) < signalCooldown {
+					continue
+				}
+			}
+		}
 
 		base := report.DeepCopy()
 		report.Status.Phase = phaseResolved
@@ -381,6 +411,7 @@ func (c *Consumer) updateActiveIncident(
 	ctx context.Context,
 	report *rcav1alpha1.IncidentReport,
 	event watcher.CorrelatorEvent,
+	podName string,
 	severity string,
 	summary string,
 ) error {
@@ -410,6 +441,16 @@ func (c *Consumer) updateActiveIncident(
 	report.Status.Timeline = trimTimeline(report.Status.Timeline)
 	report.Status.CorrelatedSignals = append(report.Status.CorrelatedSignals, summary)
 	report.Status.CorrelatedSignals = trimSignals(report.Status.CorrelatedSignals)
+	// For namespace-scoped incident types (e.g. Registry), each new pod that
+	// contributes a signal is added to AffectedResources so the reconciler can
+	// track all of them when deciding whether to auto-resolve.
+	if podName != "" && !incidentAffectsPod(report, podName, report.Namespace) {
+		report.Status.AffectedResources = append(report.Status.AffectedResources, rcav1alpha1.AffectedResource{
+			Kind:      "Pod",
+			Name:      podName,
+			Namespace: report.Namespace,
+		})
+	}
 	if err := c.client.Status().Patch(ctx, report, client.MergeFrom(statusBase)); err != nil {
 		return fmt.Errorf("failed to patch IncidentReport status: %w", err)
 	}

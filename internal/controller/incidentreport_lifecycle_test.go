@@ -74,7 +74,7 @@ func fetchReport(t *testing.T, r *IncidentReportReconciler, ns, name string) *rc
 }
 
 // readyPod builds a Running+Ready pod.
-func readyPod(ns, name string) *corev1.Pod {
+func readyPod(ns, name string) *corev1.Pod { //nolint:unparam
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Status: corev1.PodStatus{
@@ -97,7 +97,7 @@ func pendingPod(ns, name string) *corev1.Pod {
 
 // detectingReport builds a Detecting-phase IncidentReport. startOffset is
 // applied to now to compute StartTime (e.g. -10*time.Second = started 10s ago).
-func detectingReport(ns, name, podName string, startOffset time.Duration, now time.Time) *rcav1alpha1.IncidentReport {
+func detectingReport(ns, name, podName string, startOffset time.Duration, now time.Time) *rcav1alpha1.IncidentReport { //nolint:unparam
 	start := metav1.NewTime(now.Add(startOffset))
 	return &rcav1alpha1.IncidentReport{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
@@ -216,25 +216,71 @@ func TestReconcile_Detecting_TransitionsToActive(t *testing.T) {
 	}
 }
 
-// TestReconcile_Detecting_ResolvesIfPodHealthy verifies direct Detecting →
-// Resolved transition when the pod recovers during the stabilisation window.
+// TestReconcile_Detecting_ResolvesIfPodHealthy verifies Detecting → Resolved
+// transition when the stabilisation window has fully elapsed, the pod is
+// Running+Ready, and no signal arrived during the window (clean recovery).
 func TestReconcile_Detecting_ResolvesIfPodHealthy(t *testing.T) {
-	// Started 10 seconds ago — still within the 30s window.
-	report := detectingReport("default", "test-incident", "test-pod", -10*time.Second, lifecycleTestNow)
-	pod := readyPod("default", "test-pod") // pod already Running+Ready
+	// Started 45s ago — past the 30s window; no annotationLastSeen annotation.
+	report := detectingReport("default", "test-incident", "test-pod", -45*time.Second, lifecycleTestNow)
+	pod := readyPod("default", "test-pod")
 
 	r := makeReconciler(t, lifecycleTestNow, report, pod)
 	result := reconcileNN(t, r, "default", "test-incident")
 
 	got := fetchReport(t, r, "default", "test-incident")
 	if got.Status.Phase != phaseResolved {
-		t.Errorf("Phase=%q; want Resolved (pod recovered during stabilisation)", got.Status.Phase)
+		t.Errorf("Phase=%q; want Resolved (window elapsed, pod healthy, no new signal)", got.Status.Phase)
 	}
 	if got.Status.ResolvedTime == nil {
 		t.Error("expected ResolvedTime to be set")
 	}
 	if result.RequeueAfter != 0 {
 		t.Errorf("expected no requeue after resolve; got %v", result.RequeueAfter)
+	}
+}
+
+// TestReconcile_Detecting_NoEarlyResolveForHealthyPod verifies that a healthy
+// pod during the stabilisation window does NOT trigger early resolution. The full
+// window must elapse before any decision is made. This prevents OOMKilled/
+// CrashLoop pods (which briefly restart as Running+Ready) from being resolved
+// within seconds of incident creation.
+func TestReconcile_Detecting_NoEarlyResolveForHealthyPod(t *testing.T) {
+	// Started 10s ago — still within the 30s window.
+	report := detectingReport("default", "test-incident", "test-pod", -10*time.Second, lifecycleTestNow)
+	pod := readyPod("default", "test-pod") // pod is Running+Ready
+
+	r := makeReconciler(t, lifecycleTestNow, report, pod)
+	result := reconcileNN(t, r, "default", "test-incident")
+
+	// Must requeue — no early resolve regardless of pod health.
+	if result.RequeueAfter <= 0 {
+		t.Fatalf("expected positive RequeueAfter; got %v", result.RequeueAfter)
+	}
+	got := fetchReport(t, r, "default", "test-incident")
+	if got.Status.Phase != phaseDetecting {
+		t.Errorf("Phase=%q; want Detecting (window not elapsed, early resolve suppressed)", got.Status.Phase)
+	}
+}
+
+// TestReconcile_Detecting_ActivatesIfSignalDuringWindow verifies that after the
+// stabilisation window, if annotationLastSeen is recent (a new watcher signal
+// arrived during the window), the incident is promoted directly to Active without
+// checking pod health. This handles OOM/CrashLoop pods that cycle slower than 30s.
+func TestReconcile_Detecting_ActivatesIfSignalDuringWindow(t *testing.T) {
+	// Started 45s ago — past the 30s window.
+	report := detectingReport("default", "test-incident", "test-pod", -45*time.Second, lifecycleTestNow)
+	// Signal arrived 10s ago (within the last stabilizationDelay).
+	report.Annotations = map[string]string{
+		annotationLastSeen: lifecycleTestNow.Add(-10 * time.Second).Format(time.RFC3339),
+	}
+	pod := readyPod("default", "test-pod") // even healthy pod must not cause early resolve
+
+	r := makeReconciler(t, lifecycleTestNow, report, pod)
+	reconcileNN(t, r, "default", "test-incident")
+
+	got := fetchReport(t, r, "default", "test-incident")
+	if got.Status.Phase != phaseActive {
+		t.Errorf("Phase=%q; want Active (signal during window → ongoing failure)", got.Status.Phase)
 	}
 }
 
