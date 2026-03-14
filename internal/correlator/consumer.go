@@ -43,20 +43,27 @@ const (
 
 // Consumer reads watcher events, performs deduplication, and writes IncidentReport CRs.
 type Consumer struct {
-	client client.Client
-	events <-chan watcher.CorrelatorEvent
-	log    logr.Logger
-	now    func() time.Time
+	client     client.Client
+	events     <-chan watcher.CorrelatorEvent
+	log        logr.Logger
+	now        func() time.Time
+	correlator *Correlator // optional; nil disables multi-event correlation
 }
 
-// NewConsumer returns a correlator consumer with a sensible default dedup cooldown.
-func NewConsumer(c client.Client, events <-chan watcher.CorrelatorEvent, logger logr.Logger) *Consumer {
-	return &Consumer{
+// NewConsumer returns a correlator consumer. Pass functional options (e.g.
+// WithCorrelator) to enable optional features. Existing callers that pass no
+// options continue to work unchanged.
+func NewConsumer(c client.Client, events <-chan watcher.CorrelatorEvent, logger logr.Logger, opts ...Option) *Consumer {
+	consumer := &Consumer{
 		client: c,
 		events: events,
 		log:    logger.WithName("correlator-consumer"),
 		now:    time.Now,
 	}
+	for _, opt := range opts {
+		opt(consumer)
+	}
+	return consumer
 }
 
 // Run blocks until context cancellation and consumes events continuously.
@@ -80,6 +87,13 @@ func (c *Consumer) Run(ctx context.Context) {
 }
 
 func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEvent) error {
+	// Add to the correlation buffer before any early-return paths so that healthy
+	// and deleted events are also available for rule evaluation (e.g. Rule 4 uses
+	// PodHealthyEvent to detect prior pull success).
+	if c.correlator != nil {
+		c.correlator.Add(event)
+	}
+
 	if healthy, ok := event.(watcher.PodHealthyEvent); ok {
 		return c.resolveIncidentsForPod(ctx, healthy)
 	}
@@ -88,6 +102,21 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 	}
 
 	namespace, podName, agentRef, incidentType, severity, summary := mapEvent(event)
+
+	// Run multi-event correlation rules. If a rule fires, override the single-event
+	// classification with the correlated incident type and escalated severity.
+	if c.correlator != nil {
+		if result := c.correlator.Evaluate(event); result.Fired {
+			incidentType = result.IncidentType
+			severity = result.Severity
+			summary = result.Summary
+			c.log.Info("Correlation rule fired",
+				"rule", result.Rule,
+				"incidentType", incidentType,
+				"severity", severity,
+			)
+		}
+	}
 	if namespace == "" || podName == "" {
 		return nil
 	}
