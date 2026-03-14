@@ -614,7 +614,7 @@ func (r *RCAAgentReconciler) resolveOrphanedIncidents(ctx context.Context, agent
 			// Check whether all referenced pods are gone.
 			podGone := false
 			for _, res := range report.Status.AffectedResources {
-				if res.Kind != "Pod" {
+				if res.Kind != resourceKindPod {
 					continue
 				}
 				pod := &corev1.Pod{}

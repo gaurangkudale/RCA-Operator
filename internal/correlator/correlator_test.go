@@ -14,7 +14,7 @@ import (
 
 var testNow = time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
 
-func crashLoop(ns, pod, node, container string, restarts int32) watcher.CrashLoopBackOffEvent {
+func crashLoop(ns, pod, node, container string, restarts int32) watcher.CrashLoopBackOffEvent { //nolint:unparam
 	return watcher.CrashLoopBackOffEvent{
 		BaseEvent:     watcher.BaseEvent{Namespace: ns, PodName: pod, NodeName: node},
 		ContainerName: container,
@@ -29,7 +29,7 @@ func oomKilled(ns, pod, node, container string) watcher.OOMKilledEvent {
 	}
 }
 
-func imagePull(ns, pod, container, reason string) watcher.ImagePullBackOffEvent {
+func imagePull(ns, pod, container, reason string) watcher.ImagePullBackOffEvent { //nolint:unparam
 	return watcher.ImagePullBackOffEvent{
 		BaseEvent:     watcher.BaseEvent{Namespace: ns, PodName: pod},
 		ContainerName: container,
@@ -44,14 +44,14 @@ func stalledRollout(ns, dep string) watcher.StalledRolloutEvent {
 	}
 }
 
-func nodeNotReady(ns, node, reason string) watcher.NodeNotReadyEvent {
+func nodeNotReady(ns, node, reason string) watcher.NodeNotReadyEvent { //nolint:unparam
 	return watcher.NodeNotReadyEvent{
 		BaseEvent: watcher.BaseEvent{Namespace: ns, NodeName: node},
 		Reason:    reason,
 	}
 }
 
-func podEvicted(ns, pod, node string) watcher.PodEvictedEvent {
+func podEvicted(ns, pod, node string) watcher.PodEvictedEvent { //nolint:unparam
 	return watcher.PodEvictedEvent{
 		BaseEvent: watcher.BaseEvent{Namespace: ns, PodName: pod, NodeName: node},
 	}
@@ -255,8 +255,8 @@ func TestRule2_CrashLoopPlusBadDeploy(t *testing.T) {
 				t.Fatalf("Fired=%v want %v", result.Fired, tc.wantFire)
 			}
 			if tc.wantFire {
-				if result.IncidentType != "BadDeploy" {
-					t.Errorf("IncidentType=%q want BadDeploy", result.IncidentType)
+				if result.IncidentType != testIncidentTypeBadDeploy {
+					t.Errorf("IncidentType=%q want %q", result.IncidentType, testIncidentTypeBadDeploy)
 				}
 				if result.Severity != "P2" {
 					t.Errorf("Severity=%q want P2", result.Severity)

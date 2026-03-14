@@ -52,6 +52,9 @@ const (
 	// maxTimelineEntriesCtrl caps the timeline slice on the IncidentReport status
 	// to prevent unbounded growth.
 	maxTimelineEntriesCtrl = 50
+
+	// resourceKindPod is the AffectedResource Kind value used for pod-level incidents.
+	resourceKindPod = "Pod"
 )
 
 // IncidentReportReconciler reconciles a IncidentReport object
@@ -111,7 +114,7 @@ func (r *IncidentReportReconciler) reconcileDetecting(ctx context.Context, log l
 	if elapsed < stabilizationDelay {
 		// During the stabilisation window check whether pods have already recovered.
 		for _, res := range report.Status.AffectedResources {
-			if res.Kind != "Pod" {
+			if res.Kind != resourceKindPod {
 				continue
 			}
 			pod := &corev1.Pod{}
@@ -175,7 +178,7 @@ func (r *IncidentReportReconciler) reconcileActive(ctx context.Context, log logr
 
 	allHealthy := true
 	for _, res := range report.Status.AffectedResources {
-		if res.Kind != "Pod" {
+		if res.Kind != resourceKindPod {
 			continue
 		}
 		pod := &corev1.Pod{}
