@@ -77,6 +77,9 @@ func ruleCrashLoopPlusBadDeploy(event watcher.CorrelatorEvent, entries []entry) 
 				Severity:     "P2",
 				Summary:      fmt.Sprintf("BadDeploy: CrashLoop after stalled rollout deployment=%s pod=%s", stalled.DeploymentName, cl.PodName),
 				Rule:         "CrashLoopPlusBadDeploy",
+				// Use deployment name so the incident deduplicates with the
+				// BadDeploy incident created from the StalledRollout signal.
+				Resource: stalled.DeploymentName,
 			}
 		}
 	}
@@ -112,6 +115,9 @@ func ruleMultiPodNodeFailure(event watcher.CorrelatorEvent, entries []entry) Cor
 			Severity:     "P2",
 			Summary:      fmt.Sprintf("NodeLevel: %d pods failing on node=%s", len(failedPods), nodeName),
 			Rule:         "MultiPodNodeFailure",
+			// Use node name so the incident deduplicates with any existing
+			// NodeFailure incident created by a NodeNotReady signal for this node.
+			Resource: nodeName,
 		}
 	}
 	return CorrelationResult{}
@@ -188,6 +194,9 @@ func ruleNodeNotReadyPlusEviction(event watcher.CorrelatorEvent, entries []entry
 					Severity:     "P1",
 					Summary:      fmt.Sprintf("NodeFailure: NodeNotReady+Eviction node=%s reason=%s evictedPod=%s", e.NodeName, e.Reason, evicted.PodName),
 					Rule:         "NodeNotReadyPlusEviction",
+					// Use node name so all signals from the same failed node
+					// dedup into one NodeFailure incident.
+					Resource: e.NodeName,
 				}
 			}
 		}
@@ -201,6 +210,7 @@ func ruleNodeNotReadyPlusEviction(event watcher.CorrelatorEvent, entries []entry
 					Severity:     "P1",
 					Summary:      fmt.Sprintf("NodeFailure: NodeNotReady+Eviction node=%s reason=%s evictedPod=%s", notReady.NodeName, notReady.Reason, e.PodName),
 					Rule:         "NodeNotReadyPlusEviction",
+					Resource:     notReady.NodeName,
 				}
 			}
 		}

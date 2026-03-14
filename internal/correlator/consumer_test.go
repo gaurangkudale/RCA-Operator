@@ -1537,3 +1537,160 @@ func TestHandleEvent_RegistryCachePreventBootstrapDuplicates(t *testing.T) {
 		t.Errorf("expected 3 pods in AffectedResources, got %d", len(list.Items[0].Status.AffectedResources))
 	}
 }
+
+// TestHandleEvent_Rule2BadDeploy_DedupsWithExistingIncident verifies that when
+// Rule 2 fires (CrashLoop + StalledRollout → BadDeploy), it routes the signal
+// to the existing BadDeploy incident created by the earlier StalledRollout event
+// rather than creating a duplicate. The CorrelationResult.Resource field
+// overrides podName to the deployment name, aligning the dedup key.
+func TestHandleEvent_Rule2BadDeploy_DedupsWithExistingIncident(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add RCA scheme: %v", err)
+	}
+
+	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
+	const deployName = "payment-service"
+
+	// Existing BadDeploy incident created by the StalledRollout signal. The
+	// "pod" identity matches the deployment name (how StalledRolloutEvent routes).
+	existingBadDeploy := &rcav1alpha1.IncidentReport{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "baddeploy-payment-service-abc",
+			Namespace: "dev",
+			Labels: map[string]string{
+				labelIncidentType: testIncidentTypeBadDeploy,
+				labelSeverity:     "P2",
+			},
+		},
+		Spec: rcav1alpha1.IncidentReportSpec{AgentRef: "ag"},
+		Status: rcav1alpha1.IncidentReportStatus{
+			Phase:        phaseActive,
+			IncidentType: testIncidentTypeBadDeploy,
+			Severity:     "P2",
+			AffectedResources: []rcav1alpha1.AffectedResource{
+				{Kind: "Pod", Name: deployName, Namespace: "dev"},
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		WithObjects(existingBadDeploy).
+		Build()
+
+	corr := NewCorrelator(5 * time.Minute)
+	corr.buf.nowFn = func() time.Time { return now }
+	// Pre-buffer a StalledRollout event so Rule 2 fires on the CrashLoop.
+	corr.Add(watcher.StalledRolloutEvent{
+		BaseEvent:       watcher.BaseEvent{At: now.Add(-30 * time.Second), AgentName: "ag", Namespace: "dev"},
+		DeploymentName:  deployName,
+		DesiredReplicas: 3,
+		ReadyReplicas:   0,
+		Reason:          "ProgressDeadlineExceeded",
+	})
+
+	c := NewConsumer(cl, nil, logr.Discard(), WithCorrelator(corr))
+	c.now = func() time.Time { return now }
+
+	// Fire a CrashLoop event; Rule 2 overrides podName → deployment name.
+	if err := c.handleEvent(context.Background(), watcher.CrashLoopBackOffEvent{
+		BaseEvent:    watcher.BaseEvent{At: now, AgentName: "ag", Namespace: "dev", PodName: "payment-service-abc123-xyz"},
+		RestartCount: 5,
+		Threshold:    3,
+	}); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := cl.List(context.Background(), list); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 BadDeploy incident (no duplicate), got %d", len(list.Items))
+	}
+	if list.Items[0].Name != existingBadDeploy.Name {
+		t.Errorf("existing incident name should be unchanged; got %q", list.Items[0].Name)
+	}
+}
+
+// TestHandleEvent_Rule5NodeFailure_DedupsWithNodeNotReadyIncident verifies that
+// when Rule 5 fires (PodEvicted + NodeNotReady → NodeFailure P1), it routes the
+// signal into the existing NodeFailure incident created by the NodeNotReady event
+// rather than creating a second one for the evicted pod's name.
+func TestHandleEvent_Rule5NodeFailure_DedupsWithNodeNotReadyIncident(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add RCA scheme: %v", err)
+	}
+
+	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
+	const nodeName = "worker-node-1"
+
+	// Existing NodeFailure incident created by the NodeNotReady signal. The
+	// "pod" identity matches the node name (how NodeNotReadyEvent routes).
+	existingNodeFailure := &rcav1alpha1.IncidentReport{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "nodefailure-worker-node-1-abc",
+			Namespace: "dev",
+			Labels: map[string]string{
+				labelIncidentType: testIncidentTypeNodeFailure,
+				labelSeverity:     "P1",
+			},
+		},
+		Spec: rcav1alpha1.IncidentReportSpec{AgentRef: "ag"},
+		Status: rcav1alpha1.IncidentReportStatus{
+			Phase:        phaseActive,
+			IncidentType: testIncidentTypeNodeFailure,
+			Severity:     "P1",
+			AffectedResources: []rcav1alpha1.AffectedResource{
+				{Kind: "Pod", Name: nodeName, Namespace: "dev"},
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		WithObjects(existingNodeFailure).
+		Build()
+
+	corr := NewCorrelator(5 * time.Minute)
+	corr.buf.nowFn = func() time.Time { return now }
+	// Pre-buffer a NodeNotReady event so Rule 5 fires on the PodEvicted.
+	corr.Add(watcher.NodeNotReadyEvent{
+		BaseEvent: watcher.BaseEvent{At: now.Add(-20 * time.Second), AgentName: "ag", Namespace: "dev", NodeName: nodeName},
+		Reason:    "KubeletNotReady",
+		Message:   "runtime network not ready",
+	})
+
+	c := NewConsumer(cl, nil, logr.Discard(), WithCorrelator(corr))
+	c.now = func() time.Time { return now }
+
+	// Fire a PodEvicted event; Rule 5 overrides podName → node name.
+	if err := c.handleEvent(context.Background(), watcher.PodEvictedEvent{
+		BaseEvent: watcher.BaseEvent{At: now, AgentName: "ag", Namespace: "dev", PodName: "workload-pod-xyz", NodeName: nodeName},
+		Reason:    "NodeEviction",
+		Message:   "evicted by kubelet",
+	}); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := cl.List(context.Background(), list); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 NodeFailure incident (no duplicate), got %d", len(list.Items))
+	}
+	if list.Items[0].Name != existingNodeFailure.Name {
+		t.Errorf("existing incident name should be unchanged; got %q", list.Items[0].Name)
+	}
+}

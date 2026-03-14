@@ -139,6 +139,14 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 			incidentType = result.IncidentType
 			severity = result.Severity
 			summary = result.Summary
+			// Some rules (2, 3, 5) produce incidents scoped to a shared resource
+			// (deployment, node) rather than the individual pod that triggered the
+			// event. Override podName with the canonical resource identifier so
+			// findOpenIncident / findResolvableIncident / the new incident all use
+			// the same dedup key, preventing duplicate IncidentReports.
+			if result.Resource != "" {
+				podName = result.Resource
+			}
 			c.log.Info("Correlation rule fired",
 				"rule", result.Rule,
 				"incidentType", incidentType,

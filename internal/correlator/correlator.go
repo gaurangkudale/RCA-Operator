@@ -68,6 +68,11 @@ type CorrelationResult struct {
 	Severity     string
 	Summary      string
 	Rule         string // name of the rule that fired, for logging
+	// Resource overrides the event's pod/resource name for incident dedup and
+	// creation. Set by rules that correlate across different resources (e.g.
+	// Rule 2 uses deployment name, Rules 3 & 5 use node name) so that the
+	// resulting incident groups under the correct canonical resource identifier.
+	Resource string
 }
 
 // Correlator maintains a sliding-window buffer of recent events and evaluates
