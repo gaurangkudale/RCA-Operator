@@ -52,7 +52,7 @@ func makeReconciler(t *testing.T, now time.Time, objs ...client.Object) *Inciden
 }
 
 // reconcileNN calls Reconcile for the given namespace/name and returns the result.
-func reconcileNN(t *testing.T, r *IncidentReportReconciler, ns, name string) ctrl.Result {
+func reconcileNN(t *testing.T, r *IncidentReportReconciler, ns, name string) ctrl.Result { //nolint:unparam
 	t.Helper()
 	result, err := r.Reconcile(context.Background(), reconcile.Request{
 		NamespacedName: types.NamespacedName{Namespace: ns, Name: name},
@@ -64,7 +64,7 @@ func reconcileNN(t *testing.T, r *IncidentReportReconciler, ns, name string) ctr
 }
 
 // fetchReport reads the IncidentReport from the reconciler's fake client.
-func fetchReport(t *testing.T, r *IncidentReportReconciler, ns, name string) *rcav1alpha1.IncidentReport {
+func fetchReport(t *testing.T, r *IncidentReportReconciler, ns, name string) *rcav1alpha1.IncidentReport { //nolint:unparam
 	t.Helper()
 	got := &rcav1alpha1.IncidentReport{}
 	if err := r.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: name}, got); err != nil {

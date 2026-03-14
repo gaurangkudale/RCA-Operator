@@ -7,9 +7,6 @@ import (
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
-// defaultCorrelationWindow is the time window within which events are correlated.
-const defaultCorrelationWindow = 5 * time.Minute
-
 // entry holds a single event and the time it was added to the buffer.
 type entry struct {
 	event   watcher.CorrelatorEvent
