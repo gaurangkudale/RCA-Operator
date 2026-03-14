@@ -185,7 +185,13 @@ func main() {
 	watchEvents := make(chan watcher.CorrelatorEvent, 1024)
 	watcherEmitter := watcher.NewChannelEventEmitter(watchEvents, ctrl.Log)
 	corr := correlator.NewCorrelator(5 * time.Minute)
-	correlatorConsumer := correlator.NewConsumer(mgr.GetClient(), watchEvents, ctrl.Log, correlator.WithCorrelator(corr))
+	correlatorConsumer := correlator.NewConsumer(
+		mgr.GetClient(),
+		watchEvents,
+		ctrl.Log,
+		correlator.WithCorrelator(corr),
+		correlator.WithEventRecorder(mgr.GetEventRecorderFor("rca-correlator-consumer")),
+	)
 	go correlatorConsumer.Run(managerCtx)
 
 	if err := (&controller.RCAAgentReconciler{
@@ -199,8 +205,9 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&controller.IncidentReportReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("incidentreport-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "IncidentReport")
 		os.Exit(1)
