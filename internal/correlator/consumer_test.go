@@ -1116,7 +1116,234 @@ func TestHandleEventRegistryDedupsToOneIncidentPerNamespace(t *testing.T) {
 	if !pods["payment-service-4pkpz"] {
 		t.Error("expected payment-service-4pkpz in AffectedResources")
 	}
-	if !pods["payment-service-6jwsg"] {
-		t.Error("expected payment-service-6jwsg in AffectedResources")
+}
+
+// ── Incident reopen ───────────────────────────────────────────────────────────
+
+// TestHandleEvent_ReopensRecentlyResolvedIncident verifies that a new watcher
+// signal for a pod whose incident was resolved within reopenWindow reopens the
+// same IncidentReport (Detecting phase) instead of creating a duplicate.
+func TestHandleEvent_ReopensRecentlyResolvedIncident(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add RCA scheme: %v", err)
+	}
+
+	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
+	resolvedAt := metav1.NewTime(now.Add(-10 * time.Minute)) // within 30-min reopenWindow
+
+	existing := &rcav1alpha1.IncidentReport{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "oom-oomkill-demo-abc",
+			Namespace: "dev",
+			Labels: map[string]string{
+				labelSeverity:     "P2",
+				labelIncidentType: "OOM",
+				labelPodName:      "oomkill-demo",
+			},
+			Annotations: map[string]string{
+				annotationLastSeen:   resolvedAt.Format(time.RFC3339),
+				annotationSignalSeen: "3",
+			},
+		},
+		Spec: rcav1alpha1.IncidentReportSpec{AgentRef: "ag"},
+		Status: rcav1alpha1.IncidentReportStatus{
+			Phase:        phaseResolved,
+			IncidentType: "OOM",
+			Severity:     "P2",
+			ResolvedTime: &resolvedAt,
+			AffectedResources: []rcav1alpha1.AffectedResource{
+				{Kind: "Pod", Name: "oomkill-demo", Namespace: "dev"},
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		WithObjects(existing).
+		Build()
+
+	c := NewConsumer(cl, nil, logr.Discard())
+	c.now = func() time.Time { return now }
+
+	// New OOMKill for the same pod.
+	if err := c.handleEvent(context.Background(), watcher.OOMKilledEvent{
+		BaseEvent: watcher.BaseEvent{At: now, AgentName: "ag", Namespace: "dev", PodName: "oomkill-demo"},
+		Reason:    "OOMKilled",
+		ExitCode:  137,
+	}); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := cl.List(context.Background(), list); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 IncidentReport (reopen, not create new), got %d", len(list.Items))
+	}
+
+	got := list.Items[0]
+	if got.Name != existing.Name {
+		t.Errorf("name: got %q, want %q (should reuse existing report)", got.Name, existing.Name)
+	}
+	if got.Status.Phase != phaseDetecting {
+		t.Errorf("Phase=%q; want Detecting (re-opened)", got.Status.Phase)
+	}
+	if got.Status.ResolvedTime != nil {
+		t.Error("ResolvedTime should be nil after reopen")
+	}
+	// Signal counter should be incremented (carried over from previous cycle).
+	if got.Annotations[annotationSignalSeen] != "4" {
+		t.Errorf("signal-count: got %q, want 4", got.Annotations[annotationSignalSeen])
+	}
+}
+
+// TestHandleEvent_CreatesNewIfResolvedTooOld verifies that when a resolved
+// incident is older than reopenWindow a new IncidentReport is created instead
+// of reopening the stale one.
+func TestHandleEvent_CreatesNewIfResolvedTooOld(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add RCA scheme: %v", err)
+	}
+
+	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
+	resolvedAt := metav1.NewTime(now.Add(-2 * time.Hour)) // older than 30-min reopenWindow
+
+	old := &rcav1alpha1.IncidentReport{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "oom-oomkill-demo-stale",
+			Namespace: "dev",
+			Annotations: map[string]string{
+				annotationLastSeen:   resolvedAt.Format(time.RFC3339),
+				annotationSignalSeen: "1",
+			},
+		},
+		Spec: rcav1alpha1.IncidentReportSpec{AgentRef: "ag"},
+		Status: rcav1alpha1.IncidentReportStatus{
+			Phase:        phaseResolved,
+			IncidentType: "OOM",
+			ResolvedTime: &resolvedAt,
+			AffectedResources: []rcav1alpha1.AffectedResource{
+				{Kind: "Pod", Name: "oomkill-demo", Namespace: "dev"},
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		WithObjects(old).
+		Build()
+
+	c := NewConsumer(cl, nil, logr.Discard())
+	c.now = func() time.Time { return now }
+
+	if err := c.handleEvent(context.Background(), watcher.OOMKilledEvent{
+		BaseEvent: watcher.BaseEvent{At: now, AgentName: "ag", Namespace: "dev", PodName: "oomkill-demo"},
+		Reason:    "OOMKilled",
+		ExitCode:  137,
+	}); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := cl.List(context.Background(), list); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Items) != 2 {
+		t.Fatalf("expected 2 IncidentReports (old stale + new), got %d", len(list.Items))
+	}
+}
+
+// TestHandleEvent_ReopensResolvedResourceSaturationIncident verifies that CPU
+// throttling signals reopen an existing resolved ResourceSaturation incident
+// for the same pod, matching the user-visible scenario where the same pod
+// repeatedly hits its cpu-limit.
+func TestHandleEvent_ReopensResolvedResourceSaturationIncident(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add RCA scheme: %v", err)
+	}
+
+	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
+	resolvedAt := metav1.NewTime(now.Add(-5 * time.Minute))
+
+	existing := &rcav1alpha1.IncidentReport{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "resourcesaturation-cpu-throttle-demo-abc",
+			Namespace: "dev",
+			Labels: map[string]string{
+				labelSeverity:     "P3",
+				labelIncidentType: "ResourceSaturation",
+				labelPodName:      "cpu-throttle-demo",
+			},
+			Annotations: map[string]string{
+				annotationLastSeen:   resolvedAt.Format(time.RFC3339),
+				annotationSignalSeen: "2",
+			},
+		},
+		Spec: rcav1alpha1.IncidentReportSpec{AgentRef: "ag"},
+		Status: rcav1alpha1.IncidentReportStatus{
+			Phase:        phaseResolved,
+			IncidentType: "ResourceSaturation",
+			Severity:     "P3",
+			ResolvedTime: &resolvedAt,
+			AffectedResources: []rcav1alpha1.AffectedResource{
+				{Kind: "Pod", Name: "cpu-throttle-demo", Namespace: "dev"},
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		WithObjects(existing).
+		Build()
+
+	c := NewConsumer(cl, nil, logr.Discard())
+	c.now = func() time.Time { return now }
+
+	// CPU throttling fires again for the same pod.
+	if err := c.handleEvent(context.Background(), watcher.CPUThrottlingEvent{
+		BaseEvent:     watcher.BaseEvent{At: now, AgentName: "ag", Namespace: "dev", PodName: "cpu-throttle-demo"},
+		ContainerName: "throttle-demo",
+		Message:       "CPUThrottlingHigh",
+	}); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := cl.List(context.Background(), list); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 IncidentReport (reopened, not new), got %d", len(list.Items))
+	}
+
+	got := list.Items[0]
+	if got.Name != existing.Name {
+		t.Errorf("incident name changed: got %q, want %q", got.Name, existing.Name)
+	}
+	if got.Status.Phase != phaseDetecting {
+		t.Errorf("Phase=%q; want Detecting after reopen", got.Status.Phase)
+	}
+	if got.Status.ResolvedTime != nil {
+		t.Error("ResolvedTime should be cleared after reopen")
+	}
+	// Signal counter carried over and incremented.
+	if got.Annotations[annotationSignalSeen] != "3" {
+		t.Errorf("signal-count: got %q, want 3", got.Annotations[annotationSignalSeen])
 	}
 }

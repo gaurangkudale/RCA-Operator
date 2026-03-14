@@ -46,6 +46,12 @@ const (
 	// next failure.
 	signalCooldown = 5 * time.Minute
 
+	// reopenWindow is the maximum age of a Resolved incident that will be reopened
+	// (transitioned back to Detecting) when a new signal arrives for the same
+	// pod and incident type. Resolved incidents older than this window are left
+	// alone and a fresh IncidentReport is created instead.
+	reopenWindow = 30 * time.Minute
+
 	maxTimelineEntries = 50
 	maxSignalEntries   = 20
 )
@@ -136,6 +142,16 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 	}
 	if active != nil {
 		return c.updateActiveIncident(ctx, active, event, podName, severity, summary)
+	}
+
+	// No open incident. Check whether there is a recently-resolved one that
+	// should be reopened rather than creating a fresh IncidentReport.
+	resolved, err := c.findResolvableIncident(ctx, namespace, podName, incidentType)
+	if err != nil {
+		return err
+	}
+	if resolved != nil {
+		return c.reopenIncident(ctx, resolved, event, podName, severity, summary)
 	}
 
 	if agentRef == "" {
@@ -239,6 +255,112 @@ func (c *Consumer) findOpenIncident(ctx context.Context, namespace, podName, inc
 		return copy, nil
 	}
 	return nil, nil
+}
+
+// findResolvableIncident returns the most recently resolved IncidentReport for
+// the given pod and incident type, provided it was resolved within reopenWindow.
+// Registry incidents are namespace-scoped: pod name is ignored and the most
+// recent resolved Registry incident in the namespace is matched.
+func (c *Consumer) findResolvableIncident(ctx context.Context, namespace, podName, incidentType string) (*rcav1alpha1.IncidentReport, error) {
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := c.client.List(ctx, list, client.InNamespace(namespace)); err != nil {
+		return nil, fmt.Errorf("failed to list IncidentReports for reopen check: %w", err)
+	}
+
+	var best *rcav1alpha1.IncidentReport
+	for i := range list.Items {
+		report := &list.Items[i]
+		if report.Status.Phase != phaseResolved {
+			continue
+		}
+		if report.Status.IncidentType != incidentType {
+			continue
+		}
+		if report.Status.ResolvedTime == nil {
+			continue
+		}
+		// Skip incidents resolved too long ago.
+		if c.now().Sub(report.Status.ResolvedTime.Time) > reopenWindow {
+			continue
+		}
+		// Scope check: Registry is namespace-wide; everything else is pod-specific.
+		if incidentType != incidentTypeRegistry {
+			if !incidentAffectsPod(report, podName, namespace) {
+				continue
+			}
+		}
+		// Keep the most recently resolved match.
+		if best == nil || report.Status.ResolvedTime.After(best.Status.ResolvedTime.Time) {
+			copy := report.DeepCopy()
+			best = copy
+		}
+	}
+	return best, nil
+}
+
+// reopenIncident transitions a Resolved IncidentReport back to Detecting,
+// preserving its full history and appending a "re-opened" timeline entry.
+// Used when a new watcher signal arrives within reopenWindow for the same
+// pod and incident type, instead of creating a duplicate IncidentReport.
+func (c *Consumer) reopenIncident(
+	ctx context.Context,
+	report *rcav1alpha1.IncidentReport,
+	event watcher.CorrelatorEvent,
+	podName string,
+	severity string,
+	summary string,
+) error {
+	now := c.now()
+	nowTime := metav1.NewTime(now)
+
+	if report.Labels == nil {
+		report.Labels = make(map[string]string)
+	}
+	if report.Annotations == nil {
+		report.Annotations = make(map[string]string)
+	}
+
+	metaBase := report.DeepCopy()
+	report.Labels[labelSeverity] = higherSeverity(report.Labels[labelSeverity], severity)
+	report.Annotations[annotationLastSeen] = now.Format(time.RFC3339)
+	report.Annotations[annotationSignalSeen] = incrementCounter(report.Annotations[annotationSignalSeen])
+	report.Annotations[annotationSignal] = summary
+	report.Annotations[annotationDedupKey] = event.DedupKey()
+	if err := c.client.Patch(ctx, report, client.MergeFrom(metaBase)); err != nil {
+		return fmt.Errorf("failed to patch IncidentReport metadata on reopen: %w", err)
+	}
+
+	statusBase := report.DeepCopy()
+	report.Status.Phase = phaseDetecting
+	report.Status.ResolvedTime = nil
+	report.Status.StartTime = &nowTime
+	report.Status.Severity = higherSeverity(report.Status.Severity, severity)
+	report.Status.Timeline = append(report.Status.Timeline, rcav1alpha1.TimelineEvent{
+		Time:  nowTime,
+		Event: fmt.Sprintf("Incident re-opened: %s", summary),
+	})
+	report.Status.Timeline = trimTimeline(report.Status.Timeline)
+	report.Status.CorrelatedSignals = append(report.Status.CorrelatedSignals, summary)
+	report.Status.CorrelatedSignals = trimSignals(report.Status.CorrelatedSignals)
+	// Add pod to AffectedResources if not already tracked (namespace-scoped types).
+	if podName != "" && !incidentAffectsPod(report, podName, report.Namespace) {
+		report.Status.AffectedResources = append(report.Status.AffectedResources, rcav1alpha1.AffectedResource{
+			Kind:      "Pod",
+			Name:      podName,
+			Namespace: report.Namespace,
+		})
+	}
+	if err := c.client.Status().Patch(ctx, report, client.MergeFrom(statusBase)); err != nil {
+		return fmt.Errorf("failed to patch IncidentReport status on reopen: %w", err)
+	}
+
+	c.log.Info("Reopened resolved IncidentReport",
+		"namespace", report.Namespace,
+		"name", report.Name,
+		"eventType", event.Type(),
+		"incidentType", report.Status.IncidentType,
+	)
+	return nil
 }
 
 func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, incidentType, severity, summary string) {
