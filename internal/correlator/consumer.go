@@ -63,6 +63,13 @@ type Consumer struct {
 	log        logr.Logger
 	now        func() time.Time
 	correlator *Correlator // optional; nil disables multi-event correlation
+
+	// openRegistryByNS is a best-effort in-memory cache: namespace → name of the
+	// canonical open Registry IncidentReport. Populated on creation/reopen and
+	// consulted before the API list to avoid bootstrap-scan race conditions where
+	// rapid back-to-back events arrive before the just-created incident is visible
+	// in the informer cache.
+	openRegistryByNS map[string]string
 }
 
 // NewConsumer returns a correlator consumer. Pass functional options (e.g.
@@ -70,10 +77,11 @@ type Consumer struct {
 // options continue to work unchanged.
 func NewConsumer(c client.Client, events <-chan watcher.CorrelatorEvent, logger logr.Logger, opts ...Option) *Consumer {
 	consumer := &Consumer{
-		client: c,
-		events: events,
-		log:    logger.WithName("correlator-consumer"),
-		now:    time.Now,
+		client:           c,
+		events:           events,
+		log:              logger.WithName("correlator-consumer"),
+		now:              time.Now,
+		openRegistryByNS: make(map[string]string),
 	}
 	for _, opt := range opts {
 		opt(consumer)
@@ -83,6 +91,12 @@ func NewConsumer(c client.Client, events <-chan watcher.CorrelatorEvent, logger 
 
 // Run blocks until context cancellation and consumes events continuously.
 func (c *Consumer) Run(ctx context.Context) {
+	// Merge any duplicate open Registry incidents left over from a previous run
+	// (e.g. caused by bootstrap-scan API-latency races) and populate the in-memory
+	// dedup cache with the surviving canonical incident per namespace.
+	if err := c.consolidateRegistryDuplicates(ctx); err != nil {
+		c.log.Error(err, "Failed to consolidate duplicate Registry incidents at startup")
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -187,6 +201,12 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 	if err := c.client.Create(ctx, report); err != nil {
 		return fmt.Errorf("failed to create IncidentReport: %w", err)
 	}
+	// Populate the Registry dedup cache immediately after creation so that
+	// back-to-back bootstrap-scan events for other pods in the same namespace
+	// find this incident without waiting for the informer cache to catch up.
+	if incidentType == incidentTypeRegistry {
+		c.openRegistryByNS[namespace] = report.Name
+	}
 
 	statusBase := report.DeepCopy()
 	report.Status = rcav1alpha1.IncidentReportStatus{
@@ -228,8 +248,23 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 //
 // Registry incidents are namespace-scoped: all pods that fail to pull the same
 // image consolidate into a single report, so the pod-name check is skipped for
-// that type.
+// that type. An in-memory cache (openRegistryByNS) is checked first to avoid
+// API informer-cache latency during rapid bootstrap-scan event bursts.
 func (c *Consumer) findOpenIncident(ctx context.Context, namespace, podName, incidentType string) (*rcav1alpha1.IncidentReport, error) {
+	// Fast path for Registry: consult the in-memory cache before hitting the API.
+	if incidentType == incidentTypeRegistry {
+		if name, ok := c.openRegistryByNS[namespace]; ok {
+			r := &rcav1alpha1.IncidentReport{}
+			if err := c.client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, r); err == nil {
+				if r.Status.Phase != phaseResolved {
+					return r.DeepCopy(), nil
+				}
+			}
+			// Cache is stale (incident resolved or deleted); fall through to list.
+			delete(c.openRegistryByNS, namespace)
+		}
+	}
+
 	list := &rcav1alpha1.IncidentReportList{}
 	if err := c.client.List(ctx, list, client.InNamespace(namespace)); err != nil {
 		return nil, fmt.Errorf("failed to list IncidentReports: %w", err)
@@ -245,6 +280,7 @@ func (c *Consumer) findOpenIncident(ctx context.Context, namespace, podName, inc
 		// Registry incidents are namespace-scoped: one report per namespace for
 		// image-pull failures — all pods from the same (broken) deployment share it.
 		if incidentType == incidentTypeRegistry {
+			c.openRegistryByNS[namespace] = report.Name // refresh cache
 			copy := report.DeepCopy()
 			return copy, nil
 		}
@@ -296,6 +332,93 @@ func (c *Consumer) findResolvableIncident(ctx context.Context, namespace, podNam
 		}
 	}
 	return best, nil
+}
+
+// consolidateRegistryDuplicates is called once at startup. It finds all open
+// Registry IncidentReports per namespace, keeps the oldest (canonical), merges
+// the AffectedResources from duplicates into it, and marks duplicates Resolved.
+// This cleans up incidents created during a previous run's bootstrap-scan race
+// (rare, but possible when multiple pods signal ImagePullBackOff simultaneously
+// before the informer cache reflects the first created incident).
+func (c *Consumer) consolidateRegistryDuplicates(ctx context.Context) error {
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := c.client.List(ctx, list,
+		client.MatchingLabels{labelIncidentType: incidentTypeRegistry},
+	); err != nil {
+		return fmt.Errorf("consolidate registry: list failed: %w", err)
+	}
+
+	// Group open incidents by namespace.
+	type nsGroup struct {
+		canonical *rcav1alpha1.IncidentReport
+		extras    []*rcav1alpha1.IncidentReport
+	}
+	groups := make(map[string]*nsGroup)
+	for i := range list.Items {
+		r := &list.Items[i]
+		if r.Status.Phase == phaseResolved {
+			continue
+		}
+		g, ok := groups[r.Namespace]
+		if !ok {
+			groups[r.Namespace] = &nsGroup{canonical: r}
+			continue
+		}
+		// Keep oldest as canonical.
+		if r.CreationTimestamp.Before(&g.canonical.CreationTimestamp) {
+			g.extras = append(g.extras, g.canonical)
+			g.canonical = r
+		} else {
+			g.extras = append(g.extras, r)
+		}
+	}
+
+	now := metav1.NewTime(c.now())
+	for ns, g := range groups {
+		if len(g.extras) == 0 {
+			// Only one open Registry incident in this namespace — cache it and move on.
+			c.openRegistryByNS[ns] = g.canonical.Name
+			continue
+		}
+
+		// Merge AffectedResources from extras into canonical.
+		canonicalBase := g.canonical.DeepCopy()
+		for _, extra := range g.extras {
+			for _, res := range extra.Status.AffectedResources {
+				if !incidentAffectsPod(g.canonical, res.Name, res.Namespace) {
+					g.canonical.Status.AffectedResources = append(g.canonical.Status.AffectedResources, res)
+				}
+			}
+		}
+		if err := c.client.Status().Patch(ctx, g.canonical, client.MergeFrom(canonicalBase)); err != nil {
+			c.log.Error(err, "consolidate registry: failed to update canonical incident",
+				"namespace", ns, "name", g.canonical.Name)
+		}
+
+		// Resolve duplicates.
+		for _, extra := range g.extras {
+			base := extra.DeepCopy()
+			extra.Status.Phase = phaseResolved
+			extra.Status.ResolvedTime = &now
+			extra.Status.Timeline = append(extra.Status.Timeline, rcav1alpha1.TimelineEvent{
+				Time:  now,
+				Event: fmt.Sprintf("Merged into canonical incident %s during startup consolidation", g.canonical.Name),
+			})
+			extra.Status.Timeline = trimTimeline(extra.Status.Timeline)
+			if err := c.client.Status().Patch(ctx, extra, client.MergeFrom(base)); err != nil {
+				c.log.Error(err, "consolidate registry: failed to resolve duplicate incident",
+					"namespace", ns, "name", extra.Name)
+			} else {
+				c.log.Info("Resolved duplicate Registry incident during startup consolidation",
+					"namespace", ns,
+					"resolved", extra.Name,
+					"canonical", g.canonical.Name,
+				)
+			}
+		}
+		c.openRegistryByNS[ns] = g.canonical.Name
+	}
+	return nil
 }
 
 // reopenIncident transitions a Resolved IncidentReport back to Detecting,
@@ -360,6 +483,10 @@ func (c *Consumer) reopenIncident(
 		"eventType", event.Type(),
 		"incidentType", report.Status.IncidentType,
 	)
+	// Refresh Registry dedup cache so subsequent events route to this incident.
+	if report.Status.IncidentType == incidentTypeRegistry {
+		c.openRegistryByNS[report.Namespace] = report.Name
+	}
 	return nil
 }
 

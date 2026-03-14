@@ -1347,3 +1347,193 @@ func TestHandleEvent_ReopensResolvedResourceSaturationIncident(t *testing.T) {
 		t.Errorf("signal-count: got %q, want 3", got.Annotations[annotationSignalSeen])
 	}
 }
+
+// newRegistryIncident is a test helper that builds an open Registry IncidentReport.
+//
+//nolint:unparam
+func newRegistryIncident(name, namespace, podName string, createdAt metav1.Time) *rcav1alpha1.IncidentReport {
+	return &rcav1alpha1.IncidentReport{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              name,
+			Namespace:         namespace,
+			CreationTimestamp: createdAt,
+			Labels: map[string]string{
+				labelIncidentType: incidentTypeRegistry,
+				labelSeverity:     "P2",
+			},
+		},
+		Spec: rcav1alpha1.IncidentReportSpec{AgentRef: "ag"},
+		Status: rcav1alpha1.IncidentReportStatus{
+			Phase:        phaseActive,
+			IncidentType: incidentTypeRegistry,
+			Severity:     "P2",
+			AffectedResources: []rcav1alpha1.AffectedResource{
+				{Kind: "Pod", Name: podName, Namespace: namespace},
+			},
+		},
+	}
+}
+
+// TestConsolidateRegistryDuplicates_MergesAndResolvesExtras verifies that when
+// three open Registry incidents exist in the same namespace, startup
+// consolidation keeps the oldest as canonical, merges all pods into it, and
+// resolves the two extras.
+func TestConsolidateRegistryDuplicates_MergesAndResolvesExtras(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add RCA scheme: %v", err)
+	}
+
+	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
+	// Oldest incident — should be kept as canonical.
+	r1 := newRegistryIncident("registry-pod-a-aaaa", "dev", "pod-a",
+		metav1.NewTime(now.Add(-3*time.Minute)))
+	// Two newer duplicates created by the bootstrap-scan race.
+	r2 := newRegistryIncident("registry-pod-b-bbbb", "dev", "pod-b",
+		metav1.NewTime(now.Add(-2*time.Minute)))
+	r3 := newRegistryIncident("registry-pod-c-cccc", "dev", "pod-c",
+		metav1.NewTime(now.Add(-1*time.Minute)))
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		WithObjects(r1, r2, r3).
+		Build()
+
+	c := NewConsumer(cl, nil, logr.Discard())
+	c.now = func() time.Time { return now }
+
+	if err := c.consolidateRegistryDuplicates(context.Background()); err != nil {
+		t.Fatalf("consolidateRegistryDuplicates: %v", err)
+	}
+
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := cl.List(context.Background(), list); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+
+	var resolved, open []string
+	for _, r := range list.Items {
+		if r.Status.Phase == phaseResolved {
+			resolved = append(resolved, r.Name)
+		} else {
+			open = append(open, r.Name)
+		}
+	}
+
+	if len(open) != 1 {
+		t.Fatalf("expected 1 open incident, got %d: %v", len(open), open)
+	}
+	if open[0] != r1.Name {
+		t.Errorf("canonical incident should be oldest %q, got %q", r1.Name, open[0])
+	}
+	if len(resolved) != 2 {
+		t.Fatalf("expected 2 resolved duplicates, got %d: %v", len(resolved), resolved)
+	}
+
+	// Canonical should now contain all 3 pods.
+	canonical := &rcav1alpha1.IncidentReport{}
+	if err := cl.Get(context.Background(), types.NamespacedName{Namespace: "dev", Name: r1.Name}, canonical); err != nil {
+		t.Fatalf("get canonical: %v", err)
+	}
+	if len(canonical.Status.AffectedResources) != 3 {
+		t.Errorf("canonical AffectedResources: got %d, want 3", len(canonical.Status.AffectedResources))
+	}
+
+	// Cache should point to the canonical.
+	if c.openRegistryByNS["dev"] != r1.Name {
+		t.Errorf("cache: got %q, want %q", c.openRegistryByNS["dev"], r1.Name)
+	}
+}
+
+// TestConsolidateRegistryDuplicates_NoopWhenSingleIncident verifies that
+// consolidation is a no-op when only one open Registry incident exists.
+func TestConsolidateRegistryDuplicates_NoopWhenSingleIncident(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add RCA scheme: %v", err)
+	}
+
+	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
+	r1 := newRegistryIncident("registry-pod-a-aaaa", "dev", "pod-a",
+		metav1.NewTime(now.Add(-5*time.Minute)))
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		WithObjects(r1).
+		Build()
+
+	c := NewConsumer(cl, nil, logr.Discard())
+	c.now = func() time.Time { return now }
+
+	if err := c.consolidateRegistryDuplicates(context.Background()); err != nil {
+		t.Fatalf("consolidateRegistryDuplicates: %v", err)
+	}
+
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := cl.List(context.Background(), list); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Items) != 1 || list.Items[0].Status.Phase != phaseActive {
+		t.Errorf("incident should be left unchanged; got %d items, phase=%q", len(list.Items), list.Items[0].Status.Phase)
+	}
+	if c.openRegistryByNS["dev"] != r1.Name {
+		t.Errorf("cache not populated: got %q, want %q", c.openRegistryByNS["dev"], r1.Name)
+	}
+}
+
+// TestHandleEvent_RegistryCachePreventBootstrapDuplicates simulates the
+// bootstrap-scan race: three ImagePullBackOff events arrive in rapid succession.
+// Even if the API informer cache hasn't caught up, the in-memory dedup cache
+// must route the second and third events to the first-created incident.
+func TestHandleEvent_RegistryCachePreventBootstrapDuplicates(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add RCA scheme: %v", err)
+	}
+
+	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		Build()
+
+	c := NewConsumer(cl, nil, logr.Discard())
+	c.now = func() time.Time { return now }
+
+	makeEvent := func(pod string) watcher.ImagePullBackOffEvent {
+		return watcher.ImagePullBackOffEvent{
+			BaseEvent:     watcher.BaseEvent{At: now, AgentName: "ag", Namespace: "dev", PodName: pod},
+			Reason:        "ImagePullBackOff",
+			ContainerName: "app",
+		}
+	}
+
+	for _, pod := range []string{"pod-a", "pod-b", "pod-c"} {
+		if err := c.handleEvent(context.Background(), makeEvent(pod)); err != nil {
+			t.Fatalf("handleEvent(%s): %v", pod, err)
+		}
+	}
+
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := cl.List(context.Background(), list); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected exactly 1 Registry incident, got %d", len(list.Items))
+	}
+	if len(list.Items[0].Status.AffectedResources) != 3 {
+		t.Errorf("expected 3 pods in AffectedResources, got %d", len(list.Items[0].Status.AffectedResources))
+	}
+}
