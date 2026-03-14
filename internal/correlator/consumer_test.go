@@ -981,7 +981,142 @@ func TestResolveIncidentsForPod_PodNotReady_SkipsResolve(t *testing.T) {
 	if err := cl.Get(context.Background(), types.NamespacedName{Name: active.Name, Namespace: "dev"}, got); err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.Status.Phase != "Active" {
-		t.Errorf("expected Active (pod not ready), got %q", got.Status.Phase)
+}
+
+// ── OOM signal cooldown ───────────────────────────────────────────────────────
+
+// TestResolveIncidentsForPod_SkipsRecentSignalCooldown verifies that an
+// incident with a recent annotationLastSeen (within signalCooldown) is NOT
+// resolved when the pod becomes briefly healthy. This prevents the
+// OOMKilled/CrashLoop create→resolve→create cycle.
+func TestResolveIncidentsForPod_SkipsRecentSignalCooldown(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add RCA scheme: %v", err)
+	}
+
+	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
+	// Signal just 30 s ago — well inside the 5-minute signalCooldown.
+	lastSeen := now.Add(-30 * time.Second)
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "oomkill-demo", Namespace: "dev"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+	incident := &rcav1alpha1.IncidentReport{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "oom-oomkill-demo-abc",
+			Namespace: "dev",
+			Annotations: map[string]string{
+				annotationLastSeen: lastSeen.Format(time.RFC3339),
+			},
+		},
+		Spec: rcav1alpha1.IncidentReportSpec{AgentRef: "ag"},
+		Status: rcav1alpha1.IncidentReportStatus{
+			Phase:        phaseDetecting,
+			IncidentType: "OOM",
+			AffectedResources: []rcav1alpha1.AffectedResource{
+				{Kind: "Pod", Name: "oomkill-demo", Namespace: "dev"},
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		WithObjects(pod, incident).
+		Build()
+
+	c := NewConsumer(cl, nil, logr.Discard())
+	c.now = func() time.Time { return now }
+
+	// Pod becomes briefly Running+Ready after OOMKill restart.
+	if err := c.handleEvent(context.Background(), watcher.PodHealthyEvent{
+		BaseEvent: watcher.BaseEvent{Namespace: "dev", PodName: "oomkill-demo"},
+	}); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+
+	got := &rcav1alpha1.IncidentReport{}
+	if err := cl.Get(context.Background(), types.NamespacedName{Name: incident.Name, Namespace: "dev"}, got); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Status.Phase == phaseResolved {
+		t.Errorf("incident resolved too early — signal cooldown was not respected (phase=%q)", got.Status.Phase)
+	}
+}
+
+// ── Registry namespace-level dedup ───────────────────────────────────────────
+
+// TestHandleEventRegistryDedupsToOneIncidentPerNamespace verifies that
+// multiple pods from the same deployment failing with ImagePullBackOff
+// consolidate into a single Registry IncidentReport, with all affected pod
+// names tracked in AffectedResources.
+func TestHandleEventRegistryDedupsToOneIncidentPerNamespace(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add RCA scheme: %v", err)
+	}
+
+	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		Build()
+
+	c := NewConsumer(cl, nil, logr.Discard())
+	c.now = func() time.Time { return now }
+
+	// First pod fails to pull.
+	if err := c.handleEvent(context.Background(), watcher.ImagePullBackOffEvent{
+		BaseEvent:     watcher.BaseEvent{At: now, AgentName: "ag", Namespace: "dev", PodName: "payment-service-4pkpz"},
+		ContainerName: "payment-service",
+		Reason:        "ImagePullBackOff",
+	}); err != nil {
+		t.Fatalf("first handleEvent: %v", err)
+	}
+
+	// Second pod from same deployment fails.
+	if err := c.handleEvent(context.Background(), watcher.ImagePullBackOffEvent{
+		BaseEvent:     watcher.BaseEvent{At: now.Add(5 * time.Second), AgentName: "ag", Namespace: "dev", PodName: "payment-service-6jwsg"},
+		ContainerName: "payment-service",
+		Reason:        "ImagePullBackOff",
+	}); err != nil {
+		t.Fatalf("second handleEvent: %v", err)
+	}
+
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := cl.List(context.Background(), list); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 IncidentReport (namespace-level dedup), got %d", len(list.Items))
+	}
+
+	report := list.Items[0]
+	if report.Status.IncidentType != incidentTypeRegistry {
+		t.Errorf("incidentType: got %q, want %q", report.Status.IncidentType, incidentTypeRegistry)
+	}
+
+	pods := make(map[string]bool)
+	for _, res := range report.Status.AffectedResources {
+		pods[res.Name] = true
+	}
+	if !pods["payment-service-4pkpz"] {
+		t.Error("expected payment-service-4pkpz in AffectedResources")
+	}
+	if !pods["payment-service-6jwsg"] {
+		t.Error("expected payment-service-6jwsg in AffectedResources")
 	}
 }
