@@ -50,6 +50,7 @@ const rcaAgentFinalizer = "rca.rca-operator.io/finalizer"
 const (
 	incidentAgentLabelKey  = "rca.rca-operator.io/agent"
 	retentionRequeuePeriod = time.Minute
+	phaseDetecting         = "Detecting"
 	phaseActive            = "Active"
 	phaseResolved          = "Resolved"
 
@@ -603,7 +604,7 @@ func (r *RCAAgentReconciler) resolveOrphanedIncidents(ctx context.Context, agent
 
 		for i := range list.Items {
 			report := &list.Items[i]
-			if report.Status.Phase != phaseActive {
+			if report.Status.Phase == phaseResolved {
 				continue
 			}
 			if !belongsToAgent(report, agent.Name) {
@@ -682,7 +683,7 @@ func (r *RCAAgentReconciler) resolveStaleThrottlingIncidents(ctx context.Context
 
 		for i := range list.Items {
 			report := &list.Items[i]
-			if report.Status.Phase != phaseActive {
+			if report.Status.Phase == phaseResolved {
 				continue
 			}
 			if report.Status.IncidentType != "ResourceSaturation" {
