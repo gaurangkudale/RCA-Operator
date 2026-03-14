@@ -18,8 +18,14 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"time"
 
+	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -27,31 +33,220 @@ import (
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 )
 
+const (
+	// stabilizationDelay is how long an incident remains in Detecting before the
+	// reconciler confirms it as Active. If the pod recovers within this window the
+	// incident is resolved without ever becoming Active.
+	stabilizationDelay = 30 * time.Second
+
+	// healthyResolveWindow is how long an Active incident must go without receiving
+	// a new watcher signal (annotationLastSeen) before the reconciler considers the
+	// issue resolved. The pod must also be currently Running+Ready.
+	healthyResolveWindow = 5 * time.Minute
+
+	// incidentTypeNodeFailure is the IncidentType string used for node-level
+	// incidents. These incidents store a node name in AffectedResources instead of
+	// a pod name, so pod-health checks are skipped for them.
+	incidentTypeNodeFailure = "NodeFailure"
+
+	// maxTimelineEntriesCtrl caps the timeline slice on the IncidentReport status
+	// to prevent unbounded growth.
+	maxTimelineEntriesCtrl = 50
+)
+
 // IncidentReportReconciler reconciles a IncidentReport object
 type IncidentReportReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	nowFn  func() time.Time // injectable for tests
+}
+
+func (r *IncidentReportReconciler) now() time.Time {
+	if r.nowFn != nil {
+		return r.nowFn()
+	}
+	return time.Now()
 }
 
 // +kubebuilder:rbac:groups=rca.rca-operator.io,resources=incidentreports,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rca.rca-operator.io,resources=incidentreports/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=rca.rca-operator.io,resources=incidentreports/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the IncidentReport object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/reconcile
+// Reconcile drives the IncidentReport lifecycle: Detecting → Active → Resolved.
 func (r *IncidentReportReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	log := logf.FromContext(ctx)
 
-	// TODO(user): your logic here
+	report := &rcav1alpha1.IncidentReport{}
+	if err := r.Get(ctx, req.NamespacedName, report); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
 
+	switch report.Status.Phase {
+	case phaseResolved, "":
+		// Nothing to do for resolved or empty-phase (legacy/zombie) incidents.
+		return ctrl.Result{}, nil
+	case phaseDetecting:
+		return r.reconcileDetecting(ctx, log, report)
+	case phaseActive:
+		return r.reconcileActive(ctx, log, report)
+	default:
+		log.Info("IncidentReport has unrecognised phase; skipping", "phase", report.Status.Phase)
+		return ctrl.Result{}, nil
+	}
+}
+
+// reconcileDetecting handles Detecting-phase incidents.
+// If the pod recovers before the stabilisation window elapses the incident is
+// resolved immediately; otherwise, after stabilisationDelay it is promoted to Active.
+func (r *IncidentReportReconciler) reconcileDetecting(ctx context.Context, log logr.Logger, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+	if report.Status.StartTime == nil {
+		// Malformed or legacy report — promote immediately to avoid being stuck.
+		log.Info("IncidentReport has no StartTime; promoting to Active", "name", report.Name)
+		return r.transitionToActive(ctx, report)
+	}
+
+	elapsed := r.now().Sub(report.Status.StartTime.Time)
+
+	if elapsed < stabilizationDelay {
+		// During the stabilisation window check whether pods have already recovered.
+		for _, res := range report.Status.AffectedResources {
+			if res.Kind != "Pod" {
+				continue
+			}
+			pod := &corev1.Pod{}
+			if err := r.Get(ctx, types.NamespacedName{Namespace: res.Namespace, Name: res.Name}, pod); err != nil {
+				// Pod not found or transient error — do not resolve yet; wait.
+				continue
+			}
+			if isPodReady(pod) {
+				log.Info("Pod recovered during stabilisation; resolving before Active",
+					"pod", res.Name, "incident", report.Name)
+				return r.transitionToResolved(ctx, report,
+					fmt.Sprintf("Pod %s recovered before incident was confirmed active", res.Name))
+			}
+		}
+		remaining := stabilizationDelay - elapsed
+		return ctrl.Result{RequeueAfter: remaining}, nil
+	}
+
+	// Stabilisation window elapsed and pod is still unhealthy → confirm as Active.
+	return r.transitionToActive(ctx, report)
+}
+
+// reconcileActive handles Active-phase incidents.
+// When no new watcher signal has arrived within healthyResolveWindow AND the
+// affected pod is currently Running+Ready, the incident is auto-resolved.
+func (r *IncidentReportReconciler) reconcileActive(ctx context.Context, log logr.Logger, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+	// Determine when the last watcher signal was received.
+	lastSeenStr := ""
+	if report.Annotations != nil {
+		lastSeenStr = report.Annotations[annotationLastSeen]
+	}
+
+	var lastSeenTime time.Time
+	if lastSeenStr != "" {
+		if t, err := time.Parse(time.RFC3339, lastSeenStr); err == nil {
+			lastSeenTime = t
+		}
+	}
+	// Fall back to StartTime if annotation is absent (e.g. first reconcile after creation).
+	if lastSeenTime.IsZero() && report.Status.StartTime != nil {
+		lastSeenTime = report.Status.StartTime.Time
+	}
+	if lastSeenTime.IsZero() {
+		lastSeenTime = r.now()
+	}
+
+	idle := r.now().Sub(lastSeenTime)
+	if idle < healthyResolveWindow {
+		return ctrl.Result{RequeueAfter: healthyResolveWindow - idle}, nil
+	}
+
+	// healthyResolveWindow has passed without a new signal. Check pod health.
+	// NodeFailure incidents store a node name in AffectedResources.Name; skip
+	// pod-health checks and resolve on TTL alone for those incident types.
+	if report.Status.IncidentType == incidentTypeNodeFailure {
+		log.Info("NodeFailure incident idle beyond resolve window; auto-resolving",
+			"incident", report.Name, "idleFor", idle.Round(time.Second))
+		return r.transitionToResolved(ctx, report,
+			fmt.Sprintf("No new signals for %.0f minutes; incident auto-resolved", healthyResolveWindow.Minutes()))
+	}
+
+	allHealthy := true
+	for _, res := range report.Status.AffectedResources {
+		if res.Kind != "Pod" {
+			continue
+		}
+		pod := &corev1.Pod{}
+		if err := r.Get(ctx, types.NamespacedName{Namespace: res.Namespace, Name: res.Name}, pod); err != nil {
+			// Pod not found — orphan cleanup (RCAAgentReconciler) handles the
+			// resolve; do not count as "unhealthy" here to avoid double-patching.
+			continue
+		}
+		if !isPodReady(pod) {
+			allHealthy = false
+			break
+		}
+	}
+
+	if allHealthy {
+		log.Info("All pods healthy after resolve window; auto-resolving",
+			"incident", report.Name, "idleFor", idle.Round(time.Second))
+		return r.transitionToResolved(ctx, report,
+			fmt.Sprintf("Pod healthy for %.0f minutes; incident auto-resolved", healthyResolveWindow.Minutes()))
+	}
+
+	// Pod still unhealthy — check back after another window.
+	return ctrl.Result{RequeueAfter: healthyResolveWindow}, nil
+}
+
+// transitionToActive patches the IncidentReport status to Phase=Active and
+// appends a timeline entry.
+func (r *IncidentReportReconciler) transitionToActive(ctx context.Context, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+	now := metav1.NewTime(r.now())
+	base := report.DeepCopy()
+	report.Status.Phase = phaseActive
+	report.Status.Timeline = appendTimeline(report.Status.Timeline, now, "Incident confirmed active after stabilisation period")
+	if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to transition IncidentReport %s/%s to Active: %w", report.Namespace, report.Name, err)
+	}
+	return ctrl.Result{RequeueAfter: healthyResolveWindow}, nil
+}
+
+// transitionToResolved patches the IncidentReport status to Phase=Resolved.
+func (r *IncidentReportReconciler) transitionToResolved(ctx context.Context, report *rcav1alpha1.IncidentReport, reason string) (ctrl.Result, error) {
+	now := metav1.NewTime(r.now())
+	base := report.DeepCopy()
+	report.Status.Phase = phaseResolved
+	report.Status.ResolvedTime = &now
+	report.Status.Timeline = appendTimeline(report.Status.Timeline, now, reason)
+	if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to resolve IncidentReport %s/%s: %w", report.Namespace, report.Name, err)
+	}
 	return ctrl.Result{}, nil
+}
+
+// isPodReady returns true when pod is Running and its Ready condition is True.
+func isPodReady(pod *corev1.Pod) bool {
+	if pod == nil || pod.Status.Phase != corev1.PodRunning {
+		return false
+	}
+	for _, c := range pod.Status.Conditions {
+		if c.Type == corev1.PodReady {
+			return c.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+// appendTimeline appends a TimelineEvent and trims the slice to maxTimelineEntriesCtrl.
+func appendTimeline(tl []rcav1alpha1.TimelineEvent, t metav1.Time, msg string) []rcav1alpha1.TimelineEvent {
+	tl = append(tl, rcav1alpha1.TimelineEvent{Time: t, Event: msg})
+	if len(tl) > maxTimelineEntriesCtrl {
+		tl = tl[len(tl)-maxTimelineEntriesCtrl:]
+	}
+	return tl
 }
 
 // SetupWithManager sets up the controller with the Manager.

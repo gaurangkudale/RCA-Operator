@@ -31,9 +31,10 @@ const (
 	labelIncidentType = "rca.rca-operator.io/incident-type"
 	labelPodName      = "rca.rca-operator.io/pod"
 
-	phaseActive   = "Active"
-	phaseResolved = "Resolved"
-	valueUnknown  = "unknown"
+	phaseDetecting = "Detecting"
+	phaseActive    = "Active"
+	phaseResolved  = "Resolved"
+	valueUnknown   = "unknown"
 
 	incidentTypeNodeFailure = "NodeFailure"
 
@@ -121,7 +122,7 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 		return nil
 	}
 
-	active, err := c.findActiveIncidentForPodType(ctx, namespace, podName, incidentType)
+	active, err := c.findOpenIncident(ctx, namespace, podName, incidentType)
 	if err != nil {
 		return err
 	}
@@ -166,7 +167,7 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 	statusBase := report.DeepCopy()
 	report.Status = rcav1alpha1.IncidentReportStatus{
 		Severity:     severity,
-		Phase:        phaseActive,
+		Phase:        phaseDetecting,
 		IncidentType: incidentType,
 		StartTime:    &startTime,
 		ResolvedTime: nil,
@@ -198,14 +199,16 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 	return nil
 }
 
-func (c *Consumer) findActiveIncidentForPodType(ctx context.Context, namespace, podName, incidentType string) (*rcav1alpha1.IncidentReport, error) {
+// findOpenIncident returns the first non-Resolved IncidentReport (Detecting or
+// Active) for the given pod and incident type, or nil if none exists.
+func (c *Consumer) findOpenIncident(ctx context.Context, namespace, podName, incidentType string) (*rcav1alpha1.IncidentReport, error) {
 	list := &rcav1alpha1.IncidentReportList{}
 	if err := c.client.List(ctx, list, client.InNamespace(namespace)); err != nil {
 		return nil, fmt.Errorf("failed to list IncidentReports: %w", err)
 	}
 	for i := range list.Items {
 		report := &list.Items[i]
-		if report.Status.Phase != phaseActive {
+		if report.Status.Phase == phaseResolved {
 			continue
 		}
 		if report.Status.IncidentType != incidentType {
@@ -297,7 +300,7 @@ func (c *Consumer) resolveIncidentsForPod(ctx context.Context, event watcher.Pod
 	resolvedCount := 0
 	for i := range list.Items {
 		report := &list.Items[i]
-		if report.Status.Phase != phaseActive {
+		if report.Status.Phase == phaseResolved {
 			continue
 		}
 		if !incidentAffectsPod(report, event.PodName, event.Namespace) {
@@ -341,7 +344,7 @@ func (c *Consumer) resolveIncidentsForDeletedPod(ctx context.Context, event watc
 	resolvedCount := 0
 	for i := range list.Items {
 		report := &list.Items[i]
-		if report.Status.Phase != phaseActive {
+		if report.Status.Phase == phaseResolved {
 			continue
 		}
 		if !incidentAffectsPod(report, event.PodName, event.Namespace) {

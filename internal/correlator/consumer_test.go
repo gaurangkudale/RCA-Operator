@@ -226,8 +226,8 @@ func TestHandleEventCreatesStalledRolloutIncident(t *testing.T) {
 	if report.Status.Severity != "P2" {
 		t.Errorf("severity: got %q, want P2", report.Status.Severity)
 	}
-	if report.Status.Phase != phaseActive {
-		t.Errorf("phase: got %q, want Active", report.Status.Phase)
+	if report.Status.Phase != phaseDetecting {
+		t.Errorf("phase: got %q, want Detecting", report.Status.Phase)
 	}
 	if len(report.Status.AffectedResources) == 0 || report.Status.AffectedResources[0].Name != "payment-service" {
 		t.Errorf("AffectedResources: expected payment-service, got %+v", report.Status.AffectedResources)
@@ -403,8 +403,8 @@ func TestHandleEventCreatesCPUThrottlingIncident(t *testing.T) {
 	if report.Status.Severity != "P3" {
 		t.Errorf("severity: got %q, want P3", report.Status.Severity)
 	}
-	if report.Status.Phase != phaseActive {
-		t.Errorf("phase: got %q, want Active", report.Status.Phase)
+	if report.Status.Phase != phaseDetecting {
+		t.Errorf("phase: got %q, want Detecting", report.Status.Phase)
 	}
 	if !strings.HasPrefix(report.Name, "resourcesaturation-cpu-throttle-demo-") {
 		t.Errorf("name prefix: got %q", report.Name)
