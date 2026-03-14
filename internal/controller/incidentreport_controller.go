@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -60,8 +61,9 @@ const (
 // IncidentReportReconciler reconciles a IncidentReport object
 type IncidentReportReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
-	nowFn  func() time.Time // injectable for tests
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder // emits k8s Events on lifecycle transitions; nil = disabled
+	nowFn    func() time.Time     // injectable for tests
 }
 
 func (r *IncidentReportReconciler) now() time.Time {
@@ -75,6 +77,7 @@ func (r *IncidentReportReconciler) now() time.Time {
 // +kubebuilder:rbac:groups=rca.rca-operator.io,resources=incidentreports/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=rca.rca-operator.io,resources=incidentreports/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile drives the IncidentReport lifecycle: Detecting → Active → Resolved.
 func (r *IncidentReportReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -242,6 +245,10 @@ func (r *IncidentReportReconciler) transitionToActive(ctx context.Context, repor
 	if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to transition IncidentReport %s/%s to Active: %w", report.Namespace, report.Name, err)
 	}
+	if r.Recorder != nil {
+		r.Recorder.Eventf(report, corev1.EventTypeWarning, "IncidentActive",
+			"Incident confirmed active type=%s severity=%s", report.Status.IncidentType, report.Status.Severity)
+	}
 	return ctrl.Result{RequeueAfter: healthyResolveWindow}, nil
 }
 
@@ -254,6 +261,9 @@ func (r *IncidentReportReconciler) transitionToResolved(ctx context.Context, rep
 	report.Status.Timeline = appendTimeline(report.Status.Timeline, now, reason)
 	if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to resolve IncidentReport %s/%s: %w", report.Namespace, report.Name, err)
+	}
+	if r.Recorder != nil {
+		r.Recorder.Eventf(report, corev1.EventTypeNormal, "IncidentResolved", "%s", reason)
 	}
 	return ctrl.Result{}, nil
 }

@@ -4,6 +4,8 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/client-go/tools/record"
+
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
@@ -113,5 +115,15 @@ type Option func(*Consumer)
 func WithCorrelator(c *Correlator) Option {
 	return func(consumer *Consumer) {
 		consumer.correlator = c
+	}
+}
+
+// WithEventRecorder attaches a Kubernetes EventRecorder to the Consumer.
+// When set, the consumer emits corev1.Events on IncidentReport CRs at key
+// lifecycle points (detected, resolved, re-opened), making them visible via
+// kubectl describe incidentreport.
+func WithEventRecorder(r record.EventRecorder) Option {
+	return func(consumer *Consumer) {
+		consumer.recorder = r
 	}
 }

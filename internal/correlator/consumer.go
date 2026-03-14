@@ -12,6 +12,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
@@ -62,7 +63,8 @@ type Consumer struct {
 	events     <-chan watcher.CorrelatorEvent
 	log        logr.Logger
 	now        func() time.Time
-	correlator *Correlator // optional; nil disables multi-event correlation
+	correlator *Correlator          // optional; nil disables multi-event correlation
+	recorder   record.EventRecorder // optional; nil skips k8s event emission
 
 	// openRegistryByNS is a best-effort in-memory cache: namespace → name of the
 	// canonical open Registry IncidentReport. Populated on creation/reopen and
@@ -248,6 +250,10 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 		"incidentType", incidentType,
 		"severity", severity,
 	)
+	if c.recorder != nil {
+		c.recorder.Eventf(report, corev1.EventTypeWarning, "IncidentDetected",
+			"New %s incident detected severity=%s: %s", incidentType, severity, summary)
+	}
 	return nil
 }
 
@@ -491,6 +497,10 @@ func (c *Consumer) reopenIncident(
 		"eventType", event.Type(),
 		"incidentType", report.Status.IncidentType,
 	)
+	if c.recorder != nil {
+		c.recorder.Eventf(report, corev1.EventTypeWarning, "IncidentReopened",
+			"Incident re-opened: %s", summary)
+	}
 	// Refresh Registry dedup cache so subsequent events route to this incident.
 	if report.Status.IncidentType == incidentTypeRegistry {
 		c.openRegistryByNS[report.Namespace] = report.Name
@@ -606,6 +616,10 @@ func (c *Consumer) resolveIncidentsForPod(ctx context.Context, event watcher.Pod
 		if err := c.client.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
 			return fmt.Errorf("failed to patch IncidentReport resolve status: %w", err)
 		}
+		if c.recorder != nil {
+			c.recorder.Eventf(report, corev1.EventTypeNormal, "IncidentResolved",
+				"Pod %s became Running and Ready; incident resolved", event.PodName)
+		}
 		resolvedCount++
 	}
 
@@ -649,6 +663,10 @@ func (c *Consumer) resolveIncidentsForDeletedPod(ctx context.Context, event watc
 
 		if err := c.client.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
 			return fmt.Errorf("failed to patch IncidentReport resolve status for deleted pod: %w", err)
+		}
+		if c.recorder != nil {
+			c.recorder.Eventf(report, corev1.EventTypeNormal, "IncidentResolved",
+				"Pod %s was deleted from the cluster; incident resolved", event.PodName)
 		}
 		resolvedCount++
 	}
