@@ -20,6 +20,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"os"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -183,7 +184,8 @@ func main() {
 	managerCtx := ctrl.SetupSignalHandler()
 	watchEvents := make(chan watcher.CorrelatorEvent, 1024)
 	watcherEmitter := watcher.NewChannelEventEmitter(watchEvents, ctrl.Log)
-	correlatorConsumer := correlator.NewConsumer(mgr.GetClient(), watchEvents, ctrl.Log)
+	corr := correlator.NewCorrelator(5 * time.Minute)
+	correlatorConsumer := correlator.NewConsumer(mgr.GetClient(), watchEvents, ctrl.Log, correlator.WithCorrelator(corr))
 	go correlatorConsumer.Run(managerCtx)
 
 	if err := (&controller.RCAAgentReconciler{
