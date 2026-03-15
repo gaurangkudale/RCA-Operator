@@ -177,6 +177,12 @@ input::placeholder{color:var(--dim)}
 /* ── Section header ──────────────────────────── */
 .sec-hdr{font-family:var(--mono);font-size:8px;letter-spacing:2px;color:var(--dim);
   text-transform:uppercase;margin-bottom:8px;padding-bottom:5px;border-bottom:.5px solid var(--brdr)}
+.sec-hdr-toggle{font-family:var(--mono);font-size:8px;letter-spacing:2px;color:var(--dim);
+  text-transform:uppercase;margin-bottom:8px;padding-bottom:5px;border-bottom:.5px solid var(--brdr);
+  display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none}
+.sec-hdr-toggle:hover{color:var(--sub)}
+.toggle-arrow{font-size:10px;transition:transform .15s;display:inline-block}
+.toggle-arrow.collapsed{transform:rotate(-90deg)}
 
 /* ── Kubectl commands / playbook cards ────────── */
 .cmd-row{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:4px;
@@ -322,6 +328,7 @@ input::placeholder{color:var(--dim)}
   var search = '';
   var filters = { phase:'all', ns:'all', sev:'all', type:'all' };
   var connected = false;
+  var signalsOpen = true;
 
   /* ── Severity / Phase configs ──────────────── */
   var SEV = {
@@ -647,11 +654,13 @@ input::placeholder{color:var(--dim)}
     }
     html+='</div>';
 
-    /* 2. Correlated signals — readable vertical list with index */
+    /* 2. Correlated signals — collapsible vertical list */
     var sigs=inc.correlatedSignals||[];
-    html+='<div><div class="sec-hdr">correlated signals ('+sigs.length+')</div>';
+    html+='<div><div class="sec-hdr-toggle" onclick="window._toggleSignals()">';
+    html+='<span>correlated signals ('+sigs.length+')</span>';
+    html+='<span class="toggle-arrow'+(signalsOpen?'':' collapsed')+'">\u25BE</span></div>';
     if(sigs.length){
-      html+='<div style="display:flex;flex-direction:column;gap:5px">';
+      html+='<div id="signals-body" style="display:flex;flex-direction:column;gap:5px'+(signalsOpen?'':';display:none')+'">';
       sigs.forEach(function(s,i){
         html+='<div class="signal-card">';
         html+='<span class="play-num">'+(i+1)+'.</span>';
@@ -660,7 +669,7 @@ input::placeholder{color:var(--dim)}
       });
       html+='</div>';
     } else {
-      html+='<div style="font-family:var(--mono);font-size:10px;color:var(--sub)">No signals</div>';
+      html+='<div style="font-family:var(--mono);font-size:10px;color:var(--sub)'+(signalsOpen?'':';display:none')+'" id="signals-body">No signals</div>';
     }
     html+='</div>';
 
@@ -779,6 +788,13 @@ input::placeholder{color:var(--dim)}
   };
   window._clearSearch=function(){search='';render()};
   window._copy=function(btn,text){copyToClip(text,btn)};
+  window._toggleSignals=function(){
+    signalsOpen=!signalsOpen;
+    var body=document.getElementById('signals-body');
+    var arrow=document.querySelector('.toggle-arrow');
+    if(body) body.style.display=signalsOpen?'':'none';
+    if(arrow){if(signalsOpen) arrow.classList.remove('collapsed'); else arrow.classList.add('collapsed')}
+  };
 
   /* ── Keyboard navigation ───────────────────── */
   document.addEventListener('keydown',function(e){
