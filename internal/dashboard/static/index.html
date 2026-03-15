@@ -51,8 +51,8 @@ input::placeholder{color:var(--dim)}
   background:rgba(252,165,165,0.1);border:.5px solid rgba(252,165,165,0.3);
   font-family:var(--mono);font-size:9px;color:var(--red)}
 .pill-active{display:flex;align-items:center;gap:5px;padding:3px 9px;border-radius:3px;
-  background:rgba(74,222,128,0.08);border:.5px solid rgba(74,222,128,0.22);
-  font-family:var(--mono);font-size:9px;color:var(--green)}
+  background:rgba(252,165,165,0.1);border:.5px solid rgba(252,165,165,0.3);
+  font-family:var(--mono);font-size:9px;color:var(--red)}
 .pill-clock{font-family:var(--mono);font-size:9px;color:var(--dim);min-width:65px;text-align:right;letter-spacing:.3px}
 
 /* ── Body ────────────────────────────────────── */
@@ -443,7 +443,7 @@ input::placeholder{color:var(--dim)}
     var p1=incidents.filter(function(i){return i.severity==='P1'&&i.phase!=='Resolved'}).length;
     var html='';
     if(p1>0) html+='<span class="pill-p1">'+pulse('#FCA5A5',5)+' '+p1+' P1</span>';
-    html+='<span class="pill-active">'+pulse('#4ADE80',4)+' '+active+' active</span>';
+    html+='<span class="pill-active">'+pulse('#FCA5A5',4)+' '+active+' active</span>';
     html+='<span class="pill-clock" id="utc-clock"></span>';
     el.innerHTML=html;
   }
