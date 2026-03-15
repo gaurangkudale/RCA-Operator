@@ -4,352 +4,657 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RCA Operator — Incidents</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
+:root {
+  --bg:#06080E; --surface:#0A0E1A; --card:#0D1220; --hover:#111827;
+  --border:rgba(56,189,248,0.1); --borderB:rgba(56,189,248,0.22);
+  --accent:#38BDF8; --green:#34D399; --amber:#FBBF24; --red:#F87171; --purple:#C084FC;
+  --text:#CBD5E1; --muted:#475569; --dim:#1E293B;
+  --mono:'JetBrains Mono','Fira Mono','Cascadia Code',Menlo,monospace;
+  --sans:'Rajdhani','Chakra Petch',system-ui,sans-serif;
+}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#E5E7EB;background:#111827;overflow-x:hidden}
-::-webkit-scrollbar{width:6px}
-::-webkit-scrollbar-track{background:#1F2937}
-::-webkit-scrollbar-thumb{background:#4B5563;border-radius:3px}
+body{font-family:var(--sans);color:var(--text);background:var(--bg);overflow-x:hidden}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--dim);border-radius:2px}
 
-/* Layout */
-.wrap{min-height:100vh;display:flex;flex-direction:column}
-.topbar{background:#1F2937;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #374151;flex-shrink:0}
-.logo{font-size:14px;font-weight:600;color:#E5E7EB;letter-spacing:.5px;display:flex;align-items:center;gap:8px}
-.dot{width:8px;height:8px;border-radius:50%;background:#10B981;display:inline-block}
-.dot.off{background:#EF4444}
-.nav{display:flex;gap:4px}
-.nav span{font-size:12px;padding:5px 12px;border-radius:4px;color:#9CA3AF;cursor:pointer;transition:background .15s}
-.nav span.sel{background:#374151;color:#E5E7EB}
-.nav span:hover:not(.sel){background:#374151}
-.body{display:flex;flex:1;min-height:0}
-.sidebar{width:210px;background:#1F2937;padding:16px;border-right:1px solid #374151;overflow-y:auto;flex-shrink:0}
-.main{flex:1;padding:16px 20px;overflow-y:auto}
+@keyframes rca-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.8)}}
+@keyframes rca-ring{0%{transform:scale(1);opacity:.55}100%{transform:scale(2.4);opacity:0}}
+@keyframes rca-slidein{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:translateX(0)}}
 
-/* Sidebar */
-.side-section{margin-bottom:22px}
-.side-label{font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;font-weight:500}
-.metric{padding:8px 10px;border-radius:6px;margin-bottom:4px;cursor:pointer;transition:background .12s}
-.metric:hover{background:#374151}
-.metric-label{font-size:11px;color:#9CA3AF}
-.metric-val{font-size:22px;font-weight:600;color:#F9FAFB;margin-top:2px}
-.metric-val.danger{color:#F87171}
-.metric-val.warn{color:#FBBF24}
-.metric-val.ok{color:#34D399}
-.ns-item{padding:6px 10px;border-radius:4px;margin-bottom:2px;cursor:pointer;transition:background .12s;display:flex;align-items:center;justify-content:space-between}
-.ns-item:hover{background:#374151}
-.ns-item.sel{background:#374151}
-.ns-name{font-size:12px;color:#D1D5DB}
-.ns-count{font-size:10px;padding:2px 6px;border-radius:3px}
-.ns-count.has{background:#7F1D1D;color:#FCA5A5}
-.ns-count.clear{color:#6B7280}
-.agent-item{font-size:11px;color:#34D399;padding:4px 10px}
+/* ── Layout ─────────────────────────────────────── */
+.wrap{min-height:100vh;display:flex;flex-direction:column;
+  background-image:radial-gradient(rgba(56,189,248,0.045) 1px,transparent 1px);
+  background-size:24px 24px}
 
-/* Filters */
-.filter-bar{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
-.filter-btn{font-size:11px;padding:4px 12px;border-radius:4px;border:1px solid #374151;background:transparent;color:#9CA3AF;cursor:pointer;transition:all .12s}
-.filter-btn:hover{border-color:#6B7280;color:#D1D5DB}
-.filter-btn.on{background:#374151;color:#E5E7EB;border-color:#6B7280}
+/* ── TopBar ─────────────────────────────────────── */
+.topbar{height:46px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 18px;background:var(--surface);border-bottom:.5px solid var(--border);flex-shrink:0}
+.topbar-left{display:flex;align-items:center;gap:10px}
+.topbar-title{font-family:var(--sans);font-size:16px;font-weight:700;color:var(--text);letter-spacing:2.5px}
+.topbar-title span{color:var(--accent)}
+.topbar-ver{font-family:var(--mono);font-size:8px;color:var(--dim);letter-spacing:1px;margin-left:4px}
+.topbar-nav{display:flex}
+.topbar-nav div{padding:0 14px;height:46px;display:flex;align-items:center;
+  font-family:var(--mono);font-size:9px;letter-spacing:1.5px;color:var(--muted);cursor:pointer}
+.topbar-nav div.sel{color:var(--accent);border-bottom:1.5px solid var(--accent)}
+.topbar-nav div:not(.sel){border-bottom:1.5px solid transparent}
+.topbar-right{display:flex;gap:8px;align-items:center}
+.topbar-p1{display:flex;align-items:center;gap:5px;padding:3px 9px;border-radius:2px;
+  background:rgba(248,113,113,0.1);border:.5px solid rgba(248,113,113,0.3);
+  font-family:var(--mono);font-size:9px;color:#F87171}
+.topbar-active{display:flex;align-items:center;gap:5px;padding:3px 9px;border-radius:2px;
+  background:rgba(52,211,153,0.08);border:.5px solid rgba(52,211,153,0.2);
+  font-family:var(--mono);font-size:9px;color:var(--green)}
+.topbar-clock{font-family:var(--mono);font-size:9px;color:var(--muted);min-width:62px;text-align:right}
 
-/* Section titles */
-.section-title{font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;font-weight:500}
+/* ── Body ───────────────────────────────────────── */
+.body{display:flex;flex:1;overflow:hidden;min-height:0}
 
-/* Incident cards */
-.incident{background:#1F2937;border-radius:6px;padding:12px 14px;margin-bottom:8px;border-left:3px solid #374151;cursor:pointer;transition:background .12s}
-.incident:hover{background:#283040}
-.incident.expanded{background:#283040}
-.incident.p1{border-left-color:#EF4444}
-.incident.p2{border-left-color:#F59E0B}
-.incident.p3{border-left-color:#3B82F6}
-.incident.p4{border-left-color:#6B7280}
-.incident-header{display:flex;align-items:center;gap:8px;margin-bottom:4px}
-.badge{font-size:10px;font-weight:600;padding:2px 7px;border-radius:3px;white-space:nowrap}
-.badge-p1{background:#7F1D1D;color:#FCA5A5}
-.badge-p2{background:#78350F;color:#FDE68A}
-.badge-p3{background:#1E3A5F;color:#93C5FD}
-.badge-p4{background:#374151;color:#9CA3AF}
-.badge-active{background:#064E3B;color:#6EE7B7}
-.badge-resolved{background:#1F2937;color:#6B7280;border:1px solid #374151}
-.badge-detecting{background:#312E81;color:#A5B4FC}
-.incident-name{font-size:13px;color:#E5E7EB;font-weight:500}
-.incident-meta{font-size:11px;color:#6B7280;margin-top:2px}
-.incident-time{margin-left:auto;font-size:10px;color:#6B7280;font-family:monospace;white-space:nowrap}
-.signals{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
-.signal{font-size:10px;background:#374151;color:#D1D5DB;padding:2px 8px;border-radius:3px}
+/* ── Sidebar ────────────────────────────────────── */
+.sidebar{width:196px;flex-shrink:0;background:var(--surface);border-right:.5px solid var(--border);
+  overflow-y:auto;padding:16px 0;display:flex;flex-direction:column;gap:22px}
+.sec-label{font-family:var(--mono);font-size:8px;letter-spacing:2.5px;color:var(--muted);
+  text-transform:uppercase}
+.metric-row{padding:7px 12px;display:flex;justify-content:space-between;align-items:center}
+.metric-label{font-family:var(--mono);font-size:8px;color:var(--muted);letter-spacing:1.5px}
+.metric-val{font-family:var(--mono);font-size:22px;font-weight:500;line-height:1}
+.sidebar-item{padding:5px 12px;cursor:pointer;display:flex;justify-content:space-between;
+  align-items:center;transition:background .1s;border-left:2px solid transparent}
+.sidebar-item:hover{background:var(--hover)}
+.sidebar-item.sel{background:var(--hover);border-left-color:var(--accent)}
+.sidebar-item span{font-family:var(--mono);font-size:9px;color:var(--muted)}
+.sidebar-item.sel span{color:var(--text)}
+.ns-badge{font-family:var(--mono);font-size:8px;background:rgba(248,113,113,0.1);color:var(--red);
+  padding:1px 5px;border-radius:2px}
+.sev-dot{width:7px;height:7px;border-radius:1px;flex-shrink:0}
+.agent-row{padding:5px 12px;display:flex;align-items:center;gap:7px}
+.agent-name{font-family:var(--mono);font-size:8px;color:var(--muted)}
 
-/* Detail panel */
-.detail{display:none;margin-top:10px;padding-top:10px;border-top:1px solid #374151}
-.detail.open{display:block}
-.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-@media(max-width:900px){.detail-grid{grid-template-columns:1fr}}
-.detail-card{background:#111827;border-radius:6px;padding:12px;border:1px solid #374151}
-.detail-card h4{font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;font-weight:500}
-.tl-entry{display:flex;gap:10px;padding:5px 0;border-bottom:1px solid #1F2937}
-.tl-entry:last-child{border-bottom:0}
-.tl-time{font-size:10px;color:#6B7280;min-width:60px;font-family:monospace}
-.tl-event{font-size:11px;color:#D1D5DB;word-break:break-word}
-.resource-item{font-size:11px;color:#D1D5DB;padding:4px 0;display:flex;gap:8px;align-items:center}
-.resource-kind{font-size:9px;background:#374151;color:#9CA3AF;padding:1px 6px;border-radius:2px;font-weight:600}
+/* ── Content ────────────────────────────────────── */
+.content{flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0}
 
-/* Empty state */
-.empty{text-align:center;padding:60px 20px;color:#6B7280}
-.empty-icon{font-size:36px;margin-bottom:12px;opacity:.4}
-.empty-text{font-size:14px}
-.empty-sub{font-size:12px;margin-top:6px;color:#4B5563}
+/* ── FilterBar ──────────────────────────────────── */
+.filter-bar{height:40px;display:flex;align-items:center;gap:6px;padding:0 14px;
+  background:var(--surface);border-bottom:.5px solid var(--border);flex-shrink:0}
+.filter-bar button{padding:3px 10px;border-radius:2px;cursor:pointer;border:none;
+  background:transparent;color:var(--muted);font-family:var(--mono);font-size:9px;
+  letter-spacing:.5px;border-bottom:1px solid transparent;outline:none}
+.filter-bar button.sel{border-bottom-color:var(--accent);color:var(--accent);
+  background:rgba(56,189,248,0.1)}
+.filter-bar .divider{width:1px;height:16px;background:var(--border);margin:0 4px}
+.filter-bar .count{font-family:var(--mono);font-size:9px;color:var(--muted);margin-left:auto}
 
-/* Loading */
-.loading{text-align:center;padding:40px;color:#6B7280;font-size:12px}
+/* ── Split Pane ─────────────────────────────────── */
+.split-pane{flex:1;display:flex;overflow:hidden;min-height:0;background:var(--card)}
+.incident-list{overflow-y:auto}
+.incident-list.full{width:100%}
+.incident-list.compact{width:310px;flex-shrink:0}
+
+/* ── Column Headers ─────────────────────────────── */
+.col-headers{display:flex;align-items:center;gap:14px;padding:6px 16px;
+  border-bottom:.5px solid var(--border);background:var(--surface)}
+.col-headers span{font-family:var(--mono);font-size:8px;color:var(--dim);letter-spacing:1.5px}
+
+/* ── Incident Row ───────────────────────────────── */
+.inc-row{display:flex;align-items:center;padding:11px 16px;gap:14px;
+  border-bottom:.5px solid var(--border);border-left:2px solid transparent;
+  cursor:pointer;transition:background .1s}
+.inc-row:hover{background:rgba(17,24,39,0.56)}
+.inc-row.sel{border-left-color:var(--accent);background:var(--hover)}
+.inc-row.compact{padding:9px 12px;gap:8px}
+.inc-row.resolved .inc-name{color:var(--muted)}
+.inc-row.resolved .inc-meta{color:var(--dim)}
+
+.sev-badge{display:inline-flex;align-items:center;justify-content:center;
+  width:30px;height:20px;flex-shrink:0;border-radius:2px;
+  font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.5px}
+.sev-badge.sm{width:26px;height:16px;font-size:9px}
+.sev-P1{background:rgba(248,113,113,0.13);color:#F87171;border:.5px solid rgba(248,113,113,0.33)}
+.sev-P2{background:rgba(251,191,36,0.11);color:#FBBF24;border:.5px solid rgba(251,191,36,0.33)}
+.sev-P3{background:rgba(96,165,250,0.11);color:#60A5FA;border:.5px solid rgba(96,165,250,0.33)}
+.sev-P4{background:rgba(148,163,184,0.1);color:#94A3B8;border:.5px solid rgba(148,163,184,0.33)}
+
+.phase-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:2px;
+  font-family:var(--mono);font-size:9px;white-space:nowrap}
+.phase-Active{background:rgba(52,211,153,0.1);color:var(--green)}
+.phase-Detecting{background:rgba(192,132,252,0.1);color:var(--purple)}
+.phase-Resolved{background:rgba(71,85,105,0.18);color:var(--muted)}
+
+.inc-info{flex:1;min-width:0}
+.inc-name{font-family:var(--sans);font-size:13px;font-weight:600;color:var(--text);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.inc-name.compact{font-family:var(--mono);font-size:10px;font-weight:400}
+.inc-meta{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:1px}
+.inc-ns{font-family:var(--mono);font-size:9px;color:var(--muted);
+  background:var(--dim);padding:2px 7px;border-radius:2px;white-space:nowrap}
+.inc-time{font-family:var(--mono);font-size:9px;color:var(--muted);
+  min-width:36px;text-align:right;flex-shrink:0}
+
+/* ── Detail Panel ───────────────────────────────── */
+.detail-panel{flex:1;overflow-y:auto;min-width:0;
+  border-left:.5px solid var(--borderB);animation:rca-slidein .18s ease-out}
+.detail-header{padding:13px 16px;border-bottom:.5px solid var(--border);
+  position:sticky;top:0;background:var(--card);z-index:2}
+.detail-badges{display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap}
+.detail-title{font-family:var(--sans);font-size:16px;font-weight:700;color:var(--text)}
+.detail-meta{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:3px}
+.detail-id{font-family:var(--mono);font-size:8px;color:var(--dim);margin-top:6px;letter-spacing:.5px}
+.detail-close{background:transparent;border:none;cursor:pointer;color:var(--muted);
+  font-size:20px;padding:0 4px;font-family:var(--mono);line-height:1;flex-shrink:0;margin-left:8px}
+.detail-body{padding:16px 16px 24px;display:flex;flex-direction:column;gap:20px}
+
+.chip{display:inline-flex;align-items:center;padding:2px 7px;border-radius:2px;
+  font-family:var(--mono);font-size:9px}
+.chip-accent{background:rgba(56,189,248,0.1);color:var(--accent)}
+.chip-green{background:rgba(52,211,153,0.08);color:var(--green)}
+.chip-purple{background:rgba(192,132,252,0.08);color:var(--purple)}
+
+/* ── Section ────────────────────────────────────── */
+.section-title{font-family:var(--mono);font-size:8px;letter-spacing:2.5px;color:var(--muted);
+  text-transform:uppercase;margin-bottom:10px;padding-bottom:6px;border-bottom:.5px solid var(--border)}
+
+/* ── Timeline ───────────────────────────────────── */
+.timeline{padding-left:18px;position:relative}
+.timeline-line{position:absolute;left:3px;top:8px;bottom:16px;width:1px;
+  background:linear-gradient(rgba(56,189,248,0.44),var(--dim))}
+.tl-entry{position:relative;padding-bottom:13px}
+.tl-dot{position:absolute;left:-15px;top:5px;width:8px;height:8px;border-radius:50%;
+  box-sizing:border-box;border:1.5px solid var(--border);background:var(--dim)}
+.tl-dot.first{background:var(--accent);border-color:rgba(56,189,248,0.5)}
+.tl-dot.last-resolved{background:var(--green);border-color:rgba(52,211,153,0.5)}
+.tl-time{font-family:var(--mono);font-size:9px;color:var(--accent);margin-bottom:2px}
+.tl-event{font-family:var(--mono);font-size:10px;color:var(--text);line-height:1.55}
+
+/* ── Signal chips ───────────────────────────────── */
+.signal-chip{font-family:var(--mono);font-size:9px;background:var(--dim);color:var(--text);
+  padding:4px 10px;border-radius:2px;border:.5px solid var(--border)}
+
+/* ── Resource cards ─────────────────────────────── */
+.res-card{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:3px;
+  background:var(--dim);border:.5px solid var(--border)}
+.res-kind{font-family:var(--mono);font-size:8px;background:rgba(56,189,248,0.1);color:var(--accent);
+  padding:2px 7px;border-radius:2px;min-width:68px;text-align:center;letter-spacing:.5px}
+.res-name{font-family:var(--mono);font-size:10px;color:var(--text)}
+.res-ns{font-family:var(--mono);font-size:9px;color:var(--muted)}
+
+/* ── Notification row ───────────────────────────── */
+.notif-row{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;
+  border-radius:3px;background:var(--dim);border:.5px solid var(--border)}
+.notif-ch{font-family:var(--mono);font-size:9px;color:var(--accent)}
+.notif-target{font-family:var(--mono);font-size:9px;color:var(--muted);margin-left:8px}
+.notif-status{font-family:var(--mono);font-size:8px;padding:2px 6px;border-radius:2px}
+.notif-status.ok{color:var(--green);background:rgba(52,211,153,0.08)}
+.notif-status.skip{color:var(--muted)}
+
+/* ── RCA stub ───────────────────────────────────── */
+.rca-stub{padding:14px 16px;border-radius:3px;border:1px dashed var(--dim);
+  background:rgba(192,132,252,0.025)}
+.rca-stub-label{display:flex;align-items:center;gap:7px;margin-bottom:8px}
+.rca-stub-dot{width:5px;height:5px;border-radius:50%;background:var(--purple)}
+.rca-stub-text{font-family:var(--mono);font-size:8px;color:var(--purple);letter-spacing:2px}
+.rca-stub-body{font-family:var(--mono);font-size:10px;color:var(--muted);line-height:1.7}
+.rca-postmortem{margin-top:10px;padding-top:10px;border-top:.5px solid var(--border);
+  font-family:var(--mono);font-size:8px;color:var(--muted);letter-spacing:1px}
+
+/* ── Empty ──────────────────────────────────────── */
+.empty{padding:48px;text-align:center;font-family:var(--mono);font-size:10px;color:var(--muted);line-height:2}
+.empty-sub{font-size:9px;color:var(--dim)}
 </style>
 </head>
 <body>
 <div class="wrap">
+  <!-- TopBar -->
   <div class="topbar">
-    <div class="logo"><span class="dot" id="conn-dot"></span> RCA Operator</div>
-    <div class="nav">
-      <span class="sel">Incidents</span>
+    <div class="topbar-left">
+      <span id="conn-pulse"></span>
+      <span class="topbar-title">RCA <span>OPERATOR</span></span>
+      <span class="topbar-ver">v0.1.0</span>
     </div>
+    <div class="topbar-nav">
+      <div class="sel">INCIDENTS</div>
+      <div>AGENTS</div>
+      <div>NAMESPACES</div>
+      <div>SETTINGS</div>
+    </div>
+    <div class="topbar-right" id="topbar-right"></div>
   </div>
+
   <div class="body">
+    <!-- Sidebar -->
     <div class="sidebar">
-      <div class="side-section">
-        <div class="side-label">Live Metrics</div>
-        <div class="metric">
-          <div class="metric-label">Active</div>
-          <div class="metric-val danger" id="stat-active">—</div>
-        </div>
-        <div class="metric">
-          <div class="metric-label">Detecting</div>
-          <div class="metric-val warn" id="stat-detecting">—</div>
-        </div>
-        <div class="metric">
-          <div class="metric-label">Resolved</div>
-          <div class="metric-val ok" id="stat-resolved">—</div>
-        </div>
+      <div>
+        <div class="sec-label" style="padding:0 12px;margin-bottom:8px">live metrics</div>
+        <div id="sidebar-metrics"></div>
       </div>
-      <div class="side-section">
-        <div class="side-label">Namespaces</div>
-        <div id="ns-list"><div class="loading">Loading...</div></div>
+      <div>
+        <div class="sec-label" style="padding:0 12px;margin-bottom:6px">namespaces</div>
+        <div id="sidebar-ns"></div>
       </div>
-      <div class="side-section">
-        <div class="side-label">Agents</div>
-        <div id="agent-list"><div class="loading">Loading...</div></div>
+      <div>
+        <div class="sec-label" style="padding:0 12px;margin-bottom:6px">severity</div>
+        <div id="sidebar-sev"></div>
+      </div>
+      <div>
+        <div class="sec-label" style="padding:0 12px;margin-bottom:6px">agents</div>
+        <div id="sidebar-agents"></div>
       </div>
     </div>
-    <div class="main">
-      <div class="filter-bar">
-        <button class="filter-btn on" data-filter="all">All</button>
-        <button class="filter-btn" data-filter="Active">Active</button>
-        <button class="filter-btn" data-filter="Detecting">Detecting</button>
-        <button class="filter-btn" data-filter="Resolved">Resolved</button>
+
+    <!-- Main Content -->
+    <div class="content">
+      <div class="filter-bar" id="filter-bar"></div>
+      <div class="split-pane">
+        <div class="incident-list full" id="incident-list"></div>
+        <div class="detail-panel" id="detail-panel" style="display:none"></div>
       </div>
-      <div class="section-title" id="incident-count">Incidents</div>
-      <div id="incident-list"><div class="loading">Loading incidents...</div></div>
     </div>
   </div>
 </div>
+
 <script>
 (function(){
+  /* ── State ────────────────────────────────────── */
   var incidents = [];
   var stats = {};
-  var activeFilter = 'all';
-  var activeNS = null;
-  var expandedId = null;
+  var selectedKey = null;
+  var filters = { phase:'all', ns:'all', sev:'all', type:'all' };
 
-  // ── Fetch ───────────────────────────────────────────────
-  function fetchAll(){
-    Promise.all([
-      fetch('/api/incidents').then(function(r){return r.json()}),
-      fetch('/api/stats').then(function(r){return r.json()})
-    ]).then(function(results){
-      incidents = results[0] || [];
-      stats = results[1] || {};
-      document.getElementById('conn-dot').className = 'dot';
-      render();
-    }).catch(function(){
-      document.getElementById('conn-dot').className = 'dot off';
-    });
-  }
+  /* ── Colors ───────────────────────────────────── */
+  var SEV = {
+    P1:{c:'#F87171',bg:'rgba(248,113,113,0.13)'},
+    P2:{c:'#FBBF24',bg:'rgba(251,191,36,0.11)'},
+    P3:{c:'#60A5FA',bg:'rgba(96,165,250,0.11)'},
+    P4:{c:'#94A3B8',bg:'rgba(148,163,184,0.1)'}
+  };
+  var PH = {
+    Active:{c:'#34D399',dot:true},
+    Detecting:{c:'#C084FC',dot:true},
+    Resolved:{c:'#475569',dot:false}
+  };
 
-  // ── Render ──────────────────────────────────────────────
-  function render(){
-    renderStats();
-    renderNamespaces();
-    renderAgents();
-    renderIncidents();
-  }
-
-  function renderStats(){
-    document.getElementById('stat-active').textContent = stats.active || 0;
-    document.getElementById('stat-detecting').textContent = stats.detecting || 0;
-    document.getElementById('stat-resolved').textContent = stats.resolved || 0;
-  }
-
-  function renderNamespaces(){
-    var el = document.getElementById('ns-list');
-    var ns = stats.namespaces || {};
-    var keys = Object.keys(ns).sort();
-    if(keys.length === 0){el.innerHTML = '<div style="font-size:11px;color:#6B7280;padding:4px 10px">No namespaces</div>';return}
-    var html = '';
-    keys.forEach(function(k){
-      var active = ns[k].active || 0;
-      var sel = activeNS === k ? ' sel' : '';
-      html += '<div class="ns-item'+sel+'" onclick="window._setNS(\''+k+'\')">';
-      html += '<span class="ns-name">'+esc(k)+'</span>';
-      if(active > 0) html += '<span class="ns-count has">'+active+'</span>';
-      else html += '<span class="ns-count clear">0</span>';
-      html += '</div>';
-    });
-    el.innerHTML = html;
-  }
-
-  function renderAgents(){
-    var el = document.getElementById('agent-list');
-    var agents = stats.agents || [];
-    if(agents.length === 0){el.innerHTML = '<div style="font-size:11px;color:#6B7280;padding:4px 10px">No agents</div>';return}
-    el.innerHTML = agents.map(function(a){return '<div class="agent-item">● '+esc(a)+'</div>'}).join('');
-  }
-
-  function renderIncidents(){
-    var el = document.getElementById('incident-list');
-    var filtered = incidents.filter(function(inc){
-      if(activeFilter !== 'all' && inc.phase !== activeFilter) return false;
-      if(activeNS && inc.namespace !== activeNS) return false;
-      return true;
-    });
-
-    // Sort: severity rank desc, then startTime desc
-    var sevRank = {P1:4,P2:3,P3:2,P4:1};
-    filtered.sort(function(a,b){
-      var sa = sevRank[a.severity]||0, sb = sevRank[b.severity]||0;
-      if(sa !== sb) return sb - sa;
-      return (b.startTime||'').localeCompare(a.startTime||'');
-    });
-
-    document.getElementById('incident-count').textContent = filtered.length + ' incident' + (filtered.length !== 1 ? 's' : '');
-
-    if(filtered.length === 0){
-      el.innerHTML = '<div class="empty"><div class="empty-icon">✓</div><div class="empty-text">No incidents</div><div class="empty-sub">All clear</div></div>';
-      return;
-    }
-
-    el.innerHTML = filtered.map(function(inc){return renderIncident(inc)}).join('');
-  }
-
-  function renderIncident(inc){
-    var sev = (inc.severity||'P4').toLowerCase();
-    var phase = inc.phase||'';
-    var phaseLower = phase.toLowerCase();
-    var expanded = expandedId === inc.name+'/'+inc.namespace;
-    var id = 'inc-' + esc(inc.namespace) + '-' + esc(inc.name);
-
-    var html = '<div class="incident '+sev+(expanded?' expanded':'')+'" onclick="window._toggle(\''+esc(inc.name)+'\',\''+esc(inc.namespace)+'\')">';
-
-    // Header
-    html += '<div class="incident-header">';
-    html += '<span class="badge badge-'+sev+'">'+esc(inc.severity||'—')+'</span>';
-    html += '<span class="badge badge-'+phaseLower+'">'+esc(phase)+'</span>';
-    html += '<span class="incident-name">'+esc(inc.name)+'</span>';
-    html += '<span class="incident-time">'+formatTime(inc.startTime)+'</span>';
-    html += '</div>';
-
-    // Meta
-    html += '<div class="incident-meta">'+esc(inc.namespace)+' · '+esc(inc.incidentType||'')+(inc.agentRef?' · '+esc(inc.agentRef):'')+'</div>';
-
-    // Signals
-    var sigs = inc.correlatedSignals || [];
-    if(sigs.length > 0){
-      html += '<div class="signals">';
-      sigs.slice(-5).forEach(function(s){html += '<span class="signal">'+esc(truncate(s,60))+'</span>'});
-      if(sigs.length > 5) html += '<span class="signal">+' + (sigs.length-5) + ' more</span>';
-      html += '</div>';
-    }
-
-    // Detail
-    if(expanded){
-      html += '<div class="detail open">';
-      html += '<div class="detail-grid">';
-
-      // Timeline
-      html += '<div class="detail-card"><h4>Timeline</h4>';
-      var tl = inc.timeline || [];
-      if(tl.length === 0) html += '<div style="font-size:11px;color:#6B7280">No timeline entries</div>';
-      tl.slice(-20).forEach(function(e){
-        html += '<div class="tl-entry"><span class="tl-time">'+formatTime(e.time)+'</span><span class="tl-event">'+esc(e.event)+'</span></div>';
-      });
-      html += '</div>';
-
-      // Resources + meta
-      html += '<div class="detail-card"><h4>Affected Resources</h4>';
-      var res = inc.affectedResources || [];
-      if(res.length === 0) html += '<div style="font-size:11px;color:#6B7280">None</div>';
-      res.forEach(function(r){
-        html += '<div class="resource-item"><span class="resource-kind">'+esc(r.kind)+'</span>'+esc(r.name);
-        if(r.namespace) html += ' <span style="color:#6B7280">'+esc(r.namespace)+'</span>';
-        html += '</div>';
-      });
-
-      html += '<h4 style="margin-top:14px">Details</h4>';
-      html += '<div style="font-size:11px;color:#9CA3AF;margin-top:4px">';
-      html += 'Agent: ' + esc(inc.agentRef||'—') + '<br>';
-      html += 'Signals seen: ' + esc(inc.signalCount||'—') + '<br>';
-      html += 'Last seen: ' + formatTime(inc.lastSeen) + '<br>';
-      if(inc.resolvedTime) html += 'Resolved: ' + formatTime(inc.resolvedTime) + '<br>';
-      html += '</div>';
-      html += '</div>';
-
-      html += '</div></div>';
-    }
-
-    html += '</div>';
-    return html;
-  }
-
-  // ── Helpers ─────────────────────────────────────────────
-  function formatTime(t){
-    if(!t) return '—';
-    try{
-      var d = new Date(t);
-      if(isNaN(d.getTime())) return '—';
-      return d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false,timeZone:'UTC'})+' UTC';
-    }catch(e){return '—'}
-  }
-
+  /* ── Helpers ──────────────────────────────────── */
   function esc(s){
     if(!s) return '';
     var el = document.createElement('span');
     el.textContent = s;
     return el.innerHTML;
   }
+  function pulseDot(color,sz){
+    sz = sz||6;
+    return '<span style="position:relative;display:inline-block;width:'+sz+'px;height:'+sz+'px;flex-shrink:0">'+
+      '<span style="position:absolute;inset:0;border-radius:50%;background:'+color+';opacity:0.4;animation:rca-ring 1.8s ease-out infinite"></span>'+
+      '<span style="position:absolute;inset:0;border-radius:50%;background:'+color+';animation:rca-dot 2s ease-in-out infinite"></span>'+
+      '</span>';
+  }
+  function fmtTime(t){
+    if(!t) return '';
+    try{var d=new Date(t);if(isNaN(d.getTime()))return '';
+    return d.toISOString().slice(11,19)}catch(e){return ''}
+  }
+  function fmtShort(t){
+    if(!t) return '';
+    try{var d=new Date(t);if(isNaN(d.getTime()))return '';
+    return d.toISOString().slice(11,16)}catch(e){return ''}
+  }
+  function duration(s,e){
+    if(!s||!e) return null;
+    var ms = new Date(e)-new Date(s);
+    if(ms<0||isNaN(ms)) return null;
+    var sec=Math.floor(ms/1000);var m=Math.floor(sec/60);sec%=60;var h=Math.floor(m/60);m%=60;
+    if(h>0) return h+'h '+m+'m';
+    return m+'m '+sec+'s';
+  }
+  function incKey(inc){return inc.name+'/'+inc.namespace}
+  function displayName(inc){return inc.podName||inc.name}
 
-  function truncate(s,n){
-    if(!s) return '';
-    return s.length > n ? s.substring(0,n)+'…' : s;
+  /* ── Fetch ────────────────────────────────────── */
+  function fetchAll(){
+    Promise.all([
+      fetch('/api/incidents').then(function(r){return r.json()}),
+      fetch('/api/stats').then(function(r){return r.json()})
+    ]).then(function(res){
+      incidents = res[0]||[];
+      stats = res[1]||{};
+      document.getElementById('conn-pulse').innerHTML = pulseDot('#34D399',8);
+      render();
+    }).catch(function(){
+      document.getElementById('conn-pulse').innerHTML =
+        '<span style="width:8px;height:8px;border-radius:50%;background:#F87171;display:inline-block"></span>';
+    });
   }
 
-  // ── Interactions ────────────────────────────────────────
-  window._toggle = function(name, ns){
-    var key = name+'/'+ns;
-    expandedId = expandedId === key ? null : key;
-    renderIncidents();
-  };
+  /* ── Filter logic ─────────────────────────────── */
+  function filtered(){
+    return incidents.filter(function(i){
+      if(filters.phase!=='all' && i.phase!==filters.phase) return false;
+      if(filters.ns!=='all' && i.namespace!==filters.ns) return false;
+      if(filters.sev!=='all' && i.severity!==filters.sev) return false;
+      if(filters.type!=='all' && i.incidentType!==filters.type) return false;
+      return true;
+    });
+  }
+  function sorted(list){
+    var rank={P1:4,P2:3,P3:2,P4:1};
+    return list.slice().sort(function(a,b){
+      var sa=rank[a.severity]||0, sb=rank[b.severity]||0;
+      if(sa!==sb) return sb-sa;
+      return (b.startTime||'').localeCompare(a.startTime||'');
+    });
+  }
 
-  window._setNS = function(ns){
-    activeNS = activeNS === ns ? null : ns;
+  /* ── Render ───────────────────────────────────── */
+  function render(){
+    renderTopBarRight();
+    renderMetrics();
+    renderNamespaces();
+    renderSeverity();
+    renderAgents();
+    renderFilterBar();
+    renderIncidents();
+    renderDetail();
+  }
+
+  function renderTopBarRight(){
+    var el = document.getElementById('topbar-right');
+    var active = stats.active||0;
+    var p1 = incidents.filter(function(i){return i.severity==='P1' && i.phase!=='Resolved'}).length;
+    var html = '';
+    if(p1>0){
+      html += '<span class="topbar-p1">'+pulseDot('#F87171',5)+' '+p1+' P1 ACTIVE</span>';
+    }
+    html += '<span class="topbar-active">'+pulseDot('#34D399',4)+' '+active+' ACTIVE</span>';
+    html += '<span class="topbar-clock" id="utc-clock"></span>';
+    el.innerHTML = html;
+  }
+
+  function renderMetrics(){
+    var el = document.getElementById('sidebar-metrics');
+    var metrics = [
+      {l:'ACTIVE',   v:stats.active||0,   c:'var(--red)'},
+      {l:'DETECTING',v:stats.detecting||0, c:'var(--purple)'},
+      {l:'RESOLVED', v:stats.resolved||0,  c:'var(--green)'},
+      {l:'TOTAL TODAY',v:incidents.length,  c:'var(--muted)'}
+    ];
+    el.innerHTML = metrics.map(function(m){
+      return '<div class="metric-row"><span class="metric-label">'+m.l+'</span>'+
+        '<span class="metric-val" style="color:'+m.c+'">'+m.v+'</span></div>';
+    }).join('');
+  }
+
+  function renderNamespaces(){
+    var el = document.getElementById('sidebar-ns');
+    var ns = stats.namespaces||{};
+    var keys = Object.keys(ns).sort();
+    var all = ['all'].concat(keys);
+    el.innerHTML = all.map(function(k){
+      var sel = filters.ns===k;
+      var cnt = k!=='all' ? (ns[k]?ns[k].active:0)||0 : 0;
+      return '<div class="sidebar-item'+(sel?' sel':'')+'" onclick="window._setFilter(\'ns\',\''+esc(k)+'\')">'+
+        '<span>'+esc(k)+'</span>'+
+        (cnt>0?'<span class="ns-badge">'+cnt+'</span>':'')+
+        '</div>';
+    }).join('');
+  }
+
+  function renderSeverity(){
+    var el = document.getElementById('sidebar-sev');
+    var sevs = ['all','P1','P2','P3','P4'];
+    el.innerHTML = sevs.map(function(s){
+      var sel = filters.sev===s;
+      var dot = s!=='all' ? '<span class="sev-dot" style="background:'+(SEV[s]?SEV[s].c:'var(--muted)')+'"></span>' : '';
+      return '<div class="sidebar-item'+(sel?' sel':'')+'" onclick="window._setFilter(\'sev\',\''+s+'\')" '+
+        'style="gap:8px">'+dot+'<span>'+s+'</span></div>';
+    }).join('');
+  }
+
+  function renderAgents(){
+    var el = document.getElementById('sidebar-agents');
+    var agents = stats.agents||[];
+    if(agents.length===0){
+      el.innerHTML = '<div class="agent-row"><span class="agent-name">No agents</span></div>';
+      return;
+    }
+    var html = agents.map(function(a){
+      return '<div class="agent-row">'+pulseDot('#34D399',5)+
+        '<span class="agent-name">'+esc(a)+'</span></div>';
+    }).join('');
+    html += '<div class="agent-row" style="margin-top:4px">'+
+      '<span style="width:5px;height:5px;border-radius:50%;background:var(--green);flex-shrink:0"></span>'+
+      '<span class="agent-name">operator healthy</span></div>';
+    el.innerHTML = html;
+  }
+
+  function renderFilterBar(){
+    var el = document.getElementById('filter-bar');
+    var phases = ['all','Active','Detecting','Resolved'];
+    var types = [];
+    var seen = {};
+    incidents.forEach(function(i){
+      if(i.incidentType && !seen[i.incidentType]){seen[i.incidentType]=true;types.push(i.incidentType)}
+    });
+    var f = filtered();
+    var html = '<span class="sec-label">phase</span>';
+    phases.forEach(function(p){
+      var sel = filters.phase===p;
+      html += '<button class="'+(sel?'sel':'')+'" onclick="window._setFilter(\'phase\',\''+p+'\')">'+p+'</button>';
+    });
+    if(types.length>0){
+      html += '<span class="divider"></span><span class="sec-label">type</span>';
+      types.forEach(function(t){
+        var sel = filters.type===t;
+        html += '<button class="'+(sel?'sel':'')+'" onclick="window._setFilter(\'type\',\''+(sel?'all':esc(t))+'\')">'+esc(t)+'</button>';
+      });
+    }
+    html += '<span class="count">'+f.length+' INCIDENT'+(f.length!==1?'S':'')+'</span>';
+    el.innerHTML = html;
+  }
+
+  function renderIncidents(){
+    var el = document.getElementById('incident-list');
+    var list = sorted(filtered());
+    var hasSel = !!selectedKey;
+
+    el.className = 'incident-list '+(hasSel?'compact':'full');
+
+    var html = '';
+    if(!hasSel){
+      html += '<div class="col-headers">'+
+        '<span style="width:30px">SEV</span>'+
+        '<span style="flex:2">SERVICE</span>'+
+        '<span style="width:90px">NAMESPACE</span>'+
+        '<span style="width:80px">PHASE</span>'+
+        '<span style="width:50px;text-align:right">STARTED</span>'+
+        '</div>';
+    }
+    if(list.length===0){
+      html += '<div class="empty">NO INCIDENTS MATCH<br><span class="empty-sub">adjust filters to broaden results</span></div>';
+    } else {
+      list.forEach(function(inc){
+        var key = incKey(inc);
+        var isSel = key===selectedKey;
+        var isResolved = inc.phase==='Resolved';
+        var cls = 'inc-row'+(hasSel?' compact':'')+(isSel?' sel':'')+(isResolved?' resolved':'');
+        var sev = inc.severity||'P4';
+
+        html += '<div class="'+cls+'" onclick="window._selectInc(\''+esc(key)+'\')">';
+        html += '<span class="sev-badge'+(hasSel?' sm':'')+' sev-'+sev+'">'+sev+'</span>';
+        html += '<div class="inc-info">';
+        html += '<div class="inc-name'+(hasSel?' compact':'')+'">'+esc(displayName(inc))+'</div>';
+        html += '<div class="inc-meta">'+(hasSel?esc(inc.incidentType):esc(inc.namespace)+' &middot; '+esc(inc.incidentType))+'</div>';
+        html += '</div>';
+        if(!hasSel){
+          html += '<span class="inc-ns">'+esc(inc.namespace)+'</span>';
+        }
+        html += '<span class="phase-badge phase-'+(inc.phase||'Resolved')+'">';
+        if(PH[inc.phase] && PH[inc.phase].dot) html += pulseDot(PH[inc.phase].c,4);
+        html += esc(inc.phase)+'</span>';
+        if(!hasSel){
+          html += '<span class="inc-time">'+fmtShort(inc.startTime)+'</span>';
+        }
+        html += '</div>';
+      });
+    }
+    el.innerHTML = html;
+  }
+
+  function renderDetail(){
+    var panel = document.getElementById('detail-panel');
+    if(!selectedKey){panel.style.display='none';return}
+    var inc = incidents.find(function(i){return incKey(i)===selectedKey});
+    if(!inc){panel.style.display='none';selectedKey=null;return}
+    panel.style.display='';
+
+    var sev = inc.severity||'P4';
+    var dur = duration(inc.startTime, inc.resolvedTime);
+
+    var html = '';
+    // Sticky header
+    html += '<div class="detail-header">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
+    html += '<div style="flex:1;min-width:0">';
+    // Badges
+    html += '<div class="detail-badges">';
+    html += '<span class="sev-badge sev-'+sev+'">'+sev+'</span>';
+    html += '<span class="phase-badge phase-'+(inc.phase||'Resolved')+'">';
+    if(PH[inc.phase] && PH[inc.phase].dot) html += pulseDot(PH[inc.phase].c,4);
+    html += esc(inc.phase)+'</span>';
+    html += '<span class="chip chip-accent">'+esc(inc.incidentType)+'</span>';
+    if(inc.notified) html += '<span class="chip chip-green">NOTIFIED</span>';
+    else if(inc.phase==='Detecting') html += '<span class="chip chip-purple">PENDING</span>';
+    html += '</div>';
+    // Title
+    html += '<div class="detail-title">'+esc(displayName(inc))+'</div>';
+    // Meta
+    html += '<div class="detail-meta">'+esc(inc.namespace)+' &middot; '+esc(inc.agentRef)+' &middot; started '+fmtTime(inc.startTime)+' UTC';
+    if(inc.resolvedTime) html += ' &rarr; resolved '+fmtTime(inc.resolvedTime)+' UTC'+(dur?' ('+dur+')':'');
+    html += '</div>';
+    html += '</div>';
+    html += '<button class="detail-close" onclick="window._closeDetail()">&times;</button>';
+    html += '</div>';
+    // ID
+    html += '<div class="detail-id">IncidentReport &middot; '+esc(inc.namespace)+'/'+esc(inc.name)+'</div>';
+    html += '</div>';
+
+    // Body sections
+    html += '<div class="detail-body">';
+
+    // Timeline
+    var tl = inc.timeline||[];
+    html += '<div><div class="section-title">timeline</div>';
+    if(tl.length>0){
+      html += '<div class="timeline"><div class="timeline-line"></div>';
+      tl.forEach(function(ev,i){
+        var dotCls = 'tl-dot';
+        if(i===0) dotCls += ' first';
+        else if(i===tl.length-1 && inc.phase==='Resolved') dotCls += ' last-resolved';
+        html += '<div class="tl-entry"><div class="'+dotCls+'"></div>';
+        html += '<div class="tl-time">'+fmtTime(ev.time)+'</div>';
+        html += '<div class="tl-event">'+esc(ev.event)+'</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    } else {
+      html += '<div style="font-family:var(--mono);font-size:10px;color:var(--muted)">No timeline entries</div>';
+    }
+    html += '</div>';
+
+    // Correlated signals
+    var sigs = inc.correlatedSignals||[];
+    html += '<div><div class="section-title">correlated signals</div>';
+    html += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
+    if(sigs.length>0){
+      sigs.forEach(function(s){html += '<span class="signal-chip">'+esc(s)+'</span>'});
+    } else {
+      html += '<span style="font-family:var(--mono);font-size:10px;color:var(--muted)">No signals</span>';
+    }
+    html += '</div></div>';
+
+    // Affected resources
+    var res = inc.affectedResources||[];
+    html += '<div><div class="section-title">affected resources</div>';
+    html += '<div style="display:flex;flex-direction:column;gap:6px">';
+    if(res.length>0){
+      res.forEach(function(r){
+        html += '<div class="res-card">';
+        html += '<span class="res-kind">'+esc((r.kind||'').toUpperCase())+'</span>';
+        html += '<div><div class="res-name">'+esc(r.name)+'</div>';
+        if(r.namespace) html += '<div class="res-ns">'+esc(r.namespace)+'</div>';
+        html += '</div></div>';
+      });
+    } else {
+      html += '<span style="font-family:var(--mono);font-size:10px;color:var(--muted)">None</span>';
+    }
+    html += '</div></div>';
+
+    // Notifications
+    html += '<div><div class="section-title">notifications</div>';
+    html += '<div style="display:flex;flex-direction:column;gap:6px">';
+    var notifs = [
+      {ch:'Slack',target:'#incidents',status:inc.notified?'sent':'pending'},
+      {ch:'PagerDuty',target:(sev==='P1'||sev==='P2')?'triggered':'below threshold',
+       status:inc.notified&&(sev==='P1'||sev==='P2')?'sent':'skipped'},
+      {ch:'K8s Event',target:'IncidentReport/'+esc((inc.name||'').substring(0,20)),status:'emitted'}
+    ];
+    notifs.forEach(function(n){
+      var ok = n.status==='sent'||n.status==='emitted'||n.status==='triggered';
+      html += '<div class="notif-row"><div style="display:flex;align-items:center;gap:8px">';
+      html += '<span class="notif-ch">'+esc(n.ch)+'</span>';
+      html += '<span class="notif-target">'+esc(n.target)+'</span>';
+      html += '</div><span class="notif-status '+(ok?'ok':'skip')+'">'+n.status.toUpperCase()+'</span></div>';
+    });
+    html += '</div></div>';
+
+    // Root cause analysis stub
+    html += '<div><div class="section-title">root cause analysis</div>';
+    html += '<div class="rca-stub">';
+    html += '<div class="rca-stub-label"><span class="rca-stub-dot"></span>';
+    html += '<span class="rca-stub-text">AI ENGINE &middot; PHASE 2</span></div>';
+    if(inc.rootCause){
+      html += '<div class="rca-stub-body">'+esc(inc.rootCause)+'</div>';
+    } else {
+      html += '<div class="rca-stub-body">LLM-powered root cause analysis will appear here once the RCA engine is enabled in Phase 2. The AI analyzer will correlate evidence from logs, metrics, and the full event history to generate a human-readable diagnosis with a confidence score.</div>';
+    }
+    if(inc.phase==='Resolved'){
+      html += '<div class="rca-postmortem">AUTO POST-MORTEM &middot; PHASE 4</div>';
+    }
+    html += '</div></div>';
+
+    html += '</div>';
+    panel.innerHTML = html;
+  }
+
+  /* ── Event handlers ───────────────────────────── */
+  window._selectInc = function(key){
+    selectedKey = selectedKey===key ? null : key;
+    renderIncidents();
+    renderDetail();
+  };
+  window._closeDetail = function(){
+    selectedKey = null;
+    renderIncidents();
+    renderDetail();
+  };
+  window._setFilter = function(type, val){
+    if(filters[type]===val && val!=='all') filters[type]='all';
+    else filters[type] = val;
     render();
   };
 
-  // Filter buttons
-  document.querySelectorAll('.filter-btn').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      activeFilter = this.getAttribute('data-filter');
-      document.querySelectorAll('.filter-btn').forEach(function(b){b.classList.remove('on')});
-      this.classList.add('on');
-      renderIncidents();
-    });
-  });
+  /* ── Clock ────────────────────────────────────── */
+  function tickClock(){
+    var el = document.getElementById('utc-clock');
+    if(el) el.textContent = new Date().toISOString().slice(11,19)+' UTC';
+  }
 
-  // ── Init ────────────────────────────────────────────────
+  /* ── Init ─────────────────────────────────────── */
+  document.getElementById('conn-pulse').innerHTML = pulseDot('#34D399',8);
   fetchAll();
   setInterval(fetchAll, 10000);
+  setInterval(tickClock, 1000);
+  tickClock();
 })();
 </script>
 </body>

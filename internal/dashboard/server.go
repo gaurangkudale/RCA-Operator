@@ -75,9 +75,11 @@ func (s *Server) Start(ctx context.Context) error {
 type incidentResponse struct {
 	Name              string                         `json:"name"`
 	Namespace         string                         `json:"namespace"`
+	PodName           string                         `json:"podName"`
 	Severity          string                         `json:"severity"`
 	Phase             string                         `json:"phase"`
 	IncidentType      string                         `json:"incidentType"`
+	Notified          bool                           `json:"notified"`
 	StartTime         *time.Time                     `json:"startTime"`
 	ResolvedTime      *time.Time                     `json:"resolvedTime"`
 	AffectedResources []rcav1alpha1.AffectedResource `json:"affectedResources"`
@@ -86,6 +88,7 @@ type incidentResponse struct {
 	AgentRef          string                         `json:"agentRef"`
 	LastSeen          string                         `json:"lastSeen"`
 	SignalCount       string                         `json:"signalCount"`
+	RootCause         string                         `json:"rootCause,omitempty"`
 }
 
 type timelineEntry struct {
@@ -207,14 +210,17 @@ func toIncidentResponse(item *rcav1alpha1.IncidentReport) incidentResponse {
 	resp := incidentResponse{
 		Name:              item.Name,
 		Namespace:         item.Namespace,
+		PodName:           item.Labels[reporter.LabelPodName],
 		Severity:          item.Status.Severity,
 		Phase:             item.Status.Phase,
 		IncidentType:      item.Status.IncidentType,
+		Notified:          item.Status.Notified,
 		AffectedResources: item.Status.AffectedResources,
 		CorrelatedSignals: item.Status.CorrelatedSignals,
 		AgentRef:          item.Spec.AgentRef,
 		LastSeen:          item.Annotations[reporter.AnnotationLastSeen],
 		SignalCount:       item.Annotations[reporter.AnnotationSignalSeen],
+		RootCause:         item.Status.RootCause,
 	}
 	if item.Status.StartTime != nil {
 		t := item.Status.StartTime.Time
