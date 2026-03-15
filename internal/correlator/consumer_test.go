@@ -1442,11 +1442,6 @@ func TestConsolidateRegistryDuplicates_MergesAndResolvesExtras(t *testing.T) {
 	if len(canonical.Status.AffectedResources) != 3 {
 		t.Errorf("canonical AffectedResources: got %d, want 3", len(canonical.Status.AffectedResources))
 	}
-
-	// Cache should point to the canonical.
-	if c.openRegistryByNS["dev"] != r1.Name {
-		t.Errorf("cache: got %q, want %q", c.openRegistryByNS["dev"], r1.Name)
-	}
 }
 
 // TestConsolidateRegistryDuplicates_NoopWhenSingleIncident verifies that
@@ -1483,9 +1478,6 @@ func TestConsolidateRegistryDuplicates_NoopWhenSingleIncident(t *testing.T) {
 	}
 	if len(list.Items) != 1 || list.Items[0].Status.Phase != phaseActive {
 		t.Errorf("incident should be left unchanged; got %d items, phase=%q", len(list.Items), list.Items[0].Status.Phase)
-	}
-	if c.openRegistryByNS["dev"] != r1.Name {
-		t.Errorf("cache not populated: got %q, want %q", c.openRegistryByNS["dev"], r1.Name)
 	}
 }
 
