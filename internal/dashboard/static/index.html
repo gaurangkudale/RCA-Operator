@@ -37,10 +37,14 @@ body{font-family:var(--sans);color:var(--text);background:var(--bg);overflow-x:h
 .topbar-title span{color:var(--accent)}
 .topbar-ver{font-family:var(--mono);font-size:8px;color:var(--dim);letter-spacing:1px;margin-left:4px}
 .topbar-nav{display:flex}
-.topbar-nav div{padding:0 14px;height:46px;display:flex;align-items:center;
+.topbar-nav div{padding:0 14px;height:46px;display:flex;align-items:center;gap:6px;
   font-family:var(--mono);font-size:9px;letter-spacing:1.5px;color:var(--muted);cursor:pointer}
 .topbar-nav div.sel{color:var(--accent);border-bottom:1.5px solid var(--accent)}
 .topbar-nav div:not(.sel){border-bottom:1.5px solid transparent}
+.topbar-nav div.disabled{cursor:default;opacity:.5}
+.upcoming-tag{font-family:var(--mono);font-size:7px;letter-spacing:1px;
+  padding:1px 5px;border-radius:2px;background:rgba(192,132,252,0.1);
+  color:var(--purple);border:.5px solid rgba(192,132,252,0.25)}
 .topbar-right{display:flex;gap:8px;align-items:center}
 .topbar-p1{display:flex;align-items:center;gap:5px;padding:3px 9px;border-radius:2px;
   background:rgba(248,113,113,0.1);border:.5px solid rgba(248,113,113,0.3);
@@ -61,15 +65,6 @@ body{font-family:var(--sans);color:var(--text);background:var(--bg);overflow-x:h
 .metric-row{padding:7px 12px;display:flex;justify-content:space-between;align-items:center}
 .metric-label{font-family:var(--mono);font-size:8px;color:var(--muted);letter-spacing:1.5px}
 .metric-val{font-family:var(--mono);font-size:22px;font-weight:500;line-height:1}
-.sidebar-item{padding:5px 12px;cursor:pointer;display:flex;justify-content:space-between;
-  align-items:center;transition:background .1s;border-left:2px solid transparent}
-.sidebar-item:hover{background:var(--hover)}
-.sidebar-item.sel{background:var(--hover);border-left-color:var(--accent)}
-.sidebar-item span{font-family:var(--mono);font-size:9px;color:var(--muted)}
-.sidebar-item.sel span{color:var(--text)}
-.ns-badge{font-family:var(--mono);font-size:8px;background:rgba(248,113,113,0.1);color:var(--red);
-  padding:1px 5px;border-radius:2px}
-.sev-dot{width:7px;height:7px;border-radius:1px;flex-shrink:0}
 .agent-row{padding:5px 12px;display:flex;align-items:center;gap:7px}
 .agent-name{font-family:var(--mono);font-size:8px;color:var(--muted)}
 
@@ -81,11 +76,18 @@ body{font-family:var(--sans);color:var(--text);background:var(--bg);overflow-x:h
   background:var(--surface);border-bottom:.5px solid var(--border);flex-shrink:0}
 .filter-bar button{padding:3px 10px;border-radius:2px;cursor:pointer;border:none;
   background:transparent;color:var(--muted);font-family:var(--mono);font-size:9px;
-  letter-spacing:.5px;border-bottom:1px solid transparent;outline:none}
+  letter-spacing:.5px;border-bottom:1px solid transparent;outline:none;transition:color .12s}
+.filter-bar button:hover{color:var(--text)}
 .filter-bar button.sel{border-bottom-color:var(--accent);color:var(--accent);
   background:rgba(56,189,248,0.1)}
 .filter-bar .divider{width:1px;height:16px;background:var(--border);margin:0 4px}
 .filter-bar .count{font-family:var(--mono);font-size:9px;color:var(--muted);margin-left:auto}
+.ns-select{font-family:var(--mono);font-size:9px;color:var(--accent);background:var(--card);
+  border:.5px solid var(--border);border-radius:2px;padding:3px 8px;cursor:pointer;outline:none;
+  appearance:none;-webkit-appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23475569'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 6px center;padding-right:20px}
+.ns-select option{background:var(--surface);color:var(--text)}
 
 /* ── Split Pane ─────────────────────────────────── */
 .split-pane{flex:1;display:flex;overflow:hidden;min-height:0;background:var(--card)}
@@ -216,9 +218,9 @@ body{font-family:var(--sans);color:var(--text);background:var(--bg);overflow-x:h
     </div>
     <div class="topbar-nav">
       <div class="sel">INCIDENTS</div>
-      <div>AGENTS</div>
-      <div>NAMESPACES</div>
-      <div>SETTINGS</div>
+      <div class="disabled">AGENTS <span class="upcoming-tag">SOON</span></div>
+      <div class="disabled">NAMESPACES <span class="upcoming-tag">SOON</span></div>
+      <div class="disabled">SETTINGS <span class="upcoming-tag">SOON</span></div>
     </div>
     <div class="topbar-right" id="topbar-right"></div>
   </div>
@@ -229,14 +231,6 @@ body{font-family:var(--sans);color:var(--text);background:var(--bg);overflow-x:h
       <div>
         <div class="sec-label" style="padding:0 12px;margin-bottom:8px">live metrics</div>
         <div id="sidebar-metrics"></div>
-      </div>
-      <div>
-        <div class="sec-label" style="padding:0 12px;margin-bottom:6px">namespaces</div>
-        <div id="sidebar-ns"></div>
-      </div>
-      <div>
-        <div class="sec-label" style="padding:0 12px;margin-bottom:6px">severity</div>
-        <div id="sidebar-sev"></div>
       </div>
       <div>
         <div class="sec-label" style="padding:0 12px;margin-bottom:6px">agents</div>
@@ -261,7 +255,7 @@ body{font-family:var(--sans);color:var(--text);background:var(--bg);overflow-x:h
   var incidents = [];
   var stats = {};
   var selectedKey = null;
-  var filters = { phase:'all', ns:'all', sev:'all', type:'all' };
+  var filters = { phase:'all', ns:'all', sev:'all' };
 
   /* ── Colors ───────────────────────────────────── */
   var SEV = {
@@ -333,7 +327,6 @@ body{font-family:var(--sans);color:var(--text);background:var(--bg);overflow-x:h
       if(filters.phase!=='all' && i.phase!==filters.phase) return false;
       if(filters.ns!=='all' && i.namespace!==filters.ns) return false;
       if(filters.sev!=='all' && i.severity!==filters.sev) return false;
-      if(filters.type!=='all' && i.incidentType!==filters.type) return false;
       return true;
     });
   }
@@ -350,8 +343,6 @@ body{font-family:var(--sans);color:var(--text);background:var(--bg);overflow-x:h
   function render(){
     renderTopBarRight();
     renderMetrics();
-    renderNamespaces();
-    renderSeverity();
     renderAgents();
     renderFilterBar();
     renderIncidents();
@@ -385,30 +376,38 @@ body{font-family:var(--sans);color:var(--text);background:var(--bg);overflow-x:h
     }).join('');
   }
 
-  function renderNamespaces(){
-    var el = document.getElementById('sidebar-ns');
-    var ns = stats.namespaces||{};
-    var keys = Object.keys(ns).sort();
-    var all = ['all'].concat(keys);
-    el.innerHTML = all.map(function(k){
-      var sel = filters.ns===k;
-      var cnt = k!=='all' ? (ns[k]?ns[k].active:0)||0 : 0;
-      return '<div class="sidebar-item'+(sel?' sel':'')+'" onclick="window._setFilter(\'ns\',\''+esc(k)+'\')">'+
-        '<span>'+esc(k)+'</span>'+
-        (cnt>0?'<span class="ns-badge">'+cnt+'</span>':'')+
-        '</div>';
-    }).join('');
-  }
-
-  function renderSeverity(){
-    var el = document.getElementById('sidebar-sev');
+  function renderFilterBar(){
+    var el = document.getElementById('filter-bar');
+    var phases = ['all','Active','Detecting','Resolved'];
     var sevs = ['all','P1','P2','P3','P4'];
-    el.innerHTML = sevs.map(function(s){
+    var ns = stats.namespaces||{};
+    var nsKeys = Object.keys(ns).sort();
+    var f = filtered();
+
+    var html = '<span class="sec-label">phase</span>';
+    phases.forEach(function(p){
+      var sel = filters.phase===p;
+      html += '<button class="'+(sel?'sel':'')+'" onclick="window._setFilter(\'phase\',\''+p+'\')">'+p+'</button>';
+    });
+
+    html += '<span class="divider"></span><span class="sec-label">severity</span>';
+    sevs.forEach(function(s){
       var sel = filters.sev===s;
-      var dot = s!=='all' ? '<span class="sev-dot" style="background:'+(SEV[s]?SEV[s].c:'var(--muted)')+'"></span>' : '';
-      return '<div class="sidebar-item'+(sel?' sel':'')+'" onclick="window._setFilter(\'sev\',\''+s+'\')" '+
-        'style="gap:8px">'+dot+'<span>'+s+'</span></div>';
-    }).join('');
+      html += '<button class="'+(sel?'sel':'')+'" onclick="window._setFilter(\'sev\',\''+s+'\')">'+s+'</button>';
+    });
+
+    if(nsKeys.length>0){
+      html += '<span class="divider"></span><span class="sec-label">ns</span>';
+      html += '<select class="ns-select" onchange="window._setFilter(\'ns\',this.value)">';
+      html += '<option value="all"'+(filters.ns==='all'?' selected':'')+'>all namespaces</option>';
+      nsKeys.forEach(function(k){
+        html += '<option value="'+esc(k)+'"'+(filters.ns===k?' selected':'')+'>'+esc(k)+'</option>';
+      });
+      html += '</select>';
+    }
+
+    html += '<span class="count">'+f.length+' INCIDENT'+(f.length!==1?'S':'')+'</span>';
+    el.innerHTML = html;
   }
 
   function renderAgents(){
@@ -425,31 +424,6 @@ body{font-family:var(--sans);color:var(--text);background:var(--bg);overflow-x:h
     html += '<div class="agent-row" style="margin-top:4px">'+
       '<span style="width:5px;height:5px;border-radius:50%;background:var(--green);flex-shrink:0"></span>'+
       '<span class="agent-name">operator healthy</span></div>';
-    el.innerHTML = html;
-  }
-
-  function renderFilterBar(){
-    var el = document.getElementById('filter-bar');
-    var phases = ['all','Active','Detecting','Resolved'];
-    var types = [];
-    var seen = {};
-    incidents.forEach(function(i){
-      if(i.incidentType && !seen[i.incidentType]){seen[i.incidentType]=true;types.push(i.incidentType)}
-    });
-    var f = filtered();
-    var html = '<span class="sec-label">phase</span>';
-    phases.forEach(function(p){
-      var sel = filters.phase===p;
-      html += '<button class="'+(sel?'sel':'')+'" onclick="window._setFilter(\'phase\',\''+p+'\')">'+p+'</button>';
-    });
-    if(types.length>0){
-      html += '<span class="divider"></span><span class="sec-label">type</span>';
-      types.forEach(function(t){
-        var sel = filters.type===t;
-        html += '<button class="'+(sel?'sel':'')+'" onclick="window._setFilter(\'type\',\''+(sel?'all':esc(t))+'\')">'+esc(t)+'</button>';
-      });
-    }
-    html += '<span class="count">'+f.length+' INCIDENT'+(f.length!==1?'S':'')+'</span>';
     el.innerHTML = html;
   }
 
