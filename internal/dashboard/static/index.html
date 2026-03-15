@@ -135,9 +135,9 @@ input::placeholder{color:var(--dim)}
 
 .phase-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:3px;
   font-family:var(--mono);font-size:9px;white-space:nowrap}
-.phase-Active{background:rgba(74,222,128,0.1);color:var(--green)}
+.phase-Active{background:rgba(252,165,165,0.1);color:var(--red)}
 .phase-Detecting{background:rgba(216,180,254,0.1);color:var(--purple)}
-.phase-Resolved{background:rgba(71,85,105,0.18);color:var(--sub)}
+.phase-Resolved{background:rgba(74,222,128,0.1);color:var(--green)}
 
 .inc-info{flex:1;min-width:0}
 .inc-name{font-family:var(--sans);font-size:13px;font-weight:600;color:var(--txt);
@@ -191,16 +191,17 @@ input::placeholder{color:var(--dim)}
   background:var(--card);color:var(--dim);transition:all .15s;outline:none}
 .copy-btn.ok{background:rgba(74,222,128,0.15);color:var(--green)}
 
-/* ── Timeline (vertical) ─────────────────────── */
-.timeline{position:relative;padding-left:20px}
-.timeline-line{position:absolute;left:3px;top:7px;bottom:14px;width:1px;
-  background:linear-gradient(to bottom,rgba(125,211,252,0.4),var(--dim))}
-.tl-entry{position:relative;padding-bottom:13px}
-.tl-dot{position:absolute;left:-17px;top:5px;width:8px;height:8px;border-radius:50%;
+/* ── Timeline (horizontal scroll) ────────────── */
+.timeline{position:relative;overflow-x:auto;overflow-y:hidden;padding:18px 0 6px}
+.timeline-track{display:flex;gap:0;position:relative;padding-top:14px;min-width:min-content}
+.timeline-line{position:absolute;top:17px;left:16px;right:16px;height:1px;
+  background:linear-gradient(90deg,rgba(125,211,252,0.4),var(--dim))}
+.tl-entry{position:relative;flex:0 0 auto;min-width:180px;max-width:240px;padding:0 12px 8px}
+.tl-dot{position:absolute;top:-10px;left:12px;width:8px;height:8px;border-radius:50%;
   box-sizing:border-box;background:var(--faint);border:1.5px solid var(--brdrB)}
 .tl-dot.first{background:var(--acc);border:2px solid rgba(125,211,252,0.4)}
 .tl-dot.last-resolved{background:var(--green);border:1.5px solid rgba(74,222,128,0.4)}
-.tl-time{font-family:var(--mono);font-size:8px;color:var(--acc);margin-bottom:2px}
+.tl-time{font-family:var(--mono);font-size:8px;color:var(--acc);margin-top:6px;margin-bottom:3px}
 .tl-time .rel{color:var(--dim);margin-left:6px}
 .tl-event{font-family:var(--mono);font-size:10px;color:var(--txt);line-height:1.55}
 
@@ -327,7 +328,7 @@ input::placeholder{color:var(--dim)}
     P1:{c:'#FCA5A5'}, P2:{c:'#FCD34D'}, P3:{c:'#7DD3FC'}, P4:{c:'#94A3B8'}
   };
   var PH = {
-    Active:{c:'#4ADE80',pulse:true},
+    Active:{c:'#FCA5A5',pulse:true},
     Detecting:{c:'#D8B4FE',pulse:true},
     Resolved:{c:'#475569',pulse:false}
   };
@@ -648,7 +649,7 @@ input::placeholder{color:var(--dim)}
     var tl=inc.timeline||[];
     html+='<div><div class="sec-hdr">timeline</div>';
     if(tl.length){
-      html+='<div class="timeline"><div class="timeline-line"></div>';
+      html+='<div class="timeline"><div class="timeline-track"><div class="timeline-line"></div>';
       tl.forEach(function(ev,i){
         var cls='tl-dot';
         if(i===0) cls+=' first';
@@ -657,7 +658,7 @@ input::placeholder{color:var(--dim)}
         html+='<div class="tl-time">'+absTime(ev.time)+'<span class="rel">'+relTime(ev.time)+'</span></div>';
         html+='<div class="tl-event">'+esc(ev.event)+'</div></div>';
       });
-      html+='</div>';
+      html+='</div></div>';
     } else {
       html+='<div style="font-family:var(--mono);font-size:10px;color:var(--sub)">No timeline entries</div>';
     }
