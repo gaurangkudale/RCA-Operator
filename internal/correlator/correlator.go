@@ -124,6 +124,6 @@ func WithCorrelator(c *Correlator) Option {
 // kubectl describe incidentreport.
 func WithEventRecorder(r record.EventRecorder) Option {
 	return func(consumer *Consumer) {
-		consumer.recorder = r
+		consumer.rep.Recorder = r
 	}
 }
