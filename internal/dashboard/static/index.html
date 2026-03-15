@@ -93,14 +93,14 @@ input::placeholder{color:var(--dim)}
 .search-clear{position:absolute;right:7px;top:50%;transform:translateY(-50%);
   cursor:pointer;color:var(--dim);font-family:var(--mono);font-size:11px;background:none;border:none}
 .toolbar .divider{width:1px;height:16px;background:var(--brdr)}
-.toolbar button{padding:3px 9px;border-radius:3px;cursor:pointer;border:none;outline:none;
-  background:transparent;color:var(--sub);font-family:var(--mono);font-size:9px;
-  border-bottom:1px solid transparent;transition:color .12s}
-.toolbar button:hover{color:var(--txt)}
-.toolbar button.sel{color:var(--acc);background:rgba(125,211,252,0.1);border-bottom-color:var(--acc)}
-.toolbar .type-btn{font-size:8px;padding:3px 7px}
 .toolbar .result-count{font-family:var(--mono);font-size:9px;color:var(--dim)}
 .toolbar .shortcuts{font-family:var(--mono);font-size:8px;color:var(--dim);letter-spacing:.3px}
+.filter-select{font-family:var(--mono);font-size:9px;color:var(--acc);background:var(--card);
+  border:.5px solid var(--brdr);border-radius:3px;padding:4px 22px 4px 8px;cursor:pointer;outline:none;
+  appearance:none;-webkit-appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23334155'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 7px center}
+.filter-select option{background:var(--surf);color:var(--txt)}
 
 /* ── Split Pane ──────────────────────────────── */
 .split-pane{flex:1;display:flex;overflow:hidden;min-height:0;background:var(--card)}
@@ -510,18 +510,20 @@ input::placeholder{color:var(--dim)}
       '</div>';
 
     html+='<span class="divider"></span><span class="mono-label">phase</span>';
+    html+='<select class="filter-select" onchange="window._f(\'phase\',this.value)">';
     ['all','Active','Detecting','Resolved'].forEach(function(p){
-      html+='<button class="'+(filters.phase===p?'sel':'')+'" onclick="window._f(\'phase\',\''+p+'\')">'+p+'</button>';
+      html+='<option value="'+p+'"'+(filters.phase===p?' selected':'')+'>'+p+'</option>';
     });
+    html+='</select>';
 
     if(typeList.length>0){
       html+='<span class="divider"></span><span class="mono-label">type</span>';
-      html+='<div style="display:flex;gap:4px;flex-wrap:wrap">';
+      html+='<select class="filter-select" onchange="window._f(\'type\',this.value)">';
+      html+='<option value="all"'+(filters.type==='all'?' selected':'')+'>all</option>';
       typeList.forEach(function(t){
-        var sel=filters.type===t;
-        html+='<button class="type-btn'+(sel?' sel':'')+'" onclick="window._f(\'type\',\''+esc(t)+'\')">'+esc(t)+'</button>';
+        html+='<option value="'+esc(t)+'"'+(filters.type===t?' selected':'')+'>'+esc(t)+'</option>';
       });
-      html+='</div>';
+      html+='</select>';
     }
 
     html+='<div style="flex:1"></div><span class="result-count">'+f.length+' result'+(f.length!==1?'s':'')+'</span>';

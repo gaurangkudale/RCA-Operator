@@ -23,3 +23,29 @@ spec:
       secretRef: pd-api-key
   # How long to keep Resolved IncidentReport CRs. Supported: m, h, d (e.g. 24h, 30d).
   incidentRetention: 5m
+---
+apiVersion: rca.rca-operator.io/v1alpha1
+kind: RCAAgent
+metadata:
+  name: rcaagent-sample-default
+  namespace: default
+spec:
+  # Namespaces the operator monitors for pod failures.
+  watchNamespaces:
+    - default
+  aiProviderConfig:
+    type: openai
+    model: gpt-4o
+    # Name of a Secret in this namespace with key "apiKey".
+    secretRef: rca-agent-openai-secret
+  # Optional — remove both blocks if you don't need alerting.
+  notifications:
+    slack:
+      # Name of a Secret in this namespace with key "webhookURL".
+      webhookSecretRef: slack-webhook
+      channel: "#incidents"
+    pagerduty:
+      # Name of a Secret in this namespace with key "apiKey".
+      secretRef: pd-api-key
+  # How long to keep Resolved IncidentReport CRs. Supported: m, h, d (e.g. 24h, 30d).
+  incidentRetention: 5m
