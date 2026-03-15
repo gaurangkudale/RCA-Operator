@@ -101,11 +101,18 @@ type statsResponse struct {
 	Detecting  int                       `json:"detecting"`
 	Resolved   int                       `json:"resolved"`
 	Namespaces map[string]namespaceStats `json:"namespaces"`
-	Agents     []string                  `json:"agents"`
+	Agents     []agentInfo               `json:"agents"`
 }
 
 type namespaceStats struct {
-	Active int `json:"active"`
+	Active    int  `json:"active"`
+	Monitored bool `json:"monitored"`
+}
+
+type agentInfo struct {
+	Name            string   `json:"name"`
+	WatchNamespaces []string `json:"watchNamespaces"`
+	Healthy         bool     `json:"healthy"`
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
@@ -198,17 +205,50 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 
 	// Also list RCAAgent CRDs directly so agents without incidents still appear.
 	agentList := &rcav1alpha1.RCAAgentList{}
+	agentMap := make(map[string]*rcav1alpha1.RCAAgent)
 	if err := s.client.List(r.Context(), agentList); err != nil {
 		s.log.Error(err, "Failed to list RCAAgents for stats")
 	} else {
 		for i := range agentList.Items {
-			agentSet[agentList.Items[i].Name] = true
+			a := &agentList.Items[i]
+			agentSet[a.Name] = true
+			agentMap[a.Name] = a
+			// Add watched namespaces so they always appear in the namespace list.
+			for _, ns := range a.Spec.WatchNamespaces {
+				if _, ok := resp.Namespaces[ns]; !ok {
+					resp.Namespaces[ns] = namespaceStats{Monitored: true}
+				} else {
+					entry := resp.Namespaces[ns]
+					entry.Monitored = true
+					resp.Namespaces[ns] = entry
+				}
+			}
 		}
 	}
 
-	resp.Agents = make([]string, 0, len(agentSet))
-	for a := range agentSet {
-		resp.Agents = append(resp.Agents, a)
+	// Mark all namespaces that are watched by at least one agent.
+	for _, a := range agentList.Items {
+		for _, ns := range a.Spec.WatchNamespaces {
+			entry := resp.Namespaces[ns]
+			entry.Monitored = true
+			resp.Namespaces[ns] = entry
+		}
+	}
+
+	resp.Agents = make([]agentInfo, 0, len(agentSet))
+	for name := range agentSet {
+		ai := agentInfo{Name: name, Healthy: true}
+		if agent, ok := agentMap[name]; ok {
+			ai.WatchNamespaces = agent.Spec.WatchNamespaces
+			// Check conditions for health.
+			for _, c := range agent.Status.Conditions {
+				if c.Type == "Available" {
+					ai.Healthy = c.Status == "True"
+					break
+				}
+			}
+		}
+		resp.Agents = append(resp.Agents, ai)
 	}
 
 	writeJSON(w, resp)

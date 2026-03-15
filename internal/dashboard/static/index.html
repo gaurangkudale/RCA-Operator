@@ -468,8 +468,11 @@ input::placeholder{color:var(--dim)}
     var all=['all'].concat(keys);
     el.innerHTML=all.map(function(k){
       var sel=filters.ns===k;
-      var cnt=k!=='all'?((ns[k]&&ns[k].active)||0):0;
+      var info=ns[k]||{};
+      var cnt=k!=='all'?(info.active||0):0;
+      var monitored=k!=='all'&&info.monitored;
       return '<div class="sb-item'+(sel?' sel':'')+'" onclick="window._f(\'ns\',\''+esc(k)+'\')">'+
+        (monitored?'<span style="width:4px;height:4px;border-radius:50%;background:var(--green);flex-shrink:0"></span>':'')+
         '<span style="flex:1">'+esc(k)+'</span>'+
         (cnt>0?'<span class="sb-badge sb-right">'+cnt+'</span>':'')+
         '</div>';
@@ -492,9 +495,17 @@ input::placeholder{color:var(--dim)}
     var agents=stats.agents||[];
     if(!agents.length){el.innerHTML='<div class="agent-row"><span class="agent-name">No agents</span></div>';return}
     var html=agents.map(function(a){
-      return '<div class="agent-row">'+pulse('#4ADE80',5)+'<span class="agent-name">'+esc(a)+'</span></div>';
+      var name=typeof a==='string'?a:a.name;
+      var healthy=typeof a==='string'?true:a.healthy!==false;
+      var dot=healthy?pulse('#4ADE80',5):'<span style="width:5px;height:5px;border-radius:50%;background:#FCA5A5;flex-shrink:0;display:inline-block"></span>';
+      var nsLine='';
+      if(typeof a!=='string'&&a.watchNamespaces&&a.watchNamespaces.length){
+        nsLine='<div style="font-family:var(--mono);font-size:7px;color:var(--dim);margin-top:1px;padding-left:12px">watching: '+a.watchNamespaces.map(function(n){return esc(n)}).join(', ')+'</div>';
+      }
+      return '<div class="agent-row">'+dot+'<span class="agent-name">'+esc(name)+'</span>'+
+        '<span style="margin-left:auto;font-family:var(--mono);font-size:7px;color:'+(healthy?'var(--green)':'var(--red)')+'">'+
+        (healthy?'OK':'DEGRADED')+'</span></div>'+nsLine;
     }).join('');
-    html+='<div class="agent-row" style="margin-top:4px"><span style="width:5px;height:5px;border-radius:50%;background:var(--green);flex-shrink:0"></span><span class="agent-name" style="color:var(--dim)">operator healthy</span></div>';
     el.innerHTML=html;
   }
 
