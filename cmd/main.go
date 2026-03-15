@@ -39,6 +39,7 @@ import (
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 	"github.com/gaurangkudale/rca-operator/internal/controller"
 	"github.com/gaurangkudale/rca-operator/internal/correlator"
+	"github.com/gaurangkudale/rca-operator/internal/dashboard"
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
 	// +kubebuilder:scaffold:imports
 )
@@ -57,6 +58,7 @@ func init() {
 
 // nolint:gocyclo
 func main() {
+	var dashboardAddr string
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
@@ -65,6 +67,7 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
+	flag.StringVar(&dashboardAddr, "dashboard-bind-address", ":9090", "The address the incident dashboard binds to.")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -193,6 +196,12 @@ func main() {
 		correlator.WithEventRecorder(mgr.GetEventRecorderFor("rca-correlator-consumer")),
 	)
 	go correlatorConsumer.Run(managerCtx)
+
+	dashboardServer := dashboard.NewServer(mgr.GetClient(), dashboardAddr, ctrl.Log)
+	if err := mgr.Add(dashboardServer); err != nil {
+		setupLog.Error(err, "Failed to add dashboard server")
+		os.Exit(1)
+	}
 
 	if err := (&controller.RCAAgentReconciler{
 		Client:         mgr.GetClient(),
