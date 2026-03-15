@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RCA Operator — Incidents</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#E5E7EB;background:#111827;overflow-x:hidden}
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:#1F2937}
+::-webkit-scrollbar-thumb{background:#4B5563;border-radius:3px}
+
+/* Layout */
+.wrap{min-height:100vh;display:flex;flex-direction:column}
+.topbar{background:#1F2937;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #374151;flex-shrink:0}
+.logo{font-size:14px;font-weight:600;color:#E5E7EB;letter-spacing:.5px;display:flex;align-items:center;gap:8px}
+.dot{width:8px;height:8px;border-radius:50%;background:#10B981;display:inline-block}
+.dot.off{background:#EF4444}
+.nav{display:flex;gap:4px}
+.nav span{font-size:12px;padding:5px 12px;border-radius:4px;color:#9CA3AF;cursor:pointer;transition:background .15s}
+.nav span.sel{background:#374151;color:#E5E7EB}
+.nav span:hover:not(.sel){background:#374151}
+.body{display:flex;flex:1;min-height:0}
+.sidebar{width:210px;background:#1F2937;padding:16px;border-right:1px solid #374151;overflow-y:auto;flex-shrink:0}
+.main{flex:1;padding:16px 20px;overflow-y:auto}
+
+/* Sidebar */
+.side-section{margin-bottom:22px}
+.side-label{font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;font-weight:500}
+.metric{padding:8px 10px;border-radius:6px;margin-bottom:4px;cursor:pointer;transition:background .12s}
+.metric:hover{background:#374151}
+.metric-label{font-size:11px;color:#9CA3AF}
+.metric-val{font-size:22px;font-weight:600;color:#F9FAFB;margin-top:2px}
+.metric-val.danger{color:#F87171}
+.metric-val.warn{color:#FBBF24}
+.metric-val.ok{color:#34D399}
+.ns-item{padding:6px 10px;border-radius:4px;margin-bottom:2px;cursor:pointer;transition:background .12s;display:flex;align-items:center;justify-content:space-between}
+.ns-item:hover{background:#374151}
+.ns-item.sel{background:#374151}
+.ns-name{font-size:12px;color:#D1D5DB}
+.ns-count{font-size:10px;padding:2px 6px;border-radius:3px}
+.ns-count.has{background:#7F1D1D;color:#FCA5A5}
+.ns-count.clear{color:#6B7280}
+.agent-item{font-size:11px;color:#34D399;padding:4px 10px}
+
+/* Filters */
+.filter-bar{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+.filter-btn{font-size:11px;padding:4px 12px;border-radius:4px;border:1px solid #374151;background:transparent;color:#9CA3AF;cursor:pointer;transition:all .12s}
+.filter-btn:hover{border-color:#6B7280;color:#D1D5DB}
+.filter-btn.on{background:#374151;color:#E5E7EB;border-color:#6B7280}
+
+/* Section titles */
+.section-title{font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;font-weight:500}
+
+/* Incident cards */
+.incident{background:#1F2937;border-radius:6px;padding:12px 14px;margin-bottom:8px;border-left:3px solid #374151;cursor:pointer;transition:background .12s}
+.incident:hover{background:#283040}
+.incident.expanded{background:#283040}
+.incident.p1{border-left-color:#EF4444}
+.incident.p2{border-left-color:#F59E0B}
+.incident.p3{border-left-color:#3B82F6}
+.incident.p4{border-left-color:#6B7280}
+.incident-header{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.badge{font-size:10px;font-weight:600;padding:2px 7px;border-radius:3px;white-space:nowrap}
+.badge-p1{background:#7F1D1D;color:#FCA5A5}
+.badge-p2{background:#78350F;color:#FDE68A}
+.badge-p3{background:#1E3A5F;color:#93C5FD}
+.badge-p4{background:#374151;color:#9CA3AF}
+.badge-active{background:#064E3B;color:#6EE7B7}
+.badge-resolved{background:#1F2937;color:#6B7280;border:1px solid #374151}
+.badge-detecting{background:#312E81;color:#A5B4FC}
+.incident-name{font-size:13px;color:#E5E7EB;font-weight:500}
+.incident-meta{font-size:11px;color:#6B7280;margin-top:2px}
+.incident-time{margin-left:auto;font-size:10px;color:#6B7280;font-family:monospace;white-space:nowrap}
+.signals{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+.signal{font-size:10px;background:#374151;color:#D1D5DB;padding:2px 8px;border-radius:3px}
+
+/* Detail panel */
+.detail{display:none;margin-top:10px;padding-top:10px;border-top:1px solid #374151}
+.detail.open{display:block}
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:900px){.detail-grid{grid-template-columns:1fr}}
+.detail-card{background:#111827;border-radius:6px;padding:12px;border:1px solid #374151}
+.detail-card h4{font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;font-weight:500}
+.tl-entry{display:flex;gap:10px;padding:5px 0;border-bottom:1px solid #1F2937}
+.tl-entry:last-child{border-bottom:0}
+.tl-time{font-size:10px;color:#6B7280;min-width:60px;font-family:monospace}
+.tl-event{font-size:11px;color:#D1D5DB;word-break:break-word}
+.resource-item{font-size:11px;color:#D1D5DB;padding:4px 0;display:flex;gap:8px;align-items:center}
+.resource-kind{font-size:9px;background:#374151;color:#9CA3AF;padding:1px 6px;border-radius:2px;font-weight:600}
+
+/* Empty state */
+.empty{text-align:center;padding:60px 20px;color:#6B7280}
+.empty-icon{font-size:36px;margin-bottom:12px;opacity:.4}
+.empty-text{font-size:14px}
+.empty-sub{font-size:12px;margin-top:6px;color:#4B5563}
+
+/* Loading */
+.loading{text-align:center;padding:40px;color:#6B7280;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="logo"><span class="dot" id="conn-dot"></span> RCA Operator</div>
+    <div class="nav">
+      <span class="sel">Incidents</span>
+    </div>
+  </div>
+  <div class="body">
+    <div class="sidebar">
+      <div class="side-section">
+        <div class="side-label">Live Metrics</div>
+        <div class="metric">
+          <div class="metric-label">Active</div>
+          <div class="metric-val danger" id="stat-active">—</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Detecting</div>
+          <div class="metric-val warn" id="stat-detecting">—</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Resolved</div>
+          <div class="metric-val ok" id="stat-resolved">—</div>
+        </div>
+      </div>
+      <div class="side-section">
+        <div class="side-label">Namespaces</div>
+        <div id="ns-list"><div class="loading">Loading...</div></div>
+      </div>
+      <div class="side-section">
+        <div class="side-label">Agents</div>
+        <div id="agent-list"><div class="loading">Loading...</div></div>
+      </div>
+    </div>
+    <div class="main">
+      <div class="filter-bar">
+        <button class="filter-btn on" data-filter="all">All</button>
+        <button class="filter-btn" data-filter="Active">Active</button>
+        <button class="filter-btn" data-filter="Detecting">Detecting</button>
+        <button class="filter-btn" data-filter="Resolved">Resolved</button>
+      </div>
+      <div class="section-title" id="incident-count">Incidents</div>
+      <div id="incident-list"><div class="loading">Loading incidents...</div></div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var incidents = [];
+  var stats = {};
+  var activeFilter = 'all';
+  var activeNS = null;
+  var expandedId = null;
+
+  // ── Fetch ───────────────────────────────────────────────
+  function fetchAll(){
+    Promise.all([
+      fetch('/api/incidents').then(function(r){return r.json()}),
+      fetch('/api/stats').then(function(r){return r.json()})
+    ]).then(function(results){
+      incidents = results[0] || [];
+      stats = results[1] || {};
+      document.getElementById('conn-dot').className = 'dot';
+      render();
+    }).catch(function(){
+      document.getElementById('conn-dot').className = 'dot off';
+    });
+  }
+
+  // ── Render ──────────────────────────────────────────────
+  function render(){
+    renderStats();
+    renderNamespaces();
+    renderAgents();
+    renderIncidents();
+  }
+
+  function renderStats(){
+    document.getElementById('stat-active').textContent = stats.active || 0;
+    document.getElementById('stat-detecting').textContent = stats.detecting || 0;
+    document.getElementById('stat-resolved').textContent = stats.resolved || 0;
+  }
+
+  function renderNamespaces(){
+    var el = document.getElementById('ns-list');
+    var ns = stats.namespaces || {};
+    var keys = Object.keys(ns).sort();
+    if(keys.length === 0){el.innerHTML = '<div style="font-size:11px;color:#6B7280;padding:4px 10px">No namespaces</div>';return}
+    var html = '';
+    keys.forEach(function(k){
+      var active = ns[k].active || 0;
+      var sel = activeNS === k ? ' sel' : '';
+      html += '<div class="ns-item'+sel+'" onclick="window._setNS(\''+k+'\')">';
+      html += '<span class="ns-name">'+esc(k)+'</span>';
+      if(active > 0) html += '<span class="ns-count has">'+active+'</span>';
+      else html += '<span class="ns-count clear">0</span>';
+      html += '</div>';
+    });
+    el.innerHTML = html;
+  }
+
+  function renderAgents(){
+    var el = document.getElementById('agent-list');
+    var agents = stats.agents || [];
+    if(agents.length === 0){el.innerHTML = '<div style="font-size:11px;color:#6B7280;padding:4px 10px">No agents</div>';return}
+    el.innerHTML = agents.map(function(a){return '<div class="agent-item">● '+esc(a)+'</div>'}).join('');
+  }
+
+  function renderIncidents(){
+    var el = document.getElementById('incident-list');
+    var filtered = incidents.filter(function(inc){
+      if(activeFilter !== 'all' && inc.phase !== activeFilter) return false;
+      if(activeNS && inc.namespace !== activeNS) return false;
+      return true;
+    });
+
+    // Sort: severity rank desc, then startTime desc
+    var sevRank = {P1:4,P2:3,P3:2,P4:1};
+    filtered.sort(function(a,b){
+      var sa = sevRank[a.severity]||0, sb = sevRank[b.severity]||0;
+      if(sa !== sb) return sb - sa;
+      return (b.startTime||'').localeCompare(a.startTime||'');
+    });
+
+    document.getElementById('incident-count').textContent = filtered.length + ' incident' + (filtered.length !== 1 ? 's' : '');
+
+    if(filtered.length === 0){
+      el.innerHTML = '<div class="empty"><div class="empty-icon">✓</div><div class="empty-text">No incidents</div><div class="empty-sub">All clear</div></div>';
+      return;
+    }
+
+    el.innerHTML = filtered.map(function(inc){return renderIncident(inc)}).join('');
+  }
+
+  function renderIncident(inc){
+    var sev = (inc.severity||'P4').toLowerCase();
+    var phase = inc.phase||'';
+    var phaseLower = phase.toLowerCase();
+    var expanded = expandedId === inc.name+'/'+inc.namespace;
+    var id = 'inc-' + esc(inc.namespace) + '-' + esc(inc.name);
+
+    var html = '<div class="incident '+sev+(expanded?' expanded':'')+'" onclick="window._toggle(\''+esc(inc.name)+'\',\''+esc(inc.namespace)+'\')">';
+
+    // Header
+    html += '<div class="incident-header">';
+    html += '<span class="badge badge-'+sev+'">'+esc(inc.severity||'—')+'</span>';
+    html += '<span class="badge badge-'+phaseLower+'">'+esc(phase)+'</span>';
+    html += '<span class="incident-name">'+esc(inc.name)+'</span>';
+    html += '<span class="incident-time">'+formatTime(inc.startTime)+'</span>';
+    html += '</div>';
+
+    // Meta
+    html += '<div class="incident-meta">'+esc(inc.namespace)+' · '+esc(inc.incidentType||'')+(inc.agentRef?' · '+esc(inc.agentRef):'')+'</div>';
+
+    // Signals
+    var sigs = inc.correlatedSignals || [];
+    if(sigs.length > 0){
+      html += '<div class="signals">';
+      sigs.slice(-5).forEach(function(s){html += '<span class="signal">'+esc(truncate(s,60))+'</span>'});
+      if(sigs.length > 5) html += '<span class="signal">+' + (sigs.length-5) + ' more</span>';
+      html += '</div>';
+    }
+
+    // Detail
+    if(expanded){
+      html += '<div class="detail open">';
+      html += '<div class="detail-grid">';
+
+      // Timeline
+      html += '<div class="detail-card"><h4>Timeline</h4>';
+      var tl = inc.timeline || [];
+      if(tl.length === 0) html += '<div style="font-size:11px;color:#6B7280">No timeline entries</div>';
+      tl.slice(-20).forEach(function(e){
+        html += '<div class="tl-entry"><span class="tl-time">'+formatTime(e.time)+'</span><span class="tl-event">'+esc(e.event)+'</span></div>';
+      });
+      html += '</div>';
+
+      // Resources + meta
+      html += '<div class="detail-card"><h4>Affected Resources</h4>';
+      var res = inc.affectedResources || [];
+      if(res.length === 0) html += '<div style="font-size:11px;color:#6B7280">None</div>';
+      res.forEach(function(r){
+        html += '<div class="resource-item"><span class="resource-kind">'+esc(r.kind)+'</span>'+esc(r.name);
+        if(r.namespace) html += ' <span style="color:#6B7280">'+esc(r.namespace)+'</span>';
+        html += '</div>';
+      });
+
+      html += '<h4 style="margin-top:14px">Details</h4>';
+      html += '<div style="font-size:11px;color:#9CA3AF;margin-top:4px">';
+      html += 'Agent: ' + esc(inc.agentRef||'—') + '<br>';
+      html += 'Signals seen: ' + esc(inc.signalCount||'—') + '<br>';
+      html += 'Last seen: ' + formatTime(inc.lastSeen) + '<br>';
+      if(inc.resolvedTime) html += 'Resolved: ' + formatTime(inc.resolvedTime) + '<br>';
+      html += '</div>';
+      html += '</div>';
+
+      html += '</div></div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  // ── Helpers ─────────────────────────────────────────────
+  function formatTime(t){
+    if(!t) return '—';
+    try{
+      var d = new Date(t);
+      if(isNaN(d.getTime())) return '—';
+      return d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false,timeZone:'UTC'})+' UTC';
+    }catch(e){return '—'}
+  }
+
+  function esc(s){
+    if(!s) return '';
+    var el = document.createElement('span');
+    el.textContent = s;
+    return el.innerHTML;
+  }
+
+  function truncate(s,n){
+    if(!s) return '';
+    return s.length > n ? s.substring(0,n)+'…' : s;
+  }
+
+  // ── Interactions ────────────────────────────────────────
+  window._toggle = function(name, ns){
+    var key = name+'/'+ns;
+    expandedId = expandedId === key ? null : key;
+    renderIncidents();
+  };
+
+  window._setNS = function(ns){
+    activeNS = activeNS === ns ? null : ns;
+    render();
+  };
+
+  // Filter buttons
+  document.querySelectorAll('.filter-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      activeFilter = this.getAttribute('data-filter');
+      document.querySelectorAll('.filter-btn').forEach(function(b){b.classList.remove('on')});
+      this.classList.add('on');
+      renderIncidents();
+    });
+  });
+
+  // ── Init ────────────────────────────────────────────────
+  fetchAll();
+  setInterval(fetchAll, 10000);
+})();
+</script>
+</body>
+</html>
