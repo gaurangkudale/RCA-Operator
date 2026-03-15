@@ -156,16 +156,17 @@ body{font-family:var(--sans);color:var(--text);background:var(--bg);overflow-x:h
 .section-title{font-family:var(--mono);font-size:8px;letter-spacing:2.5px;color:var(--muted);
   text-transform:uppercase;margin-bottom:10px;padding-bottom:6px;border-bottom:.5px solid var(--border)}
 
-/* ── Timeline ───────────────────────────────────── */
-.timeline{padding-left:18px;position:relative}
-.timeline-line{position:absolute;left:3px;top:8px;bottom:16px;width:1px;
-  background:linear-gradient(rgba(56,189,248,0.44),var(--dim))}
-.tl-entry{position:relative;padding-bottom:13px}
-.tl-dot{position:absolute;left:-15px;top:5px;width:8px;height:8px;border-radius:50%;
+/* ── Timeline (horizontal scroll) ───────────────── */
+.timeline{position:relative;overflow-x:auto;overflow-y:hidden;padding:18px 0 6px}
+.timeline-track{display:flex;gap:0;position:relative;padding-top:14px;min-width:min-content}
+.timeline-line{position:absolute;top:17px;left:16px;right:16px;height:1px;
+  background:linear-gradient(90deg,rgba(56,189,248,0.44),var(--dim))}
+.tl-entry{position:relative;flex:0 0 auto;min-width:180px;max-width:240px;padding:0 12px 8px}
+.tl-dot{position:absolute;top:-10px;left:12px;width:8px;height:8px;border-radius:50%;
   box-sizing:border-box;border:1.5px solid var(--border);background:var(--dim)}
 .tl-dot.first{background:var(--accent);border-color:rgba(56,189,248,0.5)}
 .tl-dot.last-resolved{background:var(--green);border-color:rgba(52,211,153,0.5)}
-.tl-time{font-family:var(--mono);font-size:9px;color:var(--accent);margin-bottom:2px}
+.tl-time{font-family:var(--mono);font-size:9px;color:var(--accent);margin-top:6px;margin-bottom:3px}
 .tl-event{font-family:var(--mono);font-size:10px;color:var(--text);line-height:1.55}
 
 /* ── Signal chips ───────────────────────────────── */
@@ -545,7 +546,7 @@ body{font-family:var(--sans);color:var(--text);background:var(--bg);overflow-x:h
     var tl = inc.timeline||[];
     html += '<div><div class="section-title">timeline</div>';
     if(tl.length>0){
-      html += '<div class="timeline"><div class="timeline-line"></div>';
+      html += '<div class="timeline"><div class="timeline-track"><div class="timeline-line"></div>';
       tl.forEach(function(ev,i){
         var dotCls = 'tl-dot';
         if(i===0) dotCls += ' first';
@@ -555,7 +556,7 @@ body{font-family:var(--sans);color:var(--text);background:var(--bg);overflow-x:h
         html += '<div class="tl-event">'+esc(ev.event)+'</div>';
         html += '</div>';
       });
-      html += '</div>';
+      html += '</div></div>';
     } else {
       html += '<div style="font-family:var(--mono);font-size:10px;color:var(--muted)">No timeline entries</div>';
     }
