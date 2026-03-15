@@ -654,18 +654,28 @@ input::placeholder{color:var(--dim)}
     }
     html+='</div>';
 
-    /* 2. Correlated signals — collapsible vertical list */
+    /* 2. Correlated signals — grouped with counts, collapsible */
     var sigs=inc.correlatedSignals||[];
+    /* Group similar signals */
+    var sigGroups=[];var sigMap={};
+    sigs.forEach(function(s){
+      if(sigMap[s]!==undefined){sigGroups[sigMap[s]].count++}
+      else{sigMap[s]=sigGroups.length;sigGroups.push({text:s,count:1})}
+    });
+    sigGroups.sort(function(a,b){return b.count-a.count});
+
     html+='<div><div class="sec-hdr-toggle" onclick="window._toggleSignals()">';
-    html+='<span>correlated signals ('+sigs.length+')</span>';
+    html+='<span>correlated signals ('+sigs.length+(sigGroups.length!==sigs.length?' \u00b7 '+sigGroups.length+' unique':'')+')</span>';
     html+='<span class="toggle-arrow'+(signalsOpen?'':' collapsed')+'">\u25BE</span></div>';
-    if(sigs.length){
+    if(sigGroups.length){
       html+='<div id="signals-body" style="display:flex;flex-direction:column;gap:5px'+(signalsOpen?'':';display:none')+'">';
-      sigs.forEach(function(s,i){
+      sigGroups.forEach(function(g,i){
         html+='<div class="signal-card">';
         html+='<span class="play-num">'+(i+1)+'.</span>';
         html+='<span class="signal-dot" style="background:'+sevCfg.c+'"></span>';
-        html+='<span class="signal-text">'+esc(s)+'</span></div>';
+        html+='<span class="signal-text" style="flex:1">'+esc(g.text)+'</span>';
+        if(g.count>1) html+='<span style="font-family:var(--mono);font-size:8px;padding:1px 6px;border-radius:2px;background:rgba(125,211,252,0.1);color:var(--acc);flex-shrink:0">\u00d7'+g.count+'</span>';
+        html+='</div>';
       });
       html+='</div>';
     } else {
