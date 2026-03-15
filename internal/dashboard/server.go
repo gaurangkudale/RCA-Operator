@@ -196,6 +196,16 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Also list RCAAgent CRDs directly so agents without incidents still appear.
+	agentList := &rcav1alpha1.RCAAgentList{}
+	if err := s.client.List(r.Context(), agentList); err != nil {
+		s.log.Error(err, "Failed to list RCAAgents for stats")
+	} else {
+		for i := range agentList.Items {
+			agentSet[agentList.Items[i].Name] = true
+		}
+	}
+
 	resp.Agents = make([]string, 0, len(agentSet))
 	for a := range agentSet {
 		resp.Agents = append(resp.Agents, a)
