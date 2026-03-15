@@ -206,10 +206,10 @@ input::placeholder{color:var(--dim)}
 .tl-event{font-family:var(--mono);font-size:10px;color:var(--txt);line-height:1.55}
 
 /* ── Signal cards ────────────────────────────── */
-.signal-card{display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:3px;
+.signal-card{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:3px;
   background:var(--faint);border:.5px solid var(--brdr)}
 .signal-dot{width:5px;height:5px;border-radius:1px;flex-shrink:0}
-.signal-text{font-family:var(--mono);font-size:10px;color:var(--txt)}
+.signal-text{font-family:var(--mono);font-size:10px;color:var(--txt);line-height:1.5}
 
 /* ── Resource cards ──────────────────────────── */
 .res-card{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:3px;
@@ -628,24 +628,7 @@ input::placeholder{color:var(--dim)}
     /* Body */
     html+='<div class="detail-body">';
 
-    /* kubectl commands */
-    var cmds=[
-      {k:'get',v:'kubectl get incidentreport -n '+inc.namespace+' | grep '+name},
-      {k:'describe',v:'kubectl describe incidentreport '+inc.name+' -n '+inc.namespace}
-    ];
-    if(podRes) cmds.push({k:'logs',v:'kubectl logs '+podRes.name+' -n '+inc.namespace+' --previous'});
-    cmds.push({k:'events',v:'kubectl get events -n '+inc.namespace+' --sort-by=\'.lastTimestamp\' | head -30'});
-
-    html+='<div><div class="sec-hdr">kubectl commands</div>';
-    html+='<div style="display:flex;flex-direction:column;gap:5px">';
-    cmds.forEach(function(c,i){
-      html+='<div class="cmd-row"><span class="cmd-label">'+esc(c.k)+'</span>';
-      html+='<code class="cmd-code">'+esc(c.v)+'</code>';
-      html+='<button class="copy-btn" onclick="window._copy(this,\''+esc(c.v.replace(/'/g,"\\'"))+'\')">copy</button></div>';
-    });
-    html+='</div></div>';
-
-    /* Timeline */
+    /* 1. Timeline */
     var tl=inc.timeline||[];
     html+='<div><div class="sec-hdr">timeline</div>';
     if(tl.length){
@@ -664,21 +647,24 @@ input::placeholder{color:var(--dim)}
     }
     html+='</div>';
 
-    /* Correlated signals */
+    /* 2. Correlated signals — readable vertical list with index */
     var sigs=inc.correlatedSignals||[];
     html+='<div><div class="sec-hdr">correlated signals ('+sigs.length+')</div>';
-    html+='<div style="display:flex;flex-direction:column;gap:5px">';
     if(sigs.length){
-      sigs.forEach(function(s){
-        html+='<div class="signal-card"><span class="signal-dot" style="background:'+sevCfg.c+'"></span>';
+      html+='<div style="display:flex;flex-direction:column;gap:5px">';
+      sigs.forEach(function(s,i){
+        html+='<div class="signal-card">';
+        html+='<span class="play-num">'+(i+1)+'.</span>';
+        html+='<span class="signal-dot" style="background:'+sevCfg.c+'"></span>';
         html+='<span class="signal-text">'+esc(s)+'</span></div>';
       });
+      html+='</div>';
     } else {
       html+='<div style="font-family:var(--mono);font-size:10px;color:var(--sub)">No signals</div>';
     }
-    html+='</div></div>';
+    html+='</div>';
 
-    /* Affected resources */
+    /* 3. Affected resources */
     var res=inc.affectedResources||[];
     html+='<div><div class="sec-hdr">affected resources</div>';
     html+='<div style="display:flex;flex-direction:column;gap:5px">';
@@ -694,21 +680,34 @@ input::placeholder{color:var(--dim)}
     }
     html+='</div></div>';
 
-    /* Playbook / Quick Actions */
-    var pb=PLAYBOOK[inc.incidentType]||[];
-    if(pb.length){
-      html+='<div><div class="sec-hdr">quick actions \u00b7 '+esc(inc.incidentType)+'</div>';
-      html+='<div style="display:flex;flex-direction:column;gap:5px">';
-      pb.forEach(function(cmd,i){
-        var filled=cmd.replace(/<ns>/g,inc.namespace).replace(/<name>/g,name).replace(/<pod-name>/g,podRes?podRes.name:name).replace(/<pod>/g,podRes?podRes.name:name).replace(/<node-name>/g,name);
-        html+='<div class="cmd-row"><span class="play-num">'+(i+1)+'.</span>';
-        html+='<code class="cmd-code muted">'+esc(filled)+'</code>';
-        html+='<button class="copy-btn" onclick="window._copy(this,\''+esc(filled.replace(/'/g,"\\'"))+'\')">copy</button></div>';
-      });
-      html+='</div></div>';
+    /* 4. Commands — merged kubectl + playbook, deduped */
+    var allCmds=[];
+    var cmdSeen={};
+    function addCmd(label,cmd){
+      if(cmdSeen[cmd]) return;
+      cmdSeen[cmd]=true;
+      allCmds.push({k:label,v:cmd});
     }
+    addCmd('get','kubectl get incidentreport -n '+inc.namespace+' | grep '+name);
+    addCmd('describe','kubectl describe incidentreport '+inc.name+' -n '+inc.namespace);
+    if(podRes) addCmd('logs','kubectl logs '+podRes.name+' -n '+inc.namespace+' --previous');
+    addCmd('events','kubectl get events -n '+inc.namespace+' --sort-by=\'.lastTimestamp\' | head -30');
+    var pb=PLAYBOOK[inc.incidentType]||[];
+    pb.forEach(function(cmd){
+      var filled=cmd.replace(/<ns>/g,inc.namespace).replace(/<name>/g,name).replace(/<pod-name>/g,podRes?podRes.name:name).replace(/<pod>/g,podRes?podRes.name:name).replace(/<node-name>/g,name);
+      addCmd('action',filled);
+    });
 
-    /* Notifications */
+    html+='<div><div class="sec-hdr">commands'+(pb.length?' \u00b7 '+esc(inc.incidentType):'')+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:5px">';
+    allCmds.forEach(function(c,i){
+      html+='<div class="cmd-row"><span class="play-num">'+(i+1)+'.</span>';
+      html+='<code class="cmd-code'+(c.k==='action'?' muted':'')+'">'+esc(c.v)+'</code>';
+      html+='<button class="copy-btn" onclick="window._copy(this,\''+esc(c.v.replace(/'/g,"\\'"))+'\')">copy</button></div>';
+    });
+    html+='</div></div>';
+
+    /* 5. Notifications */
     html+='<div><div class="sec-hdr">notifications</div>';
     html+='<div style="display:flex;flex-direction:column;gap:5px">';
     [{ch:'Slack',dest:'#incidents',ok:inc.notified},
@@ -721,7 +720,7 @@ input::placeholder{color:var(--dim)}
     });
     html+='</div></div>';
 
-    /* Root cause */
+    /* 6. Root cause analysis */
     html+='<div><div class="sec-hdr">root cause analysis</div>';
     if(inc.rootCause){
       html+='<div style="font-family:var(--mono);font-size:10px;color:var(--txt);line-height:1.7">'+esc(inc.rootCause)+'</div>';
@@ -734,7 +733,7 @@ input::placeholder{color:var(--dim)}
     }
     html+='</div>';
 
-    /* status.conditions */
+    /* 7. status.conditions */
     html+='<div><div class="sec-hdr">status.conditions</div>';
     var conds=[
       {type:'Available',status:inc.phase==='Active'?'True':inc.phase==='Resolved'?'False':'Unknown',
