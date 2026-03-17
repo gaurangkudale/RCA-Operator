@@ -84,14 +84,6 @@ input::placeholder{color:var(--dim)}
 /* ── Toolbar ─────────────────────────────────── */
 .toolbar{display:flex;align-items:center;gap:8px;padding:0 14px;height:44px;
   background:var(--surf);border-bottom:.5px solid var(--brdrB);flex-shrink:0}
-.search-wrap{position:relative;flex-shrink:0}
-.search-icon{position:absolute;left:8px;top:50%;transform:translateY(-50%);
-  font-family:var(--mono);font-size:10px;color:var(--dim);pointer-events:none}
-.search-input{background:var(--card);border:.5px solid var(--brdr);border-radius:4px;
-  color:var(--txt);font-family:var(--mono);font-size:10px;
-  padding:5px 10px 5px 22px;width:190px;outline:none}
-.search-clear{position:absolute;right:7px;top:50%;transform:translateY(-50%);
-  cursor:pointer;color:var(--dim);font-family:var(--mono);font-size:11px;background:none;border:none}
 .toolbar .divider{width:1px;height:16px;background:var(--brdr)}
 .toolbar .result-count{font-family:var(--mono);font-size:9px;color:var(--dim)}
 .toolbar .shortcuts{font-family:var(--mono);font-size:8px;color:var(--dim);letter-spacing:.3px}
@@ -523,12 +515,7 @@ input::placeholder{color:var(--dim)}
     var typeList=Object.keys(types);
     var f=getFiltered();
 
-    var html='<div class="search-wrap"><span class="search-icon">\u2315</span>'+
-      '<input class="search-input" id="search-box" value="'+esc(search)+'" placeholder="search  ( / )">'+
-      (search?'<button class="search-clear" onclick="window._clearSearch()">\u00d7</button>':'')+
-      '</div>';
-
-    html+='<span class="divider"></span><span class="mono-label">phase</span>';
+    var html='<span class="mono-label">phase</span>';
     html+='<select class="filter-select" onchange="window._f(\'phase\',this.value)">';
     ['all','Active','Detecting','Resolved'].forEach(function(p){
       html+='<option value="'+p+'"'+(filters.phase===p?' selected':'')+'>'+p+'</option>';
@@ -546,11 +533,8 @@ input::placeholder{color:var(--dim)}
     }
 
     html+='<div style="flex:1"></div><span class="result-count">'+f.length+' result'+(f.length!==1?'s':'')+'</span>';
-    html+='<span class="divider"></span><span class="shortcuts">j/k navigate \u00b7 / search \u00b7 esc close</span>';
+    html+='<span class="divider"></span><span class="shortcuts">j/k navigate \u00b7 esc close</span>';
     el.innerHTML=html;
-
-    var box=document.getElementById('search-box');
-    if(box){box.addEventListener('input',function(){search=this.value;render()})}
   }
 
   function renderIncidents(){
@@ -796,7 +780,7 @@ input::placeholder{color:var(--dim)}
     if(filters[type]===val&&val!=='all')filters[type]='all';else filters[type]=val;
     render();
   };
-  window._clearSearch=function(){search='';render()};
+  window._clearSearch=function(){};
   window._copy=function(btn,text){copyToClip(text,btn)};
   window._toggleSignals=function(){
     signalsOpen=!signalsOpen;
@@ -809,8 +793,7 @@ input::placeholder{color:var(--dim)}
   /* ── Keyboard navigation ───────────────────── */
   document.addEventListener('keydown',function(e){
     if(e.target.tagName==='INPUT') return;
-    if(e.key==='/'){e.preventDefault();var box=document.getElementById('search-box');if(box)box.focus();return}
-    if(e.key==='Escape'){selectedKey=null;search='';render();return}
+    if(e.key==='Escape'){selectedKey=null;render();return}
     if(e.key==='j'||e.key==='k'){
       e.preventDefault();
       var list=getSorted(getFiltered());
