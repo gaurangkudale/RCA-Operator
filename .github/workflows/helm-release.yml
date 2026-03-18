@@ -2,6 +2,8 @@ name: Release Helm Charts
 
 on:
   push:
+    tags:
+      - 'v*'
     branches:
       - main-gk
     paths:
@@ -23,7 +25,7 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
-          version: v3.14.0
+          version: v4.0.4
 
       - name: Get chart version
         id: chart_version
