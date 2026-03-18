@@ -71,13 +71,21 @@ RCA SRE:          Alert → Detect → Correlate → RCA in seconds → Fix → 
 
 ## Quick Install
 
+### Helm (Recommended)
+```bash
+helm repo add rca-operator https://gaurangkudale.github.io/RCA-Operator/charts
+helm install rca-operator rca-operator/rca-operator \
+  --namespace rca-operator-system --create-namespace
+```
+
+### kubectl
 ```bash
 # 1. Install CRDs and operator
 kubectl apply -f https://github.com/gaurangkudale/RCA-Operator/releases/latest/download/install.yaml
 
 # 2. Create the required Secret
 kubectl create secret generic rca-agent-openai-secret \
-  --from-literal=apiKey=<YOUR_KEY> -n default
+  --from-literal=apiKey=<YOUR_KEY> -n rca-operator-system
 
 # 3. Apply a minimal RCAAgent
 kubectl apply -f config/samples/rca_v1alpha1_rcaagent.yaml

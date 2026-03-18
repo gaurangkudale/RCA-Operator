@@ -1,0 +1,14 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "rca-operator.fullname" . }}-manager-rolebinding
+  labels:
+    {{- include "rca-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "rca-operator.fullname" . }}-manager-role
+subjects:
+- kind: ServiceAccount
+  name: {{ include "rca-operator.serviceAccountName" . }}
+  namespace: {{ include "rca-operator.namespace" . }}

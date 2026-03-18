@@ -7,14 +7,25 @@ Two supported installation paths: Helm (recommended for production) and raw kube
 ## Option 1 — Helm *(recommended)*
 
 ```bash
-# Add the RCA Helm repository
-helm repo add rca https://charts.rca-operator.tech
+# Add the RCA Helm repository (hosted on GitHub Pages)
+helm repo add rca-operator https://gaurangkudale.github.io/RCA-Operator/charts
 helm repo update
 
 # Install into its own namespace
-helm install rca rca/rca-operator \
-  --namespace rca-system \
+helm install rca-operator rca-operator/rca-operator \
+  --namespace rca-operator-system \
   --create-namespace
+```
+
+### Customizing the installation
+
+```bash
+# Install with custom values
+helm install rca-operator rca-operator/rca-operator \
+  --namespace rca-operator-system \
+  --create-namespace \
+  --set replicaCount=2 \
+  --set resources.limits.memory=256Mi
 ```
 
 See [Helm chart values](../../helm/values.yaml) for the full set of configurable parameters.
@@ -37,7 +48,7 @@ kubectl apply -f https://github.com/gaurangkudale/RCA-Operator/releases/latest/d
 
 ```bash
 # Operator pod should be Running
-kubectl get pods -n rca-system
+kubectl get pods -n rca-operator-system
 
 # CRDs should be registered
 kubectl get crd rcaagents.rca.rca-operator.tech

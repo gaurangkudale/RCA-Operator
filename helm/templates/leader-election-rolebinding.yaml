@@ -1,0 +1,17 @@
+{{- if .Values.leaderElection.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "rca-operator.fullname" . }}-leader-election-rolebinding
+  namespace: {{ include "rca-operator.namespace" . }}
+  labels:
+    {{- include "rca-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "rca-operator.fullname" . }}-leader-election-role
+subjects:
+- kind: ServiceAccount
+  name: {{ include "rca-operator.serviceAccountName" . }}
+  namespace: {{ include "rca-operator.namespace" . }}
+{{- end }}

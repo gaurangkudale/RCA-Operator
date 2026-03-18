@@ -1,16 +1,14 @@
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "helm.name" -}}
+{{- define "rca-operator.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Create a default fully qualified app name.
-We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
-If release name contains chart name it will be used as a full name.
 */}}
-{{- define "helm.fullname" -}}
+{{- define "rca-operator.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -26,16 +24,16 @@ If release name contains chart name it will be used as a full name.
 {{/*
 Create chart name and version as used by the chart label.
 */}}
-{{- define "helm.chart" -}}
+{{- define "rca-operator.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Common labels
 */}}
-{{- define "helm.labels" -}}
-helm.sh/chart: {{ include "helm.chart" . }}
-{{ include "helm.selectorLabels" . }}
+{{- define "rca-operator.labels" -}}
+helm.sh/chart: {{ include "rca-operator.chart" . }}
+{{ include "rca-operator.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -45,18 +43,26 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{/*
 Selector labels
 */}}
-{{- define "helm.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "helm.name" . }}
+{{- define "rca-operator.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "rca-operator.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+control-plane: controller-manager
 {{- end }}
 
 {{/*
 Create the name of the service account to use
 */}}
-{{- define "helm.serviceAccountName" -}}
+{{- define "rca-operator.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "helm.fullname" .) .Values.serviceAccount.name }}
+{{- default (printf "%s-controller-manager" (include "rca-operator.fullname" .)) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
+{{- end }}
+
+{{/*
+Create the name of the namespace
+*/}}
+{{- define "rca-operator.namespace" -}}
+{{- .Release.Namespace }}
 {{- end }}
