@@ -13,8 +13,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pages: write
-      id-token: write
 
     steps:
       - name: Checkout
@@ -22,40 +20,34 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Configure Git
-        run: |
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
-
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
           version: v3.14.0
 
+      - name: Get chart version
+        id: chart_version
+        run: |
+          VERSION=$(grep '^version:' helm/Chart.yaml | awk '{print $2}')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Chart version: $VERSION"
+
       - name: Package Helm chart
         run: |
-          mkdir -p .cr-release-packages
-          helm package helm/ -d .cr-release-packages
+          helm package helm/ -d .
 
-      - name: Checkout gh-pages branch
-        uses: actions/checkout@v4
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          ref: gh-pages
-          path: gh-pages
+          tag_name: helm-v${{ steps.chart_version.outputs.version }}
+          name: Helm Chart v${{ steps.chart_version.outputs.version }}
+          body: |
+            ## Helm Chart Release
 
-      - name: Update Helm repository
-        run: |
-          # Create charts directory if not exists
-          mkdir -p gh-pages/charts
-
-          # Copy packaged charts
-          cp .cr-release-packages/*.tgz gh-pages/charts/
-
-          # Generate index
-          helm repo index gh-pages/charts --url https://gaurangkudale.github.io/RCA-Operator/charts
-
-          # Commit and push
-          cd gh-pages
-          git add charts/
-          git commit -m "Release Helm chart $(date +%Y-%m-%d)" || echo "No changes to commit"
-          git push origin gh-pages
+            Install with:
+            ```bash
+            helm install rca-operator https://github.com/${{ github.repository }}/releases/download/helm-v${{ steps.chart_version.outputs.version }}/rca-operator-${{ steps.chart_version.outputs.version }}.tgz
+            ```
+          files: |
+            rca-operator-*.tgz
+          fail_on_unmatched_files: true
