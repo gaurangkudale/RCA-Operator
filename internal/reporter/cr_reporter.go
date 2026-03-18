@@ -24,15 +24,15 @@ import (
 
 // Annotation and label keys written on every IncidentReport.
 const (
-	AnnotationDedupKey   = "rca.rca-operator.io/dedup-key"
-	AnnotationSignal     = "rca.rca-operator.io/signal"
-	AnnotationLastSeen   = "rca.rca-operator.io/last-seen"
-	AnnotationSignalSeen = "rca.rca-operator.io/signal-count"
+	AnnotationDedupKey   = "rca.rca-operator.tech/dedup-key"
+	AnnotationSignal     = "rca.rca-operator.tech/signal"
+	AnnotationLastSeen   = "rca.rca-operator.tech/last-seen"
+	AnnotationSignalSeen = "rca.rca-operator.tech/signal-count"
 
-	LabelAgent        = "rca.rca-operator.io/agent"
-	LabelSeverity     = "rca.rca-operator.io/severity"
-	LabelIncidentType = "rca.rca-operator.io/incident-type"
-	LabelPodName      = "rca.rca-operator.io/pod"
+	LabelAgent        = "rca.rca-operator.tech/agent"
+	LabelSeverity     = "rca.rca-operator.tech/severity"
+	LabelIncidentType = "rca.rca-operator.tech/incident-type"
+	LabelPodName      = "rca.rca-operator.tech/pod"
 )
 
 // Phase constants for the IncidentReport lifecycle.

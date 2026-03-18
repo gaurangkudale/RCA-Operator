@@ -45,10 +45,10 @@ import (
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
-const rcaAgentFinalizer = "rca.rca-operator.io/finalizer"
+const rcaAgentFinalizer = "rca.rca-operator.tech/finalizer"
 
 const (
-	incidentAgentLabelKey  = "rca.rca-operator.io/agent"
+	incidentAgentLabelKey  = "rca.rca-operator.tech/agent"
 	retentionRequeuePeriod = time.Minute
 	phaseDetecting         = "Detecting"
 	phaseActive            = "Active"
@@ -56,7 +56,7 @@ const (
 
 	// annotationLastSeen mirrors the key written by consumer.go so the controller
 	// can read the timestamp and auto-resolve stale ResourceSaturation incidents.
-	annotationLastSeen = "rca.rca-operator.io/last-seen"
+	annotationLastSeen = "rca.rca-operator.tech/last-seen"
 
 	// defaultThrottlingTTL is how long a ResourceSaturation incident may remain
 	// Active without receiving a new CPUThrottlingHigh signal before the controller
@@ -108,9 +108,9 @@ type watcherEntry struct {
 	watchNamespaces []string
 }
 
-// +kubebuilder:rbac:groups=rca.rca-operator.io,resources=rcaagents,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=rca.rca-operator.io,resources=rcaagents/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=rca.rca-operator.io,resources=rcaagents/finalizers,verbs=update
+// +kubebuilder:rbac:groups=rca.rca-operator.tech,resources=rcaagents,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rca.rca-operator.tech,resources=rcaagents/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=rca.rca-operator.tech,resources=rcaagents/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
@@ -665,7 +665,7 @@ func (r *RCAAgentReconciler) resolveOrphanedIncidents(ctx context.Context, agent
 
 // resolveStaleThrottlingIncidents auto-resolves Active ResourceSaturation incidents
 // that have not received a new CPUThrottlingHigh signal within defaultThrottlingTTL.
-// The last-signal time is read from the rca.rca-operator.io/last-seen annotation,
+// The last-signal time is read from the rca.rca-operator.tech/last-seen annotation,
 // which the correlator consumer keeps up-to-date on every signal update.
 func (r *RCAAgentReconciler) resolveStaleThrottlingIncidents(ctx context.Context, agent *rcav1alpha1.RCAAgent) error {
 	namespaces, err := r.retentionNamespaces(ctx, agent)

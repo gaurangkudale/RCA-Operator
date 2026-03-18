@@ -33,7 +33,7 @@
 #
 # Clean up:
 #   kubectl delete deploy cpu-throttle-demo -n development
-#   kubectl delete incidentreports -n development -l rca.rca-operator.io/incident-type=ResourceSaturation
+#   kubectl delete incidentreports -n development -l rca.rca-operator.tech/incident-type=ResourceSaturation
 # ──────────────────────────────────────────────────────────────────────────────
 
 ---
@@ -45,8 +45,8 @@ metadata:
   namespace: development
   labels:
     app: cpu-throttle-demo
-    rca.rca-operator.io/fixture: "true"
-    rca.rca-operator.io/scenario: cpu-throttling
+    rca.rca-operator.tech/fixture: "true"
+    rca.rca-operator.tech/scenario: cpu-throttling
 spec:
   replicas: 1
   selector:
@@ -56,8 +56,8 @@ spec:
     metadata:
       labels:
         app: cpu-throttle-demo
-        rca.rca-operator.io/fixture: "true"
-        rca.rca-operator.io/scenario: cpu-throttling
+        rca.rca-operator.tech/fixture: "true"
+        rca.rca-operator.tech/scenario: cpu-throttling
     spec:
       containers:
       - name: throttle-demo

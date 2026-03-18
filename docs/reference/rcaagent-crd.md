@@ -12,7 +12,7 @@ kubectl describe rcaagent <name> -n <namespace>
 ## Minimal Example
 
 ```yaml
-apiVersion: rca.rca-operator.io/v1alpha1
+apiVersion: rca.rca-operator.tech/v1alpha1
 kind: RCAAgent
 metadata:
   name: sre-agent

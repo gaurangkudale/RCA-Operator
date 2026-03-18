@@ -196,7 +196,7 @@ cleanup() {
   echo "  kubectl get incidentreports -n $WATCH_NS -w"
   echo ""
   info "Clean up after done:"
-  echo "  kubectl delete incidentreports -n $WATCH_NS -l rca.rca-operator.io/incident-type=NodeFailure"
+  echo "  kubectl delete incidentreports -n $WATCH_NS -l rca.rca-operator.tech/incident-type=NodeFailure"
 }
 trap cleanup EXIT INT TERM
 
@@ -238,7 +238,7 @@ for c in conds:
 echo ""
 info "IncidentReports (NodeFailure) in namespace '$WATCH_NS':"
 kubectl get incidentreports -n "$WATCH_NS" \
-  -l rca.rca-operator.io/incident-type=NodeFailure 2>/dev/null \
+  -l rca.rca-operator.tech/incident-type=NodeFailure 2>/dev/null \
   || echo "  (none yet — operator may need a moment)"
 echo ""
 

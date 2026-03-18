@@ -19,7 +19,7 @@ If you believe you have found a security vulnerability in RCA Operator, please r
 
 ### How to report
 
-Send an email to **security@rca-operator.io** with the following information:
+Send an email to **security@rca-operator.tech** with the following information:
 
 - **Summary** — a brief description of the vulnerability
 - **Severity** — your assessment (Critical / High / Medium / Low)

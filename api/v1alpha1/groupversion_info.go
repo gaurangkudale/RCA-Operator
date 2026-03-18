@@ -16,7 +16,7 @@ limitations under the License.
 
 // Package v1alpha1 contains API Schema definitions for the rca v1alpha1 API group.
 // +kubebuilder:object:generate=true
-// +groupName=rca.rca-operator.io
+// +groupName=rca.rca-operator.tech
 package v1alpha1
 
 import (
@@ -26,7 +26,7 @@ import (
 
 var (
 	// GroupVersion is group version used to register these objects.
-	GroupVersion = schema.GroupVersion{Group: "rca.rca-operator.io", Version: "v1alpha1"}
+	GroupVersion = schema.GroupVersion{Group: "rca.rca-operator.tech", Version: "v1alpha1"}
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme.
 	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}

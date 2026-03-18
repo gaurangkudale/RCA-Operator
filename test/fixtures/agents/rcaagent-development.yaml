@@ -1,4 +1,4 @@
-apiVersion: rca.rca-operator.io/v1alpha1
+apiVersion: rca.rca-operator.tech/v1alpha1
 kind: RCAAgent
 metadata:
   name: rcaagent-development

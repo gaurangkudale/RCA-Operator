@@ -227,7 +227,7 @@ Sample YAMLs are documentation. They must:
 
 ```yaml
 # rcaagent-minimal.yaml — the simplest working configuration
-apiVersion: rca-operator.io/v1alpha1
+apiVersion: rca-operator.tech/v1alpha1
 kind: RCAAgent
 metadata:
   name: rca-agent

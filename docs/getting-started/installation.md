@@ -8,7 +8,7 @@ Two supported installation paths: Helm (recommended for production) and raw kube
 
 ```bash
 # Add the RCA Helm repository
-helm repo add rca https://charts.rca-operator.io
+helm repo add rca https://charts.rca-operator.tech
 helm repo update
 
 # Install into its own namespace
@@ -40,8 +40,8 @@ kubectl apply -f https://github.com/gaurangkudale/rca-operator/releases/latest/d
 kubectl get pods -n rca-system
 
 # CRDs should be registered
-kubectl get crd rcaagents.rca.rca-operator.io
-kubectl get crd incidentreports.rca.rca-operator.io
+kubectl get crd rcaagents.rca.rca-operator.tech
+kubectl get crd incidentreports.rca.rca-operator.tech
 ```
 
 ---

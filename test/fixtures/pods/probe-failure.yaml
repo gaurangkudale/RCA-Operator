@@ -24,7 +24,7 @@
 #   kubectl get incidentreport -n development -o yaml | grep -E 'probeType|ProbeFailure|P3'
 # Cleanup:
 #   kubectl delete pod probe-failure-demo -n development
-#   kubectl delete incidentreports -n development -l rca.rca-operator.io/incident-type=ProbeFailure
+#   kubectl delete incidentreports -n development -l rca.rca-operator.tech/incident-type=ProbeFailure
 apiVersion: v1
 kind: Pod
 metadata:
@@ -32,8 +32,8 @@ metadata:
   namespace: development
   labels:
     app: probe-failure-demo
-    rca.rca-operator.io/fixture: "true"
-    rca.rca-operator.io/scenario: probe-failure
+    rca.rca-operator.tech/fixture: "true"
+    rca.rca-operator.tech/scenario: probe-failure
 spec:
   restartPolicy: Always
   volumes:

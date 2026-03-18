@@ -23,7 +23,7 @@ rules:
   - list
   - watch
 - apiGroups:
-  - rca.rca-operator.io
+  - rca.rca-operator.tech
   resources:
   - incidentreports
   - rcaagents
@@ -36,14 +36,14 @@ rules:
   - update
   - watch
 - apiGroups:
-  - rca.rca-operator.io
+  - rca.rca-operator.tech
   resources:
   - incidentreports/finalizers
   - rcaagents/finalizers
   verbs:
   - update
 - apiGroups:
-  - rca.rca-operator.io
+  - rca.rca-operator.tech
   resources:
   - incidentreports/status
   - rcaagents/status

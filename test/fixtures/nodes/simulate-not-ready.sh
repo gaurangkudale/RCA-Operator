@@ -136,7 +136,7 @@ kubectl get events -n "$WATCH_NS" --field-selector "involvedObject.name=$K8S_NOD
 echo ""
 info "IncidentReports in namespace '$WATCH_NS':"
 kubectl get incidentreports -n "$WATCH_NS" \
-  -l rca.rca-operator.io/incident-type=NodeFailure 2>/dev/null || true
+  -l rca.rca-operator.tech/incident-type=NodeFailure 2>/dev/null || true
 
 # ── Step 5: unpause ───────────────────────────────────────────────────────────
 echo ""
@@ -151,4 +151,4 @@ info "Watch incident resolution:"
 echo "  kubectl get incidentreports -n $WATCH_NS -w"
 echo ""
 info "Cleanup when done:"
-echo "  kubectl delete incidentreports -n $WATCH_NS -l rca.rca-operator.io/incident-type=NodeFailure"
+echo "  kubectl delete incidentreports -n $WATCH_NS -l rca.rca-operator.tech/incident-type=NodeFailure"

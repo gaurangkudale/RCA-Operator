@@ -21,8 +21,8 @@ metadata:
   namespace: development
   labels:
     app: bad-image-demo
-    rca.rca-operator.io/fixture: "true"
-    rca.rca-operator.io/scenario: image-pull-backoff
+    rca.rca-operator.tech/fixture: "true"
+    rca.rca-operator.tech/scenario: image-pull-backoff
 spec:
   restartPolicy: Always
   containers:

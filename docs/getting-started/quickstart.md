@@ -18,7 +18,7 @@ kubectl create secret generic rca-agent-openai-secret \
 
 ```yaml
 # rca-agent.yaml
-apiVersion: rca.rca-operator.io/v1alpha1
+apiVersion: rca.rca-operator.tech/v1alpha1
 kind: RCAAgent
 metadata:
   name: sre-agent

@@ -26,7 +26,7 @@ This guide covers everything you need to go from "I want to help" to "my PR is m
 
 ## Code of Conduct
 
-This project follows our [Code of Conduct](CODE_OF_CONDUCT.md). By participating, you agree to uphold it. Violations can be reported to **conduct@rca-operator.io**.
+This project follows our [Code of Conduct](CODE_OF_CONDUCT.md). By participating, you agree to uphold it. Violations can be reported to **conduct@rca-operator.tech**.
 
 ---
 

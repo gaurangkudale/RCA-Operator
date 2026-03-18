@@ -23,8 +23,8 @@ metadata:
   namespace: default
   labels:
     app: retention-crashloop-demo
-    rca.rca-operator.io/fixture: "true"
-    rca.rca-operator.io/scenario: retention
+    rca.rca-operator.tech/fixture: "true"
+    rca.rca-operator.tech/scenario: retention
 spec:
   restartPolicy: Always
   volumes:
