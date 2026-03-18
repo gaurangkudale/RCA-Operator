@@ -73,9 +73,9 @@ func (r *IncidentReportReconciler) now() time.Time {
 	return time.Now()
 }
 
-// +kubebuilder:rbac:groups=rca.rca-operator.io,resources=incidentreports,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=rca.rca-operator.io,resources=incidentreports/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=rca.rca-operator.io,resources=incidentreports/finalizers,verbs=update
+// +kubebuilder:rbac:groups=rca.rca-operator.tech,resources=incidentreports,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rca.rca-operator.tech,resources=incidentreports/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=rca.rca-operator.tech,resources=incidentreports/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 

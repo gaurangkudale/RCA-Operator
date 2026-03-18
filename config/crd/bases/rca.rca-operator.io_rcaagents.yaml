@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: rcaagents.rca.rca-operator.io
+  name: rcaagents.rca.rca-operator.tech
 spec:
-  group: rca.rca-operator.io
+  group: rca.rca-operator.tech
   names:
     kind: RCAAgent
     listKind: RCAAgentList

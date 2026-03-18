@@ -20,8 +20,8 @@ metadata:
   namespace: development
   labels:
     app: exitcode-demo
-    rca.rca-operator.io/fixture: "true"
-    rca.rca-operator.io/scenario: exit-code
+    rca.rca-operator.tech/fixture: "true"
+    rca.rca-operator.tech/scenario: exit-code
 spec:
   restartPolicy: Always
   containers:
@@ -59,7 +59,7 @@ spec:
 #   kubectl get incidentreport -n development -o yaml | grep -E 'exitCode|PermissionDenied|P3'
 # Cleanup:
 #   kubectl delete pod permission-denied-demo -n development
-#   kubectl delete incidentreports -n development -l rca.rca-operator.io/incident-type=CrashLoop
+#   kubectl delete incidentreports -n development -l rca.rca-operator.tech/incident-type=CrashLoop
 apiVersion: v1
 kind: Pod
 metadata:
@@ -67,8 +67,8 @@ metadata:
   namespace: development
   labels:
     app: permission-denied-demo
-    rca.rca-operator.io/fixture: "true"
-    rca.rca-operator.io/scenario: permission-denied
+    rca.rca-operator.tech/fixture: "true"
+    rca.rca-operator.tech/scenario: permission-denied
 spec:
   restartPolicy: Always
   volumes:

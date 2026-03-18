@@ -30,8 +30,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **RCAAgent CRD** (`rca-operator.io/v1alpha1`) — primary configuration resource for the operator
-- **IncidentReport CRD** (`rca-operator.io/v1alpha1`) — auto-created per detected incident, with full status lifecycle
+- **RCAAgent CRD** (`rca-operator.tech/v1alpha1`) — primary configuration resource for the operator
+- **IncidentReport CRD** (`rca-operator.tech/v1alpha1`) — auto-created per detected incident, with full status lifecycle
 - **Pod Watcher** — detects CrashLoopBackOff, OOMKilled (exit 137), ImagePullBackOff, and pods stuck in Pending
 - **Event Watcher** — streams `core/v1` Kubernetes events with in-memory deduplication via ring buffer
 - **Node Watcher** — detects `NotReady`, `DiskPressure`, and `MemoryPressure` node conditions

@@ -140,15 +140,15 @@ kubectl delete -f test/fixtures/deployments/ --ignore-not-found
 kubectl delete -f test/fixtures/agents/ --ignore-not-found
 
 # Remove NodeFailure / ProbeFailure incidents created by event_watcher scenarios
-kubectl delete incidentreports -n development -l rca.rca-operator.io/incident-type=NodeFailure --ignore-not-found
-kubectl delete incidentreports -n development -l rca.rca-operator.io/incident-type=ProbeFailure --ignore-not-found
-kubectl delete incidentreports -n default -l rca.rca-operator.io/incident-type=NodeFailure --ignore-not-found
+kubectl delete incidentreports -n development -l rca.rca-operator.tech/incident-type=NodeFailure --ignore-not-found
+kubectl delete incidentreports -n development -l rca.rca-operator.tech/incident-type=ProbeFailure --ignore-not-found
+kubectl delete incidentreports -n default -l rca.rca-operator.tech/incident-type=NodeFailure --ignore-not-found
 
 # Remove ResourceSaturation incidents created by cpu-throttle scenario
-kubectl delete incidentreports -n development -l rca.rca-operator.io/incident-type=ResourceSaturation --ignore-not-found
+kubectl delete incidentreports -n development -l rca.rca-operator.tech/incident-type=ResourceSaturation --ignore-not-found
 
 # Remove BadDeploy incidents created by deployment stall scenario
-kubectl delete incidentreports -n development -l rca.rca-operator.io/incident-type=BadDeploy --ignore-not-found
+kubectl delete incidentreports -n development -l rca.rca-operator.tech/incident-type=BadDeploy --ignore-not-found
 ```
 
 ---

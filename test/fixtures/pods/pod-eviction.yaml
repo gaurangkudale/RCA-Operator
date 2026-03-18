@@ -25,11 +25,11 @@
 #   kubectl get incidentreports -n development -w
 # Inspect:
 #   kubectl describe incidentreport -n development \
-#     $(kubectl get incidentreports -n development -l rca.rca-operator.io/incident-type=NodeFailure \
+#     $(kubectl get incidentreports -n development -l rca.rca-operator.tech/incident-type=NodeFailure \
 #       -o jsonpath='{.items[0].metadata.name}')
 # Cleanup:
 #   kubectl delete pod pod-eviction-demo -n development --ignore-not-found
-#   kubectl delete incidentreports -n development -l rca.rca-operator.io/incident-type=NodeFailure
+#   kubectl delete incidentreports -n development -l rca.rca-operator.tech/incident-type=NodeFailure
 apiVersion: v1
 kind: Pod
 metadata:
@@ -37,8 +37,8 @@ metadata:
   namespace: development
   labels:
     app: pod-eviction-demo
-    rca.rca-operator.io/fixture: "true"
-    rca.rca-operator.io/scenario: pod-eviction
+    rca.rca-operator.tech/fixture: "true"
+    rca.rca-operator.tech/scenario: pod-eviction
 spec:
   # Never restart so the evicted pod stays in Failed/Evicted state, making it easy to
   # observe the incident before manual cleanup.

@@ -18,8 +18,8 @@ metadata:
   namespace: development
   labels:
     app: oomkill-demo
-    rca.rca-operator.io/fixture: "true"
-    rca.rca-operator.io/scenario: oomkill
+    rca.rca-operator.tech/fixture: "true"
+    rca.rca-operator.tech/scenario: oomkill
 spec:
   restartPolicy: Always
   volumes:

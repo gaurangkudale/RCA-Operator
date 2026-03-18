@@ -1,4 +1,4 @@
-apiVersion: rca.rca-operator.io/v1alpha1
+apiVersion: rca.rca-operator.tech/v1alpha1
 kind: RCAAgent
 metadata:
   name: rcaagent-sample
@@ -24,7 +24,7 @@ spec:
   # How long to keep Resolved IncidentReport CRs. Supported: m, h, d (e.g. 24h, 30d).
   incidentRetention: 5m
 ---
-apiVersion: rca.rca-operator.io/v1alpha1
+apiVersion: rca.rca-operator.tech/v1alpha1
 kind: RCAAgent
 metadata:
   name: rcaagent-sample-default

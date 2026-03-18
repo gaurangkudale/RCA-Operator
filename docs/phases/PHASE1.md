@@ -181,7 +181,7 @@ The following are planned for later phases. **Do not build them now.**
 ### RCAAgent — Phase 1 Fields
 
 ```yaml
-apiVersion: rca-operator.io/v1alpha1
+apiVersion: rca-operator.tech/v1alpha1
 kind: RCAAgent
 metadata:
   name: rca-agent
@@ -291,7 +291,7 @@ status:
 
 ### Week 1–2 — Scaffolding & CRDs
 
-- [x] `kubebuilder init` + API group `rca-operator.io/v1alpha1`
+- [x] `kubebuilder init` + API group `rca-operator.tech/v1alpha1`
 - [x] Define `RCAAgent` CRD (Phase 1 fields only)
 - [x] Define `IncidentReport` CRD
 - [x] `make generate` + `make manifests` to produce CRD YAMLs
@@ -576,15 +576,15 @@ correlator checks: is there already an Active IncidentReport for this
 
 **Step 3 — cr_reporter.go creates the CR**
 ```yaml
-apiVersion: rca.rca-operator.io/v1alpha1
+apiVersion: rca.rca-operator.tech/v1alpha1
 kind: IncidentReport
 metadata:
   generateName: oom-payment-service-   # deterministic prefix
   namespace: production
   labels:
-    rca.rca-operator.io/agent:         rcaagent-sample
-    rca.rca-operator.io/severity:      P2
-    rca.rca-operator.io/incident-type: OOM
+    rca.rca-operator.tech/agent:         rcaagent-sample
+    rca.rca-operator.tech/severity:      P2
+    rca.rca-operator.tech/incident-type: OOM
 spec:
   agentRef: rcaagent-sample
 # status written immediately via status subresource:

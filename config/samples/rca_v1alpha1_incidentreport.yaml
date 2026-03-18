@@ -1,11 +1,11 @@
-apiVersion: rca.rca-operator.io/v1alpha1
+apiVersion: rca.rca-operator.tech/v1alpha1
 kind: IncidentReport
 metadata:
   labels:
     app.kubernetes.io/name: rca-operator
     app.kubernetes.io/managed-by: kustomize
-    rca.rca-operator.io/severity: P2
-    rca.rca-operator.io/incident-type: OOM
+    rca.rca-operator.tech/severity: P2
+    rca.rca-operator.tech/incident-type: OOM
   name: incidentreport-sample
   namespace: development
 spec:

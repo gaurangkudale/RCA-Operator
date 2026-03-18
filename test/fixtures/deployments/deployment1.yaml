@@ -40,8 +40,8 @@ metadata:
   namespace: development
   labels:
     app: payment-service
-    rca.rca-operator.io/fixture: "true"
-    rca.rca-operator.io/scenario: stalled-rollout
+    rca.rca-operator.tech/fixture: "true"
+    rca.rca-operator.tech/scenario: stalled-rollout
 spec:
   replicas: 3
   # Short deadline so the stall is detected quickly in a demo / CI environment.
@@ -54,7 +54,7 @@ spec:
     metadata:
       labels:
         app: payment-service
-        rca.rca-operator.io/fixture: "true"
+        rca.rca-operator.tech/fixture: "true"
     spec:
       containers:
       - name: app

@@ -19,8 +19,8 @@ metadata:
   namespace: default
   labels:
     app: crashloop-demo
-    rca.rca-operator.io/fixture: "true"
-    rca.rca-operator.io/scenario: crashloop
+    rca.rca-operator.tech/fixture: "true"
+    rca.rca-operator.tech/scenario: crashloop
 spec:
   restartPolicy: Always
   volumes:

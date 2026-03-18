@@ -43,7 +43,7 @@ This Code of Conduct applies to all community spaces managed by the RCA Operator
 
 Instances of abusive, harassing, or otherwise unacceptable behaviour may be reported to the project maintainers at:
 
-**conduct@rca-operator.io**
+**conduct@rca-operator.tech**
 
 All reports will be reviewed promptly and investigated with discretion. The privacy and safety of the reporter will be respected throughout. Maintainers are obligated to maintain confidentiality about the reporter of any incident.
 
