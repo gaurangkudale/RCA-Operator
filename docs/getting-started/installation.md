@@ -24,11 +24,11 @@ See [Helm chart values](../../helm/values.yaml) for the full set of configurable
 ## Option 2 — kubectl
 
 ```bash
-# Install CRDs
-kubectl apply -f https://github.com/gaurangkudale/rca-operator/releases/latest/download/crds.yaml
+# Install CRDs and operator (all-in-one)
+kubectl apply -f https://github.com/gaurangkudale/RCA-Operator/releases/latest/download/install.yaml
 
-# Install the operator
-kubectl apply -f https://github.com/gaurangkudale/rca-operator/releases/latest/download/install.yaml
+# Or install CRDs separately (optional)
+kubectl apply -f https://github.com/gaurangkudale/RCA-Operator/releases/latest/download/crds.yaml
 ```
 
 ---

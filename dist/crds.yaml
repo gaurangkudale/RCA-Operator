@@ -1,0 +1,500 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: incidentreports.rca.rca-operator.tech
+spec:
+  group: rca.rca-operator.tech
+  names:
+    kind: IncidentReport
+    listKind: IncidentReportList
+    plural: incidentreports
+    singular: incidentreport
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: Incident severity
+      jsonPath: .status.severity
+      name: Severity
+      type: string
+    - description: Lifecycle phase
+      jsonPath: .status.phase
+      name: Phase
+      type: string
+    - description: Incident type
+      jsonPath: .status.incidentType
+      name: Type
+      type: string
+    - description: Notifications sent
+      jsonPath: .status.notified
+      name: Notified
+      type: boolean
+    - description: When detected
+      jsonPath: .status.startTime
+      name: Start
+      type: date
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: IncidentReport is the Schema for the incidentreports API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of IncidentReport
+            properties:
+              agentRef:
+                description: agentRef is the name of the RCAAgent that created this
+                  report.
+                minLength: 1
+                type: string
+            required:
+            - agentRef
+            type: object
+          status:
+            description: status defines the observed state of IncidentReport
+            properties:
+              affectedResources:
+                description: affectedResources lists the Kubernetes resources involved
+                  in this incident.
+                items:
+                  description: AffectedResource identifies a Kubernetes resource involved
+                    in an incident.
+                  properties:
+                    kind:
+                      description: kind is the resource kind (e.g. Deployment, Pod,
+                        Node).
+                      type: string
+                    name:
+                      description: name is the resource name.
+                      type: string
+                    namespace:
+                      description: namespace is the resource namespace. Empty for
+                        cluster-scoped resources.
+                      type: string
+                  required:
+                  - kind
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              conditions:
+                description: conditions represent the current state of the IncidentReport
+                  resource.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              correlatedSignals:
+                description: |-
+                  correlatedSignals is the list of raw signals that triggered this incident
+                  (e.g. "CrashLoopBackOff (restarts: 8)", "OOMKilled (exit code 137)").
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: atomic
+              incidentType:
+                description: incidentType is the category of incident detected by
+                  the correlator.
+                enum:
+                - CrashLoop
+                - OOM
+                - BadDeploy
+                - NodeFailure
+                - Registry
+                - GracePeriodViolation
+                - ProbeFailure
+                - ResourceSaturation
+                type: string
+              notified:
+                description: |-
+                  notified indicates whether the notification layer (Slack / PagerDuty) has
+                  already fired for this incident. Used to suppress duplicate alerts.
+                type: boolean
+              phase:
+                description: phase is the current lifecycle phase of the incident.
+                enum:
+                - Detecting
+                - Active
+                - Resolved
+                type: string
+              resolvedTime:
+                description: resolvedTime is when the incident was resolved. Empty
+                  while still active.
+                format: date-time
+                type: string
+              rootCause:
+                description: |-
+                  rootCause is a human-readable summary of the root cause.
+                  Stub in Phase 1 — populated by the RCA engine in Phase 2.
+                type: string
+              severity:
+                description: severity is the incident severity level assigned by the
+                  correlator.
+                enum:
+                - P1
+                - P2
+                - P3
+                - P4
+                type: string
+              startTime:
+                description: startTime is when the incident was first detected.
+                format: date-time
+                type: string
+              timeline:
+                description: timeline is the ordered sequence of events that make
+                  up this incident.
+                items:
+                  description: TimelineEvent is a single timestamped entry in the
+                    incident timeline.
+                  properties:
+                    event:
+                      description: event is a human-readable description of what happened.
+                      type: string
+                    time:
+                      description: time is the wall-clock time of the event (RFC3339).
+                      format: date-time
+                      type: string
+                  required:
+                  - event
+                  - time
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+            required:
+            - affectedResources
+            - correlatedSignals
+            - incidentType
+            - phase
+            - severity
+            - startTime
+            - timeline
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: rcaagents.rca.rca-operator.tech
+spec:
+  group: rca.rca-operator.tech
+  names:
+    kind: RCAAgent
+    listKind: RCAAgentList
+    plural: rcaagents
+    singular: rcaagent
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: Overall status based on conditions
+      jsonPath: .status.conditions[?(@.type=='Available')].status
+      name: Status
+      type: string
+    - description: AI provider type
+      jsonPath: .spec.aiProviderConfig.type
+      name: Provider
+      type: string
+    - description: AI model in use
+      jsonPath: .spec.aiProviderConfig.model
+      name: Model
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: RCAAgent is the Schema for the rcaagents API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of RCAAgent
+            properties:
+              aiProviderConfig:
+                description: 'AIProviderConfig holds the configuration for the LLM
+                  backend. Phase 1: stored only — not used by the operator yet.'
+                properties:
+                  model:
+                    default: gpt-4o
+                    description: Model is the model identifier to use (e.g. gpt-4o,
+                      claude-3-opus).
+                    example: gpt-4o
+                    type: string
+                  secretRef:
+                    description: |-
+                      SecretRef is the name of the Kubernetes Secret containing the API key.
+                      The secret must have a key named "apiKey".
+                    example: rca-agent-openai-secret
+                    minLength: 1
+                    type: string
+                  type:
+                    default: openai
+                    description: Type is the LLM provider to use.
+                    enum:
+                    - openai
+                    example: openai
+                    type: string
+                required:
+                - model
+                - secretRef
+                - type
+                type: object
+              incidentRetention:
+                default: 30d
+                description: |-
+                  IncidentRetention specifies how long to keep Resolved IncidentReport CRs before pruning.
+                  Supported suffixes: m (minutes), h (hours), d (days), for example "5m", "12h", "30d".
+                pattern: ^[1-9][0-9]*(m|h|d)$
+                type: string
+              incidentRetentionDays:
+                default: 30
+                description: |-
+                  IncidentRetentionDays is deprecated. Use incidentRetention instead.
+                  This field is retained for backward compatibility.
+                minimum: 1
+                type: integer
+              notifications:
+                description: Notifications holds the configuration for sending incident
+                  notifications.
+                properties:
+                  pagerduty:
+                    description: PagerDuty holds the configuration for PagerDuty notifications.
+                    properties:
+                      secretRef:
+                        description: |-
+                          SecretRef is the name of the Kubernetes Secret containing the PagerDuty Events API v2 key.
+                          The secret must have a key named "apiKey".
+                        example: pd-api-key
+                        minLength: 1
+                        type: string
+                      severity:
+                        default: P2
+                        description: Severity is the minimum incident severity that
+                          triggers a PagerDuty page.
+                        enum:
+                        - P1
+                        - P2
+                        - P3
+                        - P4
+                        type: string
+                    required:
+                    - secretRef
+                    type: object
+                  slack:
+                    description: Slack holds the configuration for Slack notifications.
+                    properties:
+                      channel:
+                        description: 'Channel is the Slack channel to post notifications
+                          to (e.g. #incidents).'
+                        example: '#incidents'
+                        minLength: 1
+                        type: string
+                      mentionOnP1:
+                        description: MentionOnP1 is the Slack user or group handle
+                          to mention on P1 incidents (e.g. @oncall).
+                        example: '@oncall'
+                        type: string
+                      webhookSecretRef:
+                        description: |-
+                          WebhookSecretRef is the name of the Kubernetes Secret containing the Slack webhook URL.
+                          The secret must have a key named "webhookURL".
+                        example: slack-webhook
+                        minLength: 1
+                        type: string
+                    required:
+                    - channel
+                    - webhookSecretRef
+                    type: object
+                type: object
+              watchNamespaces:
+                default:
+                - default
+                description: watchNamespaces specifies the namespaces that the RCAAgent
+                  should monitor.
+                example:
+                - production
+                - staging
+                items:
+                  type: string
+                type: array
+            required:
+            - aiProviderConfig
+            - watchNamespaces
+            type: object
+          status:
+            description: status defines the observed state of RCAAgent
+            properties:
+              conditions:
+                description: |-
+                  conditions represent the current state of the RCAAgent resource.
+                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
+
+                  Standard condition types include:
+                  - "Available": the resource is fully functional
+                  - "Progressing": the resource is being created or updated
+                  - "Degraded": the resource failed to reach or maintain its desired state
+
+                  The status of each condition is one of True, False, or Unknown.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
