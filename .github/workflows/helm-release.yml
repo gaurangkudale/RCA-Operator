@@ -1,0 +1,61 @@
+name: Release Helm Charts
+
+on:
+  push:
+    branches:
+      - main-gk
+    paths:
+      - 'helm/**'
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Package Helm chart
+        run: |
+          mkdir -p .cr-release-packages
+          helm package helm/ -d .cr-release-packages
+
+      - name: Checkout gh-pages branch
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+
+      - name: Update Helm repository
+        run: |
+          # Create charts directory if not exists
+          mkdir -p gh-pages/charts
+
+          # Copy packaged charts
+          cp .cr-release-packages/*.tgz gh-pages/charts/
+
+          # Generate index
+          helm repo index gh-pages/charts --url https://gaurangkudale.github.io/RCA-Operator/charts
+
+          # Commit and push
+          cd gh-pages
+          git add charts/
+          git commit -m "Release Helm chart $(date +%Y-%m-%d)" || echo "No changes to commit"
+          git push origin gh-pages

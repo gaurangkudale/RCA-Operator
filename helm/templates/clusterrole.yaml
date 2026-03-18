@@ -1,0 +1,62 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "rca-operator.fullname" . }}-manager-role
+  labels:
+    {{- include "rca-operator.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  - nodes
+  - pods
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - rca.rca-operator.tech
+  resources:
+  - incidentreports
+  - rcaagents
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - rca.rca-operator.tech
+  resources:
+  - incidentreports/finalizers
+  - rcaagents/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - rca.rca-operator.tech
+  resources:
+  - incidentreports/status
+  - rcaagents/status
+  verbs:
+  - get
+  - patch
+  - update
