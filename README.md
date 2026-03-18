@@ -73,7 +73,7 @@ RCA SRE:          Alert → Detect → Correlate → RCA in seconds → Fix → 
 
 ```bash
 # 1. Install CRDs and operator
-kubectl apply -f https://github.com/gaurangkudale/rca-operator/releases/latest/download/install.yaml
+kubectl apply -f https://github.com/gaurangkudale/RCA-Operator/releases/latest/download/install.yaml
 
 # 2. Create the required Secret
 kubectl create secret generic rca-agent-openai-secret \
