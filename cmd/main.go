@@ -193,6 +193,7 @@ func main() {
 		watchEvents,
 		ctrl.Log,
 		correlator.WithCorrelator(corr),
+		//nolint:staticcheck // TODO: Migrate to events.EventRecorder API
 		correlator.WithEventRecorder(mgr.GetEventRecorderFor("rca-correlator-consumer")),
 	)
 	go correlatorConsumer.Run(managerCtx)
@@ -214,8 +215,9 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&controller.IncidentReportReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		//nolint:staticcheck // TODO: Migrate to events.EventRecorder API
 		Recorder: mgr.GetEventRecorderFor("incidentreport-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "IncidentReport")
