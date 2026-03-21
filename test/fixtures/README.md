@@ -106,19 +106,19 @@ kubectl get incidentreports -A -w
 kubectl describe incidentreport <name> -n <namespace>
 
 # Check operator logs for watcher signals
-kubectl logs -n rca-operator-system deploy/rca-operator-controller-manager -c manager -f \
+kubectl logs -n rca-system deploy/rca-operator-controller-manager -c manager -f \
   | grep -E 'watcher|incident|CrashLoop|OOM|ImagePull|GracePeriod|exitCode'
 
 # Filter event_watcher-specific signals
-kubectl logs -n rca-operator-system deploy/rca-operator-controller-manager -c manager -f \
+kubectl logs -n rca-system deploy/rca-operator-controller-manager -c manager -f \
   | grep -E 'event-watcher|NodeNotReady|PodEvicted|ProbeFailure|Unhealthy|Evicted'
 
 # Filter deployment watcher signals
-kubectl logs -n rca-operator-system deploy/rca-operator-controller-manager -c manager -f \
+kubectl logs -n rca-system deploy/rca-operator-controller-manager -c manager -f \
   | grep -E 'deployment-watcher|StalledRollout|ProgressDeadlineExceeded'
 
 # Filter node watcher signals (pressure conditions)
-kubectl logs -n rca-operator-system deploy/rca-operator-controller-manager -c manager -f \
+kubectl logs -n rca-system deploy/rca-operator-controller-manager -c manager -f \
   | grep -E 'node-watcher|DiskPressure|MemoryPressure|PIDPressure|NodePressure'
 
 # Watch for CPU throttling K8s events (emitted by kubelet)

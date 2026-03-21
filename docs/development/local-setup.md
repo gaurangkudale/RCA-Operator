@@ -47,7 +47,7 @@ kubectl apply -f test/fixtures/pods/crashloop.yaml
 ```bash
 # When running with make run, logs go directly to your terminal.
 # When deployed to a cluster:
-kubectl logs -n rca-operator-system deploy/rca-operator-controller-manager -c manager -f
+kubectl logs -n rca-system deploy/rca-operator-controller-manager -c manager -f
 ```
 
 ## Rebuild After Type Changes
