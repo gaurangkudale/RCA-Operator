@@ -1,0 +1,46 @@
+# Development/Testing Setup
+# Quick access via NodePort for local development and testing
+
+dashboard:
+  enabled: true
+  port: 9090
+  service:
+    type: NodePort
+    port: 9090
+    targetPort: 9090
+    nodePort: 30090  # Access via http://<node-ip>:30090
+  ingress:
+    enabled: false
+
+# Minimal resources for development
+resources:
+  limits:
+    cpu: 200m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+# Fast refresh for development
+manager:
+  args:
+    - --leader-elect
+    - --health-probe-bind-address=:8081
+    - --dashboard-addr=:9090
+    - --dashboard-refresh-interval=5s  # Fast refresh for development
+
+# Relaxed security for development (NOT for production)
+podSecurityContext: {}
+securityContext:
+  readOnlyRootFilesystem: false
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# Development-friendly settings
+replicaCount: 1  # Single replica for dev
+
+# Optional: Disable leader election for single replica
+leaderElection:
+  enabled: false

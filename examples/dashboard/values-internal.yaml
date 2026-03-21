@@ -1,0 +1,35 @@
+# Internal Corporate Access
+# Exposes dashboard via LoadBalancer for internal network access
+
+dashboard:
+  enabled: true
+  port: 9090
+  service:
+    type: LoadBalancer
+    port: 9090
+    targetPort: 9090
+    # Restrict access to internal IPs
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+      service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+      # For GKE:
+      # networking.gke.io/load-balancer-type: "Internal"
+  ingress:
+    enabled: false
+
+# Optional: Increase resources for larger installations
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 50m
+    memory: 128Mi
+
+# Dashboard refresh settings for internal use
+manager:
+  args:
+    - --leader-elect
+    - --health-probe-bind-address=:8081
+    - --dashboard-addr=:9090
+    - --dashboard-refresh-interval=15s

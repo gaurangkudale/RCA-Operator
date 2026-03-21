@@ -1,0 +1,19 @@
+{{- if .Values.dashboard.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rca-operator.fullname" . }}-dashboard
+  namespace: {{ include "rca-operator.namespace" . }}
+  labels:
+    {{- include "rca-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dashboard
+spec:
+  type: {{ .Values.dashboard.service.type }}
+  ports:
+    - port: {{ .Values.dashboard.service.port }}
+      targetPort: {{ .Values.dashboard.service.targetPort }}
+      protocol: TCP
+      name: dashboard
+  selector:
+    {{- include "rca-operator.selectorLabels" . | nindent 4 }}
+{{- end }}

@@ -1,0 +1,8 @@
+# Minimal Dashboard Setup
+# Simplest configuration for testing dashboard functionality
+
+dashboard:
+  enabled: true
+
+# Use defaults for everything else
+# Access via: kubectl port-forward -n rca-system service/rca-operator-dashboard 9090:9090

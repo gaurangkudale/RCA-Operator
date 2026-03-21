@@ -48,6 +48,7 @@ manager:
   args:
     - --leader-elect
     - --health-probe-bind-address=:8081
+    - --dashboard-addr=:9090
 
 # Resources for the controller manager
 resources:
@@ -93,4 +94,28 @@ metrics:
   service:
     port: 8443
     type: ClusterIP
+
+# Dashboard/Web UI configuration
+dashboard:
+  enabled: true
+  port: 9090
+  service:
+    type: ClusterIP
+    port: 9090
+    targetPort: 9090
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+      # kubernetes.io/ingress.class: nginx
+      # kubernetes.io/tls-acme: "true"
+    hosts:
+      - host: rca-operator.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+    #  - secretName: rca-operator-tls
+    #    hosts:
+    #      - rca-operator.local
 
