@@ -2,8 +2,8 @@ apiVersion: v2
 name: rca-operator
 description: An AI-powered SRE Operator that watches your cluster 24x7 and performs autonomous root cause analysis
 type: application
-version: 0.1.3
-appVersion: "0.1.3"
+version: 0.0.3
+appVersion: "0.0.3"
 keywords:
   - kubernetes
   - operator
