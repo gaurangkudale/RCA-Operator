@@ -4,10 +4,10 @@ on:
   push:
     tags:
       - 'v*'
-    branches:
-      - main-gk
-    paths:
-      - 'helm/**'
+    # branches:
+    #   - main-gk
+    # paths:
+    #   - 'helm/**'
   workflow_dispatch:
 
 jobs:
