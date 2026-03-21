@@ -43,6 +43,7 @@ jobs:
         with:
           tag_name: helm-v${{ steps.chart_version.outputs.version }}
           name: Helm Chart v${{ steps.chart_version.outputs.version }}
+          make_latest: false
           body: |
             ## Helm Chart Release
 
