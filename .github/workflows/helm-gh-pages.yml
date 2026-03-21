@@ -3,7 +3,7 @@ name: Publish Helm Charts to GitHub Pages
 on:
   push:
     tags:
-      - 'helm-v*'
+      - 'v*'
   workflow_dispatch:
 
 permissions:
