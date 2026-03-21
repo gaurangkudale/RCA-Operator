@@ -1,0 +1,79 @@
+# External Access with HTTPS
+# Production-ready setup with SSL/TLS and optional authentication
+
+dashboard:
+  enabled: true
+  port: 9090
+  service:
+    type: ClusterIP
+    port: 9090
+    targetPort: 9090
+  ingress:
+    enabled: true
+    className: "nginx"  # Change to your ingress controller
+    annotations:
+      # SSL/TLS with cert-manager
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+      # Optional: Basic auth (uncomment and create secret)
+      # nginx.ingress.kubernetes.io/auth-type: basic
+      # nginx.ingress.kubernetes.io/auth-secret: rca-operator-auth
+      # nginx.ingress.kubernetes.io/auth-realm: "RCA Operator Dashboard"
+
+      # Optional: OAuth2 proxy (uncomment and configure)
+      # nginx.ingress.kubernetes.io/auth-url: "https://oauth2-proxy.yourdomain.com/oauth2/auth"
+      # nginx.ingress.kubernetes.io/auth-signin: "https://oauth2-proxy.yourdomain.com/oauth2/start"
+
+      # Security headers
+      nginx.ingress.kubernetes.io/configuration-snippet: |
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    hosts:
+      - host: rca-operator.yourdomain.com  # CHANGE THIS
+        paths:
+          - path: /
+            pathType: Prefix
+
+    tls:
+      - secretName: rca-operator-tls
+        hosts:
+          - rca-operator.yourdomain.com  # CHANGE THIS
+
+# Production resources
+resources:
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 256Mi
+
+# Security context for production
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  fsGroup: 65534
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  runAsUser: 65534
+  capabilities:
+    drop:
+      - ALL
+
+# Dashboard optimizations for external access
+manager:
+  args:
+    - --leader-elect
+    - --health-probe-bind-address=:8081
+    - --dashboard-addr=:9090
+    - --dashboard-refresh-interval=30s  # Slower refresh for external access

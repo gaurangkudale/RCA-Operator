@@ -41,5 +41,19 @@ RCA Operator has been {{ if .Release.IsUpgrade }}upgraded{{ else }}installed{{ e
 4. Check for incident reports:
    kubectl get incidentreports -A
 
+{{- if .Values.dashboard.enabled }}
+5. Access the Web UI Dashboard:
+{{- if .Values.dashboard.ingress.enabled }}
+{{- range $host := .Values.dashboard.ingress.hosts }}
+   External access: http{{ if $.Values.dashboard.ingress.tls }}s{{ end }}://{{ $host.host }}{{ (index $host.paths 0).path }}
+{{- end }}
+{{- else }}
+   Port-forward to access locally:
+   kubectl port-forward -n {{ .Release.Namespace }} service/{{ include "rca-operator.fullname" . }}-dashboard {{ .Values.dashboard.service.port }}:{{ .Values.dashboard.service.port }}
+
+   Then open: http://localhost:{{ .Values.dashboard.service.port }}
+{{- end }}
+{{- end }}
+
 For more information, visit:
   https://github.com/gaurangkudale/RCA-Operator
