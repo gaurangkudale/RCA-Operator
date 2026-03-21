@@ -1,4 +1,21 @@
-RCA Operator has been installed successfully!
+{{- if .Release.IsUpgrade }}
+⚠️  IMPORTANT: CRD Upgrade Notice
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Helm does not automatically upgrade CRDs. If you're upgrading from a version
+with .io API group CRDs, you MUST manually replace them:
+
+1. Run the CRD upgrade script:
+   curl -sSL https://raw.githubusercontent.com/gaurangkudale/RCA-Operator/main-gk/scripts/helm-upgrade-crds.sh | bash -s {{ .Release.Name }} {{ .Release.Namespace }}
+
+2. Or manually:
+   kubectl delete crd rcaagents.rca.rca-operator.io incidentreports.rca.rca-operator.io
+   kubectl apply -f https://github.com/gaurangkudale/RCA-Operator/releases/download/helm-v{{ .Chart.Version }}/rca-operator-{{ .Chart.Version }}.tgz --dry-run=server -o yaml | kubectl apply -f -
+
+For more details: https://github.com/gaurangkudale/RCA-Operator/blob/main-gk/docs/HELM_UPGRADE.md
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- end }}
+
+RCA Operator has been {{ if .Release.IsUpgrade }}upgraded{{ else }}installed{{ end }} successfully!
 
 1. Verify the operator is running:
    kubectl get pods -n {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "rca-operator.name" . }}"
