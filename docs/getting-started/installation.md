@@ -6,10 +6,25 @@ Two supported installation paths: Helm (recommended for production) and raw kube
 
 ## Option 1 — Helm *(recommended)*
 
-### Install directly from GitHub release
+### Method A: Install from Helm repository
 
 ```bash
-# Install the latest version directly from GitHub releases
+# Add the RCA Operator Helm repository
+helm repo add rca-operator https://gaurangkudale.github.io/rca-operator.github.io
+
+# Update your local Helm repositories
+helm repo update
+
+# Install the operator
+helm install rca-operator rca-operator/rca-operator \
+  --namespace rca-system \
+  --create-namespace
+```
+
+### Method B: Install directly from GitHub release
+
+```bash
+# Install a specific version directly from GitHub releases
 helm install rca-operator \
   https://github.com/gaurangkudale/RCA-Operator/releases/download/helm-v0.1.2/rca-operator-0.1.2.tgz \
   --namespace rca-system \
@@ -18,25 +33,17 @@ helm install rca-operator \
 
 > **Note**: Check [releases](https://github.com/gaurangkudale/RCA-Operator/releases) for the latest Helm chart version (tags starting with `helm-v*`).
 
-### Alternative: Using Helm repository *(coming soon)*
-
-Once GitHub Pages is enabled, you'll be able to install via:
-
-```bash
-# Add the RCA Helm repository
-helm repo add rca-operator https://gaurangkudale.github.io/RCA-Operator
-helm repo update
-
-# Install into its own namespace
-helm install rca-operator rca-operator/rca-operator \
-  --namespace rca-system \
-  --create-namespace
-```
-
 ### Customizing the installation
 
 ```bash
-# Install with custom values
+# With Method A (Helm repository):
+helm install rca-operator rca-operator/rca-operator \
+  --namespace rca-system \
+  --create-namespace \
+  --set replicaCount=2 \
+  --set resources.limits.memory=256Mi
+
+# With Method B (direct URL):
 helm install rca-operator \
   https://github.com/gaurangkudale/RCA-Operator/releases/download/helm-v0.1.2/rca-operator-0.1.2.tgz \
   --namespace rca-system \

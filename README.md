@@ -73,7 +73,13 @@ RCA SRE:          Alert → Detect → Correlate → RCA in seconds → Fix → 
 
 ### Helm (Recommended)
 ```bash
-# Install directly from GitHub release
+# Method A: From Helm repository
+helm repo add rca-operator https://gaurangkudale.github.io/rca-operator.github.io
+helm repo update
+helm install rca-operator rca-operator/rca-operator \
+  --namespace rca-system --create-namespace
+
+# Method B: Direct from GitHub release
 helm install rca-operator \
   https://github.com/gaurangkudale/RCA-Operator/releases/download/helm-v0.1.2/rca-operator-0.1.2.tgz \
   --namespace rca-system --create-namespace

@@ -8,33 +8,60 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout main repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Configure Git
-        run: |
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
 
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
           version: v4.0.4
 
-      - name: Run chart-releaser
-        uses: helm/chart-releaser-action@v1.6.0
+      - name: Get chart version
+        id: chart_version
+        run: |
+          VERSION=$(grep '^version:' helm/Chart.yaml | awk '{print $2}')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Chart version: $VERSION"
+
+      - name: Package Helm chart
+        run: |
+          helm package helm/ -d /tmp/charts
+
+      - name: Checkout GitHub Pages repository
+        uses: actions/checkout@v4
         with:
-          charts_dir: .
-          skip_existing: true
-        env:
-          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-          CR_SKIP_EXISTING: true
+          repository: gaurangkudale/rca-operator.github.io
+          token: ${{ secrets.PAGES_TOKEN }}
+          path: gh-pages
+          fetch-depth: 0
+
+      - name: Update Helm repository
+        run: |
+          # Create charts directory if it doesn't exist
+          mkdir -p gh-pages/charts
+
+          # Copy new chart package
+          cp /tmp/charts/*.tgz gh-pages/charts/
+
+          # Update Helm repository index
+          cd gh-pages
+          helm repo index charts --url https://gaurangkudale.github.io/rca-operator.github.io/charts
+
+          # Move index to root for easier access
+          cp charts/index.yaml index.yaml
+
+      - name: Commit and push to GitHub Pages
+        run: |
+          cd gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Add Helm chart v${{ steps.chart_version.outputs.version }}" || echo "No changes to commit"
+          git push
