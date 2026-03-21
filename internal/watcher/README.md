@@ -33,7 +33,7 @@ kubectl apply -f config/samples/rcaagent-sample.yaml
 kubectl run crash-test --image=busybox --restart=Always -- /bin/sh -c "exit 1"
 
 # Check operator logs
-kubectl logs -n rca-operator-system deployment/rca-operator-controller-manager -f
+kubectl logs -n rca-system deployment/rca-operator-controller-manager -f
 
 # You should see:
 # "Starting watcher manager" watcherCount=1
@@ -133,12 +133,12 @@ After the watcher layer is working:
 
 1. Check manager is started:
    ```bash
-   kubectl logs -n rca-operator-system deployment/rca-operator-controller-manager | grep "Starting watcher"
+   kubectl logs -n rca-system deployment/rca-operator-controller-manager | grep "Starting watcher"
    ```
 
 2. Verify RBAC permissions:
    ```bash
-   kubectl auth can-i list pods --as=system:serviceaccount:rca-operator-system:rca-operator-controller-manager
+   kubectl auth can-i list pods --as=system:serviceaccount:rca-system:rca-operator-controller-manager
    ```
 
 3. Check watcher statistics (add to status subresource):

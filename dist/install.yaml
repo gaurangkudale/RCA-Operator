@@ -5,7 +5,7 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/name: rca-operator
     control-plane: controller-manager
-  name: rca-operator-system
+  name: rca-system
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -515,7 +515,7 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/name: rca-operator
   name: rca-operator-controller-manager
-  namespace: rca-operator-system
+  namespace: rca-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -524,7 +524,7 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/name: rca-operator
   name: rca-operator-leader-election-role
-  namespace: rca-operator-system
+  namespace: rca-system
 rules:
 - apiGroups:
   - ""
@@ -788,7 +788,7 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/name: rca-operator
   name: rca-operator-leader-election-rolebinding
-  namespace: rca-operator-system
+  namespace: rca-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -796,7 +796,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: rca-operator-controller-manager
-  namespace: rca-operator-system
+  namespace: rca-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -812,7 +812,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: rca-operator-controller-manager
-  namespace: rca-operator-system
+  namespace: rca-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -825,7 +825,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: rca-operator-controller-manager
-  namespace: rca-operator-system
+  namespace: rca-system
 ---
 apiVersion: v1
 kind: Service
@@ -835,7 +835,7 @@ metadata:
     app.kubernetes.io/name: rca-operator
     control-plane: controller-manager
   name: rca-operator-controller-manager-metrics-service
-  namespace: rca-operator-system
+  namespace: rca-system
 spec:
   ports:
   - name: https
@@ -854,7 +854,7 @@ metadata:
     app.kubernetes.io/name: rca-operator
     control-plane: controller-manager
   name: rca-operator-controller-manager
-  namespace: rca-operator-system
+  namespace: rca-system
 spec:
   replicas: 1
   selector:
@@ -876,7 +876,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: ghcr.io/gaurangkudale/rca-operator:v0.1.0
+        image: controller:latest
         livenessProbe:
           httpGet:
             path: /healthz

@@ -47,7 +47,3 @@ kubectl get crd incidentreports.rca.rca-operator.tech
 ---
 
 Next: [Quick Start](quickstart.md)
-
----
-
-Next: [Quick Start](quickstart.md)

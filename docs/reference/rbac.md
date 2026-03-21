@@ -42,10 +42,10 @@ These will be added as features are implemented:
 
 ## ServiceAccount
 
-The operator runs as `rca-operator-controller-manager` in the `rca-operator-system` namespace.
+The operator runs as `rca-operator-controller-manager` in the `rca-system` namespace.
 
 ```bash
-kubectl get serviceaccount -n rca-operator-system
+kubectl get serviceaccount -n rca-system
 kubectl get clusterrolebinding | grep rca-operator
 ```
 

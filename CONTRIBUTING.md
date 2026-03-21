@@ -107,7 +107,7 @@ The operator will connect to your `kind` cluster using your local kubeconfig. Yo
 
 ```bash
 kubectl apply -f config/samples/rcaagent-minimal.yaml
-kubectl get rcaagent -n rca-operator-system
+kubectl get rcaagent -n rca-system
 ```
 
 ### Useful Make Targets
@@ -418,7 +418,7 @@ Please include:
 - Kubernetes version (`kubectl version`)
 - What you expected to happen
 - What actually happened
-- Relevant logs (`kubectl logs -n rca-operator-system deploy/rca-operator-controller-manager`)
+- Relevant logs (`kubectl logs -n rca-system deploy/rca-operator-controller-manager`)
 - The `RCAAgent` CR you're using (redact any secrets)
 
 ### Feature requests

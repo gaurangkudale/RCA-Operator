@@ -185,7 +185,7 @@ apiVersion: rca-operator.tech/v1alpha1
 kind: RCAAgent
 metadata:
   name: rca-agent
-  namespace: rca-operator-system
+  namespace: rca-system
 spec:
   watchNamespaces:
     - production
