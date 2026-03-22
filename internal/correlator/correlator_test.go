@@ -337,8 +337,8 @@ func TestRule3_MultiPodNodeFailure(t *testing.T) {
 				t.Fatalf("Fired=%v want %v", result.Fired, tc.wantFire)
 			}
 			if tc.wantFire {
-				if result.IncidentType != "NodeFailure" {
-					t.Errorf("IncidentType=%q want NodeFailure", result.IncidentType)
+				if result.IncidentType != testIncidentTypeNodeFailure {
+					t.Errorf("IncidentType=%q want %q", result.IncidentType, testIncidentTypeNodeFailure)
 				}
 				if result.Severity != "P2" {
 					t.Errorf("Severity=%q want P2", result.Severity)
@@ -404,8 +404,8 @@ func TestRule4_ImagePullNoHistory(t *testing.T) {
 				if result.Severity != tc.wantSev {
 					t.Errorf("Severity=%q want %q", result.Severity, tc.wantSev)
 				}
-				if result.IncidentType != "Registry" {
-					t.Errorf("IncidentType=%q want Registry", result.IncidentType)
+				if result.IncidentType != testIncidentTypeRegistry {
+					t.Errorf("IncidentType=%q want %q", result.IncidentType, testIncidentTypeRegistry)
 				}
 			}
 		})
@@ -474,8 +474,8 @@ func TestRule5_NodeNotReadyPlusEviction(t *testing.T) {
 				t.Fatalf("Fired=%v want %v", result.Fired, tc.wantFire)
 			}
 			if tc.wantFire {
-				if result.IncidentType != "NodeFailure" {
-					t.Errorf("IncidentType=%q want NodeFailure", result.IncidentType)
+				if result.IncidentType != testIncidentTypeNodeFailure {
+					t.Errorf("IncidentType=%q want %q", result.IncidentType, testIncidentTypeNodeFailure)
 				}
 				if result.Severity != "P1" {
 					t.Errorf("Severity=%q want P1", result.Severity)
