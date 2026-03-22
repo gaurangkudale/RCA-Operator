@@ -44,13 +44,12 @@ const (
 // Consumer reads watcher events, performs deduplication, and writes IncidentReport CRs
 // by delegating to its embedded Reporter.
 type Consumer struct {
-	client          client.Client
-	events          <-chan watcher.CorrelatorEvent
-	log             logr.Logger
-	now             func() time.Time
-	correlator      *Correlator      // optional; nil disables multi-event correlation
-	anomalyDetector *AnomalyDetector // optional; nil disables anomaly detection
-	rep             *reporter.Reporter
+	client     client.Client
+	events     <-chan watcher.CorrelatorEvent
+	log        logr.Logger
+	now        func() time.Time
+	correlator *Correlator // optional; nil disables multi-event correlation
+	rep        *reporter.Reporter
 }
 
 // NewConsumer returns a correlator consumer. Pass functional options (e.g.
@@ -118,11 +117,6 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 
 	namespace, podName, agentRef, incidentType, severity, summary := mapEvent(event)
 
-	// Track detection method for root cause attribution
-	detectionMethod := ""
-	confidence := ""
-	rootCause := ""
-
 	// Run multi-event correlation rules. If a rule fires, override the
 	// single-event classification with the correlated type and severity.
 	if c.correlator != nil {
@@ -130,7 +124,6 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 			incidentType = result.IncidentType
 			severity = result.Severity
 			summary = result.Summary
-			detectionMethod = "Rule"
 			// Some rules (2, 3, 5) produce incidents scoped to a shared resource
 			// (deployment, node) rather than the individual pod that triggered
 			// the event. Override podName with the canonical resource identifier
@@ -145,35 +138,8 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 			)
 		}
 	}
-
-	// If no rule matched, try anomaly detection for unknown patterns
-	if detectionMethod == "" && c.anomalyDetector != nil {
-		if anomalyResult := c.anomalyDetector.Analyze(event); anomalyResult.Detected {
-			incidentType = anomalyResult.Category
-			severity = anomalyResult.Severity
-			summary = anomalyResult.RootCause
-			rootCause = anomalyResult.RootCause
-			confidence = anomalyResult.Confidence
-			detectionMethod = "AnomalyDetector"
-			// Some anomalies (FrequencySpike) are scoped to namespace
-			if anomalyResult.Resource != "" {
-				podName = anomalyResult.Resource
-			}
-			c.log.Info("Anomaly detected",
-				"category", anomalyResult.Category,
-				"confidence", anomalyResult.Confidence,
-				"rootCause", anomalyResult.RootCause,
-			)
-		}
-	}
-
 	if namespace == "" || podName == "" {
 		return nil
-	}
-
-	// Use extended EnsureIncident if we have root cause info
-	if rootCause != "" || detectionMethod != "" || confidence != "" {
-		return c.rep.EnsureIncidentWithRCA(ctx, namespace, podName, agentRef, incidentType, severity, summary, event.DedupKey(), event.OccurredAt(), rootCause, detectionMethod, confidence)
 	}
 
 	return c.rep.EnsureIncident(ctx, namespace, podName, agentRef, incidentType, severity, summary, event.DedupKey(), event.OccurredAt())
