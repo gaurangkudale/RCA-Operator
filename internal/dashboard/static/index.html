@@ -167,7 +167,23 @@ input::placeholder{color:var(--dim)}
 .tag-green{background:rgba(74,222,128,0.08);color:var(--green)}
 .tag-purple{background:rgba(216,180,254,0.08);color:var(--purple)}
 
-/* ── Section header ──────────────────────────── */
+/* ── Tag variants for detection method ──────── */
+.tag-rule{background:rgba(125,211,252,0.08);color:var(--acc);border:.5px solid rgba(125,211,252,0.3)}
+.tag-anomaly{background:rgba(251,146,60,0.08);color:#FB923C;border:.5px solid rgba(251,146,60,0.3)}
+.tag-ai{background:rgba(168,85,247,0.08);color:#A855F7;border:.5px solid rgba(168,85,247,0.3)}
+
+/* ── Confidence badges ──────────────────────── */
+.conf-badge{display:inline-flex;align-items:center;justify-content:center;
+  padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:8px;font-weight:600}
+.conf-High{background:rgba(74,222,128,0.12);color:#4ADE80;border:.5px solid rgba(74,222,128,0.3)}
+.conf-Medium{background:rgba(251,146,60,0.12);color:#FB923C;border:.5px solid rgba(251,146,60,0.3)}
+.conf-Low{background:rgba(148,163,184,0.12);color:#94A3B8;border:.5px solid rgba(148,163,184,0.3)}
+
+/* ── Layer 2 enhanced RCA section ──────────── */
+.rca-enhanced{padding:14px;border-radius:4px;border:1px solid rgba(251,146,60,0.3);
+  background:rgba(251,146,60,0.03)}
+.rca-enhanced .rca-label-text{color:#FB923C;background:rgba(251,146,60,0.1);
+  padding:2px 8px;border-radius:3px}
 .sec-hdr{font-family:var(--mono);font-size:8px;letter-spacing:2px;color:var(--dim);
   text-transform:uppercase;margin-bottom:8px;padding-bottom:5px;border-bottom:.5px solid var(--brdr)}
 .sec-hdr-toggle{font-family:var(--mono);font-size:8px;letter-spacing:2px;color:var(--dim);
@@ -268,7 +284,7 @@ input::placeholder{color:var(--dim)}
     <div class="topbar-left">
       <span id="conn-pulse"></span>
       <span class="topbar-brand">RCA<span>OPERATOR</span></span>
-      <span class="topbar-ver">v0.1.0</span>
+      <span class="topbar-ver">v0.1.0 + L2</span>
     </div>
     <div class="topbar-nav">
       <div class="sel">INCIDENTS</div>
@@ -564,6 +580,9 @@ input::placeholder{color:var(--dim)}
         html+='<div class="'+cls+'" onclick="window._sel(\''+esc(key)+'\')">';
         if(!hasSel) html+='<span class="inc-row-num">'+pad2(idx+1)+'</span>';
         html+='<span class="sev-badge '+(hasSel?'sm':'reg')+' sev-'+sev+'">'+sev+'</span>';
+        if(inc.detectionMethod === 'AnomalyDetector') {
+          html+='<span class="tag tag-anomaly" style="font-size:7px;padding:1px 4px;margin-left:3px">L2</span>';
+        }
         html+='<div class="inc-info"><div class="inc-name'+(hasSel?' compact':'')+'">'+esc(dname(inc))+'</div>';
         html+='<div class="inc-meta">'+(hasSel?esc(inc.incidentType):esc(inc.namespace)+' \u00b7 '+esc(inc.incidentType))+'</div></div>';
         if(!hasSel) html+='<span class="inc-ns-tag">'+esc(inc.namespace)+'</span>';
@@ -601,6 +620,12 @@ input::placeholder{color:var(--dim)}
     if(PH[inc.phase]&&PH[inc.phase].pulse) html+=pulse(PH[inc.phase].c,5);
     html+=esc(inc.phase)+'</span>';
     html+='<span class="tag tag-default">'+esc(inc.incidentType)+'</span>';
+    if(inc.detectionMethod) {
+      var dmClass = inc.detectionMethod === 'AnomalyDetector' ? 'tag-anomaly' :
+                    inc.detectionMethod === 'AI' ? 'tag-ai' : 'tag-rule';
+      html+='<span class="tag '+dmClass+'">'+esc(inc.detectionMethod)+'</span>';
+    }
+    if(inc.confidence) html+='<span class="conf-badge conf-'+esc(inc.confidence)+'">'+esc(inc.confidence)+'</span>';
     if(inc.notified) html+='<span class="tag tag-green">notified</span>';
     else html+='<span class="tag tag-purple">pending</span>';
     html+='</div>';
@@ -727,11 +752,21 @@ input::placeholder{color:var(--dim)}
     /* 6. Root cause analysis */
     html+='<div><div class="sec-hdr">root cause analysis</div>';
     if(inc.rootCause){
-      html+='<div style="font-family:var(--mono);font-size:10px;color:var(--txt);line-height:1.7">'+esc(inc.rootCause)+'</div>';
+      var isLayer2 = inc.detectionMethod === 'AnomalyDetector';
+      var containerClass = isLayer2 ? 'rca-enhanced' : 'rca-stub';
+      html+='<div class="'+containerClass+'">';
+      if(isLayer2) {
+        html+='<div class="rca-label"><span class="rca-label-dot" style="background:#FB923C"></span>';
+        html+='<span class="rca-label-text">LAYER 2 \u00b7 ANOMALY DETECTOR</span>';
+        if(inc.confidence) html+='<span class="conf-badge conf-'+inc.confidence+'" style="margin-left:6px">'+inc.confidence+'</span>';
+        html+='</div>';
+      }
+      html+='<div style="font-family:var(--mono);font-size:10px;color:var(--txt);line-height:1.7;margin-top:'+(isLayer2?'8px':'0')+'">'+esc(inc.rootCause)+'</div>';
+      html+='</div>';
     } else {
       html+='<div class="rca-stub"><div class="rca-label"><span class="rca-label-dot"></span>';
-      html+='<span class="rca-label-text">AI ENGINE \u00b7 PHASE 2</span></div>';
-      html+='<div class="rca-body">LLM-powered root cause will appear here once the RCA engine is enabled. The AI analyzer will correlate evidence from logs, metrics, and the full event timeline to generate a diagnosis with confidence scoring.</div>';
+      html+='<span class="rca-label-text">AI ENGINE \u00b7 PHASE 3</span></div>';
+      html+='<div class="rca-body">Layer 2 Anomaly Detector is now active! Unknown failure patterns will be automatically detected and analyzed. LLM-powered deep root cause analysis will appear here once the AI engine is enabled in Phase 3.</div>';
       if(inc.phase==='Resolved') html+='<div class="rca-postmortem">AUTO POST-MORTEM \u00b7 PHASE 4</div>';
       html+='</div>';
     }
@@ -770,7 +805,7 @@ input::placeholder{color:var(--dim)}
       '<span>'+(connected?'API CONNECTED':'DISCONNECTED')+'</span>'+
       '<span class="sep"></span><span>POLLING 10s</span>'+
       '<span class="sep"></span><span>'+f.length+'/'+incidents.length+' shown</span>'+
-      '<div style="flex:1"></div><span>RCA Operator v0.1.0 \u00b7 Phase 1 Foundation</span>';
+      '<div style="flex:1"></div><span>RCA Operator v0.1.0 \u00b7 Layer 2 Anomaly Detector Active</span>';
     el.innerHTML=html;
   }
 

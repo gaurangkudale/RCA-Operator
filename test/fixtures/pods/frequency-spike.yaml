@@ -1,0 +1,27 @@
+# test-frequency-spike.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: test-frequency-spike
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: failing-app
+  namespace: test-frequency-spike
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      app: failing-app
+  template:
+    metadata:
+      labels:
+        app: failing-app
+    spec:
+      restartPolicy: Always
+      containers:
+      - name: app
+        image: alpine:3.18
+        command: ["/bin/sh", "-c"]
+        args: ["sleep 2; exit 1"]  # Fail after brief delay

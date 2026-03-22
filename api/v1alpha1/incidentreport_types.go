@@ -71,7 +71,7 @@ type IncidentReportStatus struct {
 	Phase string `json:"phase,omitempty"`
 
 	// incidentType is the category of incident detected by the correlator.
-	// +kubebuilder:validation:Enum=CrashLoop;OOM;BadDeploy;NodeFailure;Registry;GracePeriodViolation;ProbeFailure;ResourceSaturation
+	// +kubebuilder:validation:Enum=CrashLoop;OOM;BadDeploy;NodeFailure;Registry;GracePeriodViolation;ProbeFailure;ResourceSaturation;ExitCodePattern;ConsecutiveExitCode;FrequencySpike;WeakSignalCombo
 	// +required
 	IncidentType string `json:"incidentType,omitempty"`
 
@@ -108,6 +108,16 @@ type IncidentReportStatus struct {
 	// Stub in Phase 1 — populated by the RCA engine in Phase 2.
 	// +optional
 	RootCause string `json:"rootCause,omitempty"`
+
+	// detectionMethod indicates how the incident was detected.
+	// +kubebuilder:validation:Enum=Rule;AnomalyDetector;AI
+	// +optional
+	DetectionMethod string `json:"detectionMethod,omitempty"`
+
+	// confidence indicates the confidence level of the root cause analysis.
+	// +kubebuilder:validation:Enum=Low;Medium;High
+	// +optional
+	Confidence string `json:"confidence,omitempty"`
 
 	// conditions represent the current state of the IncidentReport resource.
 	// +listType=map

@@ -89,6 +89,8 @@ type incidentResponse struct {
 	LastSeen          string                         `json:"lastSeen"`
 	SignalCount       string                         `json:"signalCount"`
 	RootCause         string                         `json:"rootCause,omitempty"`
+	DetectionMethod   string                         `json:"detectionMethod,omitempty"`
+	Confidence        string                         `json:"confidence,omitempty"`
 }
 
 type timelineEntry struct {
@@ -271,6 +273,8 @@ func toIncidentResponse(item *rcav1alpha1.IncidentReport) incidentResponse {
 		LastSeen:          item.Annotations[reporter.AnnotationLastSeen],
 		SignalCount:       item.Annotations[reporter.AnnotationSignalSeen],
 		RootCause:         item.Status.RootCause,
+		DetectionMethod:   item.Status.DetectionMethod,
+		Confidence:        item.Status.Confidence,
 	}
 	if item.Status.StartTime != nil {
 		t := item.Status.StartTime.Time

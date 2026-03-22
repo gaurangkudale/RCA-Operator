@@ -188,11 +188,13 @@ func main() {
 	watchEvents := make(chan watcher.CorrelatorEvent, 1024)
 	watcherEmitter := watcher.NewChannelEventEmitter(watchEvents, ctrl.Log)
 	corr := correlator.NewCorrelator(5 * time.Minute)
+	anomalyDetector := correlator.NewAnomalyDetector(corr.Buffer(), ctrl.Log)
 	correlatorConsumer := correlator.NewConsumer(
 		mgr.GetClient(),
 		watchEvents,
 		ctrl.Log,
 		correlator.WithCorrelator(corr),
+		correlator.WithAnomalyDetector(anomalyDetector),
 		//nolint:staticcheck // TODO: Migrate to events.EventRecorder API
 		correlator.WithEventRecorder(mgr.GetEventRecorderFor("rca-correlator-consumer")),
 	)
