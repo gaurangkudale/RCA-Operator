@@ -159,14 +159,6 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
-              confidence:
-                description: confidence indicates the confidence level of the root
-                  cause analysis.
-                enum:
-                - Low
-                - Medium
-                - High
-                type: string
               correlatedSignals:
                 description: |-
                   correlatedSignals is the list of raw signals that triggered this incident
@@ -175,13 +167,6 @@ spec:
                   type: string
                 type: array
                 x-kubernetes-list-type: atomic
-              detectionMethod:
-                description: detectionMethod indicates how the incident was detected.
-                enum:
-                - Rule
-                - AnomalyDetector
-                - AI
-                type: string
               incidentType:
                 description: incidentType is the category of incident detected by
                   the correlator.
@@ -194,10 +179,6 @@ spec:
                 - GracePeriodViolation
                 - ProbeFailure
                 - ResourceSaturation
-                - ExitCodePattern
-                - ConsecutiveExitCode
-                - FrequencySpike
-                - WeakSignalCombo
                 type: string
               notified:
                 description: |-

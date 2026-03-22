@@ -7,7 +7,6 @@ spec:
   # Namespaces the operator monitors for pod failures.
   watchNamespaces:
     - development
-    - test-frequency-spike
   aiProviderConfig:
     type: openai
     model: gpt-4o

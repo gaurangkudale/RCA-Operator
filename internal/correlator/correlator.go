@@ -107,11 +107,6 @@ func (c *Correlator) Evaluate(event watcher.CorrelatorEvent) CorrelationResult {
 	return CorrelationResult{}
 }
 
-// Buffer returns the correlator's internal buffer for use by the AnomalyDetector.
-func (c *Correlator) Buffer() *Buffer {
-	return c.buf
-}
-
 // Option is a functional option for Consumer.
 type Option func(*Consumer)
 
@@ -120,15 +115,6 @@ type Option func(*Consumer)
 func WithCorrelator(c *Correlator) Option {
 	return func(consumer *Consumer) {
 		consumer.correlator = c
-	}
-}
-
-// WithAnomalyDetector attaches an AnomalyDetector to the Consumer so that
-// events not matching any correlation rules are analyzed for unknown patterns.
-// The detector uses the correlator's buffer for frequency and weak signal analysis.
-func WithAnomalyDetector(a *AnomalyDetector) Option {
-	return func(consumer *Consumer) {
-		consumer.anomalyDetector = a
 	}
 }
 

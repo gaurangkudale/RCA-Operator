@@ -24,7 +24,6 @@ const (
 	testAgentA                    = "agent-a"
 	testIncidentTypeBadDeploy     = "BadDeploy"
 	testIncidentTypeNodeFailure   = "NodeFailure"
-	testIncidentTypeRegistry      = "Registry"
 	testIncidentTypeResSaturation = "ResourceSaturation"
 	testNamespaceDev              = "development"
 )
