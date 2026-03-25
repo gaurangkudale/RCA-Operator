@@ -12,12 +12,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
+	"github.com/gaurangkudale/rca-operator/internal/incident"
 	"github.com/gaurangkudale/rca-operator/internal/reporter"
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
-// Local aliases for reporter constants so that tests in this package can
-// reference them without importing the reporter package directly.
 const (
 	annotationDedupKey   = reporter.AnnotationDedupKey
 	annotationSignal     = reporter.AnnotationSignal
@@ -41,30 +40,25 @@ const (
 	maxSignalEntries   = reporter.MaxSignalEntries
 )
 
-// Consumer reads watcher events, performs deduplication, and writes IncidentReport CRs
-// by delegating to its embedded Reporter.
 type Consumer struct {
 	client     client.Client
 	events     <-chan watcher.CorrelatorEvent
 	log        logr.Logger
 	now        func() time.Time
-	correlator *Correlator // optional; nil disables multi-event correlation
+	correlator *Correlator
 	rep        *reporter.Reporter
+	resolver   *incident.Resolver
 }
 
-// NewConsumer returns a correlator consumer. Pass functional options (e.g.
-// WithCorrelator) to enable optional features. Existing callers that pass no
-// options continue to work unchanged.
 func NewConsumer(c client.Client, events <-chan watcher.CorrelatorEvent, logger logr.Logger, opts ...Option) *Consumer {
 	consumer := &Consumer{
-		client: c,
-		events: events,
-		log:    logger.WithName("correlator-consumer"),
-		now:    time.Now,
+		client:   c,
+		events:   events,
+		log:      logger.WithName("correlator-consumer"),
+		now:      time.Now,
+		resolver: incident.NewResolver(c),
 	}
 	rep := reporter.NewReporter(c, logger)
-	// Wire the clock so that tests overriding consumer.now automatically
-	// influence all reporter timing (cooldown, reopen window, timestamps).
 	rep.Now = func() time.Time { return consumer.now() }
 	consumer.rep = rep
 
@@ -74,11 +68,7 @@ func NewConsumer(c client.Client, events <-chan watcher.CorrelatorEvent, logger 
 	return consumer
 }
 
-// Run blocks until context cancellation and consumes events continuously.
 func (c *Consumer) Run(ctx context.Context) {
-	// Merge any duplicate open Registry incidents left over from a previous run
-	// (e.g. caused by bootstrap-scan API-latency races) and populate the
-	// in-memory dedup cache with the surviving canonical incident per namespace.
 	if err := c.consolidateRegistryDuplicates(ctx); err != nil {
 		c.log.Error(err, "Failed to consolidate duplicate Registry incidents at startup")
 	}
@@ -101,9 +91,6 @@ func (c *Consumer) Run(ctx context.Context) {
 }
 
 func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEvent) error {
-	// Add to the correlation buffer before any early-return paths so that
-	// healthy and deleted events are also available for rule evaluation
-	// (e.g. Rule 4 uses PodHealthyEvent to detect prior pull success).
 	if c.correlator != nil {
 		c.correlator.Add(event)
 	}
@@ -115,96 +102,226 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 		return c.rep.ResolveForDeletedPod(ctx, deleted.Namespace, deleted.PodName)
 	}
 
-	namespace, podName, agentRef, incidentType, severity, summary := mapEvent(event)
-
-	// Run multi-event correlation rules. If a rule fires, override the
-	// single-event classification with the correlated type and severity.
-	if c.correlator != nil {
-		if result := c.correlator.Evaluate(event); result.Fired {
-			incidentType = result.IncidentType
-			severity = result.Severity
-			summary = result.Summary
-			// Some rules (2, 3, 5) produce incidents scoped to a shared resource
-			// (deployment, node) rather than the individual pod that triggered
-			// the event. Override podName with the canonical resource identifier
-			// so the dedup path uses a consistent key.
-			if result.Resource != "" {
-				podName = result.Resource
-			}
-			c.log.Info("Correlation rule fired",
-				"rule", result.Rule,
-				"incidentType", incidentType,
-				"severity", severity,
-			)
-		}
-	}
-	if namespace == "" || podName == "" {
+	input, ok := c.mapEvent(ctx, event)
+	if !ok {
 		return nil
 	}
 
-	return c.rep.EnsureIncident(ctx, namespace, podName, agentRef, incidentType, severity, summary, event.DedupKey(), event.OccurredAt())
+	if c.correlator != nil {
+		if result := c.correlator.Evaluate(event); result.Fired {
+			input.IncidentType = result.IncidentType
+			input.Severity = result.Severity
+			input.Summary = result.Summary
+			input.Message = result.Summary
+			if result.Resource != "" {
+				switch input.IncidentType {
+				case incidentTypeNodeFailure:
+					input.Scope.Level = incident.ScopeLevelCluster
+					input.Scope.Namespace = ""
+					input.Scope.WorkloadRef = nil
+					input.Scope.ResourceRef = &rcav1alpha1.IncidentObjectRef{
+						APIVersion: corev1.SchemeGroupVersion.String(),
+						Kind:       "Node",
+						Name:       result.Resource,
+					}
+					input.AffectedResources = []rcav1alpha1.AffectedResource{
+						{APIVersion: corev1.SchemeGroupVersion.String(), Kind: "Node", Name: result.Resource},
+					}
+				default:
+					input.Scope.Level = incident.ScopeLevelWorkload
+					input.Scope.WorkloadRef = &rcav1alpha1.IncidentObjectRef{
+						APIVersion: "apps/v1",
+						Kind:       "Deployment",
+						Namespace:  input.Namespace,
+						Name:       result.Resource,
+					}
+					input.AffectedResources = mergeAffectedResources(input.AffectedResources, []rcav1alpha1.AffectedResource{
+						{APIVersion: "apps/v1", Kind: "Deployment", Namespace: input.Namespace, Name: result.Resource},
+					})
+				}
+			}
+			c.log.Info("Correlation rule fired",
+				"rule", result.Rule,
+				"incidentType", input.IncidentType,
+				"severity", input.Severity,
+			)
+		}
+	}
+
+	return c.rep.EnsureSignal(ctx, input)
 }
 
-// consolidateRegistryDuplicates delegates to the reporter's Consolidate method.
-// It is called once at startup to merge duplicate open Registry incidents that
-// may have been created during a previous run's bootstrap-scan race.
 func (c *Consumer) consolidateRegistryDuplicates(ctx context.Context) error {
 	return c.rep.Consolidate(ctx)
 }
 
-func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, incidentType, severity, summary string) {
+func (c *Consumer) mapEvent(ctx context.Context, event watcher.CorrelatorEvent) (incident.Input, bool) {
 	switch e := event.(type) {
 	case watcher.CrashLoopBackOffEvent:
-		s := fmt.Sprintf("CrashLoopBackOff restarts=%d threshold=%d", e.RestartCount, e.Threshold)
+		summary := fmt.Sprintf("CrashLoopBackOff restarts=%d threshold=%d", e.RestartCount, e.Threshold)
 		if e.LastExitCode != 0 && e.ExitCodeCategory != "" {
-			s = fmt.Sprintf("%s exitCode=%d category=%s description=%s", s, e.LastExitCode, e.ExitCodeCategory, e.ExitCodeDescription)
+			summary = fmt.Sprintf("%s exitCode=%d category=%s description=%s", summary, e.LastExitCode, e.ExitCodeCategory, e.ExitCodeDescription)
 		}
-		return e.Namespace, e.PodName, e.AgentName, "CrashLoop", "P3", s
+		return c.podScopedInput(ctx, e.Namespace, e.PodName, e.AgentName, "CrashLoop", "P3", "CrashLoopBackOff", summary, event), true
 	case watcher.OOMKilledEvent:
-		return e.Namespace, e.PodName, e.AgentName, "OOM", "P2", fmt.Sprintf("OOMKilled exitCode=%d reason=%s", e.ExitCode, e.Reason)
+		summary := fmt.Sprintf("OOMKilled exitCode=%d reason=%s", e.ExitCode, e.Reason)
+		return c.podScopedInput(ctx, e.Namespace, e.PodName, e.AgentName, "OOM", "P2", e.Reason, summary, event), true
 	case watcher.ImagePullBackOffEvent:
-		return e.Namespace, e.PodName, e.AgentName, "Registry", "P3", fmt.Sprintf("Image pull failure reason=%s", e.Reason)
+		summary := fmt.Sprintf("Image pull failure reason=%s message=%s", e.Reason, e.Message)
+		input := c.podScopedInput(ctx, e.Namespace, e.PodName, e.AgentName, incidentTypeRegistry, "P3", e.Reason, summary, event)
+		input.Scope.Level = incident.ScopeLevelNamespace
+		input.Scope.Namespace = e.Namespace
+		input.Scope.WorkloadRef = nil
+		input.Scope.ResourceRef = nil
+		return input, true
 	case watcher.PodPendingTooLongEvent:
-		return e.Namespace, e.PodName, e.AgentName, "BadDeploy", "P3", fmt.Sprintf("Pod pending too long pendingFor=%s timeout=%s", e.PendingFor.String(), e.Timeout.String())
+		summary := fmt.Sprintf("Pod pending too long pendingFor=%s timeout=%s", e.PendingFor.String(), e.Timeout.String())
+		return c.podScopedInput(ctx, e.Namespace, e.PodName, e.AgentName, "BadDeploy", "P3", "PendingTooLong", summary, event), true
 	case watcher.GracePeriodViolationEvent:
-		return e.Namespace, e.PodName, e.AgentName, "GracePeriodViolation", "P2", fmt.Sprintf("Pod deletion exceeded grace period grace=%ds overdue=%s", e.GracePeriodSeconds, e.OverdueFor.String())
+		summary := fmt.Sprintf("Pod deletion exceeded grace period grace=%ds overdue=%s", e.GracePeriodSeconds, e.OverdueFor.String())
+		return c.podScopedInput(ctx, e.Namespace, e.PodName, e.AgentName, "GracePeriodViolation", "P2", "GracePeriodExceeded", summary, event), true
 	case watcher.NodeNotReadyEvent:
-		return e.Namespace, e.NodeName, e.AgentName, incidentTypeNodeFailure, "P1", fmt.Sprintf("Node not ready reason=%s message=%s", e.Reason, e.Message)
+		return incident.Input{
+			Namespace:    e.Namespace,
+			AgentRef:     e.AgentName,
+			IncidentType: incidentTypeNodeFailure,
+			Severity:     "P1",
+			Summary:      fmt.Sprintf("Node not ready reason=%s message=%s", e.Reason, e.Message),
+			Reason:       e.Reason,
+			Message:      e.Message,
+			DedupKey:     event.DedupKey(),
+			ObservedAt:   event.OccurredAt(),
+			Scope: rcav1alpha1.IncidentScope{
+				Level: incident.ScopeLevelCluster,
+				ResourceRef: &rcav1alpha1.IncidentObjectRef{
+					APIVersion: corev1.SchemeGroupVersion.String(),
+					Kind:       "Node",
+					Name:       e.NodeName,
+				},
+			},
+			AffectedResources: []rcav1alpha1.AffectedResource{
+				{APIVersion: corev1.SchemeGroupVersion.String(), Kind: "Node", Name: e.NodeName},
+			},
+		}, true
 	case watcher.PodEvictedEvent:
-		return e.Namespace, e.PodName, e.AgentName, incidentTypeNodeFailure, "P2", fmt.Sprintf("Pod evicted from node reason=%s message=%s", e.Reason, e.Message)
+		summary := fmt.Sprintf("Pod evicted from node reason=%s message=%s", e.Reason, e.Message)
+		return c.podScopedInput(ctx, e.Namespace, e.PodName, e.AgentName, incidentTypeNodeFailure, "P2", e.Reason, summary, event), true
 	case watcher.ProbeFailureEvent:
-		return e.Namespace, e.PodName, e.AgentName, "ProbeFailure", "P3", fmt.Sprintf("Probe failed probeType=%s message=%s", e.ProbeType, e.Message)
+		summary := fmt.Sprintf("Probe failed probeType=%s message=%s", e.ProbeType, e.Message)
+		return c.podScopedInput(ctx, e.Namespace, e.PodName, e.AgentName, "ProbeFailure", "P3", e.ProbeType, summary, event), true
 	case watcher.StalledRolloutEvent:
-		return e.Namespace, e.DeploymentName, e.AgentName, "BadDeploy", "P2",
-			fmt.Sprintf("Deployment rollout stalled reason=%s desiredReplicas=%d readyReplicas=%d message=%s",
-				e.Reason, e.DesiredReplicas, e.ReadyReplicas, e.Message)
+		summary := fmt.Sprintf("Deployment rollout stalled reason=%s desiredReplicas=%d readyReplicas=%d message=%s",
+			e.Reason, e.DesiredReplicas, e.ReadyReplicas, e.Message)
+		return incident.Input{
+			Namespace:    e.Namespace,
+			AgentRef:     e.AgentName,
+			IncidentType: "BadDeploy",
+			Severity:     "P2",
+			Summary:      summary,
+			Reason:       e.Reason,
+			Message:      e.Message,
+			DedupKey:     event.DedupKey(),
+			ObservedAt:   event.OccurredAt(),
+			Scope: rcav1alpha1.IncidentScope{
+				Level:     incident.ScopeLevelWorkload,
+				Namespace: e.Namespace,
+				WorkloadRef: &rcav1alpha1.IncidentObjectRef{
+					APIVersion: "apps/v1",
+					Kind:       "Deployment",
+					Namespace:  e.Namespace,
+					Name:       e.DeploymentName,
+				},
+				ResourceRef: &rcav1alpha1.IncidentObjectRef{
+					APIVersion: "apps/v1",
+					Kind:       "Deployment",
+					Namespace:  e.Namespace,
+					Name:       e.DeploymentName,
+				},
+			},
+			AffectedResources: []rcav1alpha1.AffectedResource{
+				{APIVersion: "apps/v1", Kind: "Deployment", Namespace: e.Namespace, Name: e.DeploymentName},
+			},
+		}, true
 	case watcher.NodePressureEvent:
 		severity := "P2"
 		if e.PressureType == "PIDPressure" {
 			severity = "P3"
 		}
-		return e.Namespace, e.NodeName, e.AgentName, incidentTypeNodeFailure, severity,
-			fmt.Sprintf("Node %s condition=%s message=%s", e.NodeName, e.PressureType, e.Message)
+		return incident.Input{
+			Namespace:    e.Namespace,
+			AgentRef:     e.AgentName,
+			IncidentType: incidentTypeNodeFailure,
+			Severity:     severity,
+			Summary:      fmt.Sprintf("Node %s condition=%s message=%s", e.NodeName, e.PressureType, e.Message),
+			Reason:       e.PressureType,
+			Message:      e.Message,
+			DedupKey:     event.DedupKey(),
+			ObservedAt:   event.OccurredAt(),
+			Scope: rcav1alpha1.IncidentScope{
+				Level: incident.ScopeLevelCluster,
+				ResourceRef: &rcav1alpha1.IncidentObjectRef{
+					APIVersion: corev1.SchemeGroupVersion.String(),
+					Kind:       "Node",
+					Name:       e.NodeName,
+				},
+			},
+			AffectedResources: []rcav1alpha1.AffectedResource{
+				{APIVersion: corev1.SchemeGroupVersion.String(), Kind: "Node", Name: e.NodeName},
+			},
+		}, true
 	case watcher.CPUThrottlingEvent:
-		return e.Namespace, e.PodName, e.AgentName, "ResourceSaturation", "P3",
-			fmt.Sprintf("CPU throttling high container=%s message=%s", e.ContainerName, e.Message)
-	case watcher.PodHealthyEvent:
-		return "", "", "", "", "", ""
+		summary := fmt.Sprintf("CPU throttling high container=%s message=%s", e.ContainerName, e.Message)
+		return c.podScopedInput(ctx, e.Namespace, e.PodName, e.AgentName, "ResourceSaturation", "P3", "CPUThrottlingHigh", summary, event), true
 	default:
-		return "", "", "", "", "", ""
+		return incident.Input{}, false
 	}
 }
 
-// ── Utility helpers ──────────────────────────────────────────────────────────
-// These small utilities are kept here (mirroring the reporter package) so that
-// tests in this package can exercise them without importing an internal package.
+func (c *Consumer) podScopedInput(
+	ctx context.Context,
+	namespace, podName, agentRef, incidentType, severity, reason, summary string,
+	event watcher.CorrelatorEvent,
+) incident.Input {
+	scope, affectedResources, err := c.resolver.ResolvePodScope(ctx, namespace, podName)
+	if err != nil {
+		c.log.V(1).Info("Falling back to pod scope for incident", "namespace", namespace, "pod", podName, "error", err.Error())
+	}
+	return incident.Input{
+		Namespace:         namespace,
+		AgentRef:          agentRef,
+		IncidentType:      incidentType,
+		Severity:          severity,
+		Summary:           summary,
+		Reason:            reason,
+		Message:           summary,
+		DedupKey:          event.DedupKey(),
+		ObservedAt:        event.OccurredAt(),
+		Scope:             scope,
+		AffectedResources: affectedResources,
+	}
+}
 
+func mergeAffectedResources(existing, incoming []rcav1alpha1.AffectedResource) []rcav1alpha1.AffectedResource {
+	out := append([]rcav1alpha1.AffectedResource{}, existing...)
+	for _, candidate := range incoming {
+		found := false
+		for _, current := range out {
+			if current.Kind == candidate.Kind && current.Namespace == candidate.Namespace && current.Name == candidate.Name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			out = append(out, candidate)
+		}
+	}
+	return out
+}
+
+// Utility helpers kept for existing package tests.
 func incidentAffectsPod(report *rcav1alpha1.IncidentReport, podName, namespace string) bool {
 	for _, resource := range report.Status.AffectedResources {
-		if resource.Kind != "Pod" {
-			continue
-		}
-		if resource.Name == podName && resource.Namespace == namespace {
+		if resource.Kind == "Pod" && resource.Name == podName && resource.Namespace == namespace {
 			return true
 		}
 	}
@@ -212,10 +329,7 @@ func incidentAffectsPod(report *rcav1alpha1.IncidentReport, podName, namespace s
 }
 
 func isPodCurrentlyReady(pod *corev1.Pod) bool {
-	if pod == nil {
-		return false
-	}
-	if pod.Status.Phase != corev1.PodRunning {
+	if pod == nil || pod.Status.Phase != corev1.PodRunning {
 		return false
 	}
 	for _, condition := range pod.Status.Conditions {
@@ -315,4 +429,45 @@ func safeNameToken(in string) string {
 		return "incident"
 	}
 	return out
+}
+
+func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, incidentType, severity, summary string) {
+	switch e := event.(type) {
+	case watcher.CrashLoopBackOffEvent:
+		summary = fmt.Sprintf("CrashLoopBackOff restarts=%d threshold=%d", e.RestartCount, e.Threshold)
+		if e.LastExitCode != 0 && e.ExitCodeCategory != "" {
+			summary = fmt.Sprintf("%s exitCode=%d category=%s description=%s", summary, e.LastExitCode, e.ExitCodeCategory, e.ExitCodeDescription)
+		}
+		return e.Namespace, e.PodName, e.AgentName, "CrashLoop", "P3", summary
+	case watcher.OOMKilledEvent:
+		return e.Namespace, e.PodName, e.AgentName, "OOM", "P2", fmt.Sprintf("OOMKilled exitCode=%d reason=%s", e.ExitCode, e.Reason)
+	case watcher.ImagePullBackOffEvent:
+		return e.Namespace, e.PodName, e.AgentName, "Registry", "P3", fmt.Sprintf("Image pull failure reason=%s", e.Reason)
+	case watcher.PodPendingTooLongEvent:
+		return e.Namespace, e.PodName, e.AgentName, "BadDeploy", "P3", fmt.Sprintf("Pod pending too long pendingFor=%s timeout=%s", e.PendingFor.String(), e.Timeout.String())
+	case watcher.GracePeriodViolationEvent:
+		return e.Namespace, e.PodName, e.AgentName, "GracePeriodViolation", "P2", fmt.Sprintf("Pod deletion exceeded grace period grace=%ds overdue=%s", e.GracePeriodSeconds, e.OverdueFor.String())
+	case watcher.NodeNotReadyEvent:
+		return e.Namespace, e.NodeName, e.AgentName, incidentTypeNodeFailure, "P1", fmt.Sprintf("Node not ready reason=%s message=%s", e.Reason, e.Message)
+	case watcher.PodEvictedEvent:
+		return e.Namespace, e.PodName, e.AgentName, incidentTypeNodeFailure, "P2", fmt.Sprintf("Pod evicted from node reason=%s message=%s", e.Reason, e.Message)
+	case watcher.ProbeFailureEvent:
+		return e.Namespace, e.PodName, e.AgentName, "ProbeFailure", "P3", fmt.Sprintf("Probe failed probeType=%s message=%s", e.ProbeType, e.Message)
+	case watcher.StalledRolloutEvent:
+		return e.Namespace, e.DeploymentName, e.AgentName, "BadDeploy", "P2",
+			fmt.Sprintf("Deployment rollout stalled reason=%s desiredReplicas=%d readyReplicas=%d message=%s",
+				e.Reason, e.DesiredReplicas, e.ReadyReplicas, e.Message)
+	case watcher.NodePressureEvent:
+		severity := "P2"
+		if e.PressureType == "PIDPressure" {
+			severity = "P3"
+		}
+		return e.Namespace, e.NodeName, e.AgentName, incidentTypeNodeFailure, severity,
+			fmt.Sprintf("Node %s condition=%s message=%s", e.NodeName, e.PressureType, e.Message)
+	case watcher.CPUThrottlingEvent:
+		return e.Namespace, e.PodName, e.AgentName, "ResourceSaturation", "P3",
+			fmt.Sprintf("CPU throttling high container=%s message=%s", e.ContainerName, e.Message)
+	default:
+		return "", "", "", "", "", ""
+	}
 }

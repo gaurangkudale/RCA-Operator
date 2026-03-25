@@ -75,19 +75,28 @@ func (s *Server) Start(ctx context.Context) error {
 type incidentResponse struct {
 	Name              string                         `json:"name"`
 	Namespace         string                         `json:"namespace"`
+	Fingerprint       string                         `json:"fingerprint"`
 	PodName           string                         `json:"podName"`
 	Severity          string                         `json:"severity"`
 	Phase             string                         `json:"phase"`
 	IncidentType      string                         `json:"incidentType"`
+	Summary           string                         `json:"summary"`
+	Reason            string                         `json:"reason"`
+	Message           string                         `json:"message"`
 	Notified          bool                           `json:"notified"`
+	FirstObservedAt   *time.Time                     `json:"firstObservedAt"`
+	ActiveAt          *time.Time                     `json:"activeAt"`
+	LastObservedAt    *time.Time                     `json:"lastObservedAt"`
 	StartTime         *time.Time                     `json:"startTime"`
 	ResolvedTime      *time.Time                     `json:"resolvedTime"`
+	ResolvedAt        *time.Time                     `json:"resolvedAt"`
+	SignalCount       int64                          `json:"signalCount"`
+	Scope             rcav1alpha1.IncidentScope      `json:"scope"`
 	AffectedResources []rcav1alpha1.AffectedResource `json:"affectedResources"`
 	CorrelatedSignals []string                       `json:"correlatedSignals"`
 	Timeline          []timelineEntry                `json:"timeline"`
 	AgentRef          string                         `json:"agentRef"`
 	LastSeen          string                         `json:"lastSeen"`
-	SignalCount       string                         `json:"signalCount"`
 	RootCause         string                         `json:"rootCause,omitempty"`
 }
 
@@ -260,17 +269,34 @@ func toIncidentResponse(item *rcav1alpha1.IncidentReport) incidentResponse {
 	resp := incidentResponse{
 		Name:              item.Name,
 		Namespace:         item.Namespace,
+		Fingerprint:       item.Spec.Fingerprint,
 		PodName:           item.Labels[reporter.LabelPodName],
 		Severity:          item.Status.Severity,
 		Phase:             item.Status.Phase,
-		IncidentType:      item.Status.IncidentType,
+		IncidentType:      item.Spec.IncidentType,
+		Summary:           item.Status.Summary,
+		Reason:            item.Status.Reason,
+		Message:           item.Status.Message,
 		Notified:          item.Status.Notified,
+		Scope:             item.Spec.Scope,
 		AffectedResources: item.Status.AffectedResources,
 		CorrelatedSignals: item.Status.CorrelatedSignals,
 		AgentRef:          item.Spec.AgentRef,
 		LastSeen:          item.Annotations[reporter.AnnotationLastSeen],
-		SignalCount:       item.Annotations[reporter.AnnotationSignalSeen],
+		SignalCount:       item.Status.SignalCount,
 		RootCause:         item.Status.RootCause,
+	}
+	if item.Status.FirstObservedAt != nil {
+		t := item.Status.FirstObservedAt.Time
+		resp.FirstObservedAt = &t
+	}
+	if item.Status.ActiveAt != nil {
+		t := item.Status.ActiveAt.Time
+		resp.ActiveAt = &t
+	}
+	if item.Status.LastObservedAt != nil {
+		t := item.Status.LastObservedAt.Time
+		resp.LastObservedAt = &t
 	}
 	if item.Status.StartTime != nil {
 		t := item.Status.StartTime.Time
@@ -279,6 +305,10 @@ func toIncidentResponse(item *rcav1alpha1.IncidentReport) incidentResponse {
 	if item.Status.ResolvedTime != nil {
 		t := item.Status.ResolvedTime.Time
 		resp.ResolvedTime = &t
+	}
+	if item.Status.ResolvedAt != nil {
+		t := item.Status.ResolvedAt.Time
+		resp.ResolvedAt = &t
 	}
 	if resp.AffectedResources == nil {
 		resp.AffectedResources = []rcav1alpha1.AffectedResource{}

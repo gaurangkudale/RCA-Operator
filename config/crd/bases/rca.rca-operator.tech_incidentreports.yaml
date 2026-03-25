@@ -24,16 +24,16 @@ spec:
       name: Phase
       type: string
     - description: Incident type
-      jsonPath: .status.incidentType
+      jsonPath: .spec.incidentType
       name: Type
       type: string
     - description: Notifications sent
       jsonPath: .status.notified
       name: Notified
       type: boolean
-    - description: When detected
-      jsonPath: .status.startTime
-      name: Start
+    - description: When first observed
+      jsonPath: .status.firstObservedAt
+      name: FirstSeen
       type: date
     - jsonPath: .metadata.creationTimestamp
       name: Age
@@ -68,12 +68,92 @@ spec:
                   report.
                 minLength: 1
                 type: string
+              fingerprint:
+                description: |-
+                  fingerprint is the canonical identity for an incident.
+                  It is stable across repeated signals for the same underlying issue.
+                minLength: 1
+                type: string
+              incidentType:
+                description: incidentType is the durable incident category.
+                minLength: 1
+                type: string
+              scope:
+                description: scope describes the primary object or workload the incident
+                  belongs to.
+                properties:
+                  level:
+                    description: level is one of Cluster, Namespace, Workload, or
+                      Pod.
+                    enum:
+                    - Cluster
+                    - Namespace
+                    - Workload
+                    - Pod
+                    type: string
+                  namespace:
+                    description: namespace is populated for namespace-, workload-,
+                      and pod-scoped incidents.
+                    type: string
+                  resourceRef:
+                    description: resourceRef points at the primary affected object.
+                    properties:
+                      apiVersion:
+                        description: apiVersion is the resource API version.
+                        type: string
+                      kind:
+                        description: kind is the Kubernetes kind.
+                        type: string
+                      name:
+                        description: name is the Kubernetes object name.
+                        type: string
+                      namespace:
+                        description: namespace is empty for cluster-scoped resources.
+                        type: string
+                      uid:
+                        description: uid is the Kubernetes UID when known.
+                        type: string
+                    required:
+                    - kind
+                    - name
+                    type: object
+                  workloadRef:
+                    description: workloadRef points at the top-level workload when
+                      the issue belongs to one.
+                    properties:
+                      apiVersion:
+                        description: apiVersion is the resource API version.
+                        type: string
+                      kind:
+                        description: kind is the Kubernetes kind.
+                        type: string
+                      name:
+                        description: name is the Kubernetes object name.
+                        type: string
+                      namespace:
+                        description: namespace is empty for cluster-scoped resources.
+                        type: string
+                      uid:
+                        description: uid is the Kubernetes UID when known.
+                        type: string
+                    required:
+                    - kind
+                    - name
+                    type: object
+                type: object
             required:
             - agentRef
+            - fingerprint
+            - incidentType
             type: object
           status:
             description: status defines the observed state of IncidentReport
             properties:
+              activeAt:
+                description: activeAt is when the incident crossed the stabilization
+                  window and became Active.
+                format: date-time
+                type: string
               affectedResources:
                 description: affectedResources lists the Kubernetes resources involved
                   in this incident.
@@ -81,6 +161,9 @@ spec:
                   description: AffectedResource identifies a Kubernetes resource involved
                     in an incident.
                   properties:
+                    apiVersion:
+                      description: apiVersion is the resource API version when known.
+                      type: string
                     kind:
                       description: kind is the resource kind (e.g. Deployment, Pod,
                         Node).
@@ -91,6 +174,9 @@ spec:
                     namespace:
                       description: namespace is the resource namespace. Empty for
                         cluster-scoped resources.
+                      type: string
+                    uid:
+                      description: uid is the Kubernetes UID when known.
                       type: string
                   required:
                   - kind
@@ -167,6 +253,11 @@ spec:
                   type: string
                 type: array
                 x-kubernetes-list-type: atomic
+              firstObservedAt:
+                description: firstObservedAt is when the incident fingerprint was
+                  first seen in the current lifecycle.
+                format: date-time
+                type: string
               incidentType:
                 description: incidentType is the category of incident detected by
                   the correlator.
@@ -180,6 +271,14 @@ spec:
                 - ProbeFailure
                 - ResourceSaturation
                 type: string
+              lastObservedAt:
+                description: lastObservedAt is when the most recent confirming signal
+                  was received.
+                format: date-time
+                type: string
+              message:
+                description: message is the detailed message for the most recent signal.
+                type: string
               notified:
                 description: |-
                   notified indicates whether the notification layer (Slack / PagerDuty) has
@@ -192,9 +291,18 @@ spec:
                 - Active
                 - Resolved
                 type: string
+              reason:
+                description: reason is the machine-oriented Kubernetes reason when
+                  available.
+                type: string
+              resolvedAt:
+                description: resolvedAt is when the incident was resolved.
+                format: date-time
+                type: string
               resolvedTime:
-                description: resolvedTime is when the incident was resolved. Empty
-                  while still active.
+                description: |-
+                  resolvedTime is when the incident was resolved. Empty while still active.
+                  Deprecated: use resolvedAt.
                 format: date-time
                 type: string
               rootCause:
@@ -211,9 +319,25 @@ spec:
                 - P3
                 - P4
                 type: string
+              signalCount:
+                description: signalCount is the number of confirming signals recorded
+                  in the current lifecycle.
+                format: int64
+                type: integer
+              stabilizationWindowSeconds:
+                description: stabilizationWindowSeconds is the required continuous
+                  observation window before Active.
+                format: int64
+                type: integer
               startTime:
-                description: startTime is when the incident was first detected.
+                description: |-
+                  startTime is when the incident was first detected.
+                  Deprecated: use firstObservedAt.
                 format: date-time
+                type: string
+              summary:
+                description: summary is the short dashboard-friendly summary for the
+                  current incident state.
                 type: string
               timeline:
                 description: timeline is the ordered sequence of events that make

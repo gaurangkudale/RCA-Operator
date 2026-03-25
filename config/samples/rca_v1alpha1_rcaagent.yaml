@@ -28,11 +28,11 @@ apiVersion: rca.rca-operator.tech/v1alpha1
 kind: RCAAgent
 metadata:
   name: rcaagent-sample-default
-  namespace: default
+  namespace: qln-dev
 spec:
   # Namespaces the operator monitors for pod failures.
   watchNamespaces:
-    - default
+    - qln-dev
   aiProviderConfig:
     type: openai
     model: gpt-4o
