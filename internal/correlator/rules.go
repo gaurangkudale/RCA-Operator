@@ -18,7 +18,6 @@ type ruleFunc func(event watcher.CorrelatorEvent, entries []entry) CorrelationRe
 var allRules = []ruleFunc{
 	ruleNodeNotReadyPlusEviction, // Rule 5 — P1
 	ruleCrashLoopPlusOOM,         // Rule 1 — P2
-	ruleMultiPodNodeFailure,      // Rule 3 — P2
 	ruleCrashLoopPlusBadDeploy,   // Rule 2 — P2
 	ruleImagePullNoHistory,       // Rule 4 — P2 (escalated from P3)
 }
@@ -86,45 +85,10 @@ func ruleCrashLoopPlusBadDeploy(event watcher.CorrelatorEvent, entries []entry) 
 	return CorrelationResult{}
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Rule 3: Multiple pods failing on same node → NodeFailure, P2
-// ─────────────────────────────────────────────────────────────────────────────
-
-func ruleMultiPodNodeFailure(event watcher.CorrelatorEvent, entries []entry) CorrelationResult {
-	nodeName := extractNodeForFailure(event)
-	if nodeName == "" {
-		return CorrelationResult{}
-	}
-
-	// Collect distinct failing pods (including the current event) on this node.
-	failedPods := map[string]struct{}{}
-	for _, en := range entries {
-		n := extractNodeForFailure(en.event)
-		if n != nodeName {
-			continue
-		}
-		if k := failurePodKey(en.event); k != "" {
-			failedPods[k] = struct{}{}
-		}
-	}
-
-	if len(failedPods) >= 2 {
-		return CorrelationResult{
-			Fired:        true,
-			IncidentType: "NodeFailure",
-			Severity:     "P2",
-			Summary:      fmt.Sprintf("NodeLevel: %d pods failing on node=%s", len(failedPods), nodeName),
-			Rule:         "MultiPodNodeFailure",
-			// Use node name so the incident deduplicates with any existing
-			// NodeFailure incident created by a NodeNotReady signal for this node.
-			Resource: nodeName,
-		}
-	}
-	return CorrelationResult{}
-}
-
 // extractNodeForFailure returns the NodeName for pod-failure event types that
-// carry node affinity information (CrashLoop, OOM, PodEvicted).
+// carry node affinity information (CrashLoop, OOM, PodEvicted). These helpers
+// are retained for targeted tests and future correlation that may need node
+// affinity without mapping pod failures directly into NodeFailure incidents.
 func extractNodeForFailure(e watcher.CorrelatorEvent) string {
 	switch ev := e.(type) {
 	case watcher.CrashLoopBackOffEvent:

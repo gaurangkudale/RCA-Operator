@@ -385,7 +385,22 @@ input::placeholder{color:var(--dim)}
     return m+'m '+sec+'s';
   }
   function incKey(inc){return inc.name+'/'+inc.namespace}
-  function dname(inc){return inc.podName||inc.name}
+  function findAffectedResource(inc,kind){
+    var res=inc.affectedResources||[];
+    for(var i=0;i<res.length;i++){ if(res[i].kind===kind) return res[i]; }
+    return null;
+  }
+  function primaryRef(inc){
+    if(inc.scope&&inc.scope.resourceRef&&inc.scope.resourceRef.name) return inc.scope.resourceRef;
+    if(inc.scope&&inc.scope.workloadRef&&inc.scope.workloadRef.name) return inc.scope.workloadRef;
+    return findAffectedResource(inc,'Node')||findAffectedResource(inc,'Deployment')||findAffectedResource(inc,'StatefulSet')||
+      findAffectedResource(inc,'DaemonSet')||findAffectedResource(inc,'Job')||findAffectedResource(inc,'CronJob')||
+      findAffectedResource(inc,'ReplicaSet')||findAffectedResource(inc,'Pod');
+  }
+  function dname(inc){
+    var ref=primaryRef(inc);
+    return (ref&&ref.name)||inc.podName||inc.name;
+  }
   function pad2(n){return n<10?'0'+n:''+n}
 
   function copyToClip(text,btnEl){
@@ -588,8 +603,10 @@ input::placeholder{color:var(--dim)}
     panel.style.display='';
 
     var sev=inc.severity||'P4';var sevCfg=SEV[sev]||SEV.P4;
-    var name=dname(inc);var podRes=null;
-    (inc.affectedResources||[]).forEach(function(r){if(r.kind==='Pod'&&!podRes) podRes=r});
+    var name=dname(inc);
+    var podRes=findAffectedResource(inc,'Pod');
+    var nodeRes=findAffectedResource(inc,'Node');
+    var resourceRef=primaryRef(inc);
 
     var html='';
     /* Header */
@@ -698,7 +715,12 @@ input::placeholder{color:var(--dim)}
     addCmd('events','kubectl get events -n '+inc.namespace+' --sort-by=\'.lastTimestamp\' | head -30');
     var pb=PLAYBOOK[inc.incidentType]||[];
     pb.forEach(function(cmd){
-      var filled=cmd.replace(/<ns>/g,inc.namespace).replace(/<name>/g,name).replace(/<pod-name>/g,podRes?podRes.name:name).replace(/<pod>/g,podRes?podRes.name:name).replace(/<node-name>/g,name);
+      var filled=cmd
+        .replace(/<ns>/g,inc.namespace)
+        .replace(/<name>/g,(resourceRef&&resourceRef.name)||name)
+        .replace(/<pod-name>/g,podRes?podRes.name:name)
+        .replace(/<pod>/g,podRes?podRes.name:name)
+        .replace(/<node-name>/g,nodeRes?nodeRes.name:name);
       addCmd('action',filled);
     });
 
