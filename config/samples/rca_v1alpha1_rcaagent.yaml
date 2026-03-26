@@ -43,7 +43,7 @@ spec:
     slack:
       # Name of a Secret in this namespace with key "webhookURL".
       webhookSecretRef: slack-webhook
-      channel: "#incidents"
+      channel: "#random"
     pagerduty:
       # Name of a Secret in this namespace with key "apiKey".
       secretRef: pd-api-key

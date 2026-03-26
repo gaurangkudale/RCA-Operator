@@ -33,15 +33,21 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
+	"github.com/gaurangkudale/rca-operator/internal/incidentstatus"
+	"github.com/gaurangkudale/rca-operator/internal/metrics"
+	"github.com/gaurangkudale/rca-operator/internal/notify"
 )
 
 const (
-	stabilizationDelay         = 5 * time.Minute
-	healthyResolveWindow       = 5 * time.Minute
-	incidentAnnotationLastSeen = "rca.rca-operator.tech/last-seen"
+	stabilizationDelay          = 5 * time.Minute
+	healthyResolveWindow        = 5 * time.Minute
+	incidentAnnotationLastSeen  = "rca.rca-operator.tech/last-seen"
+	notificationOpenSentKey     = "rca.rca-operator.tech/notification-open-sent"
+	notificationResolvedSentKey = "rca.rca-operator.tech/notification-resolved-sent"
+	resolvedMetricRecordedKey   = "rca.rca-operator.tech/resolved-metric-recorded"
+	annotationTrue              = "true"
 
 	incidentTypeNodeFailure = "NodeFailure"
-	maxTimelineEntriesCtrl  = 50
 	resourceKindPod         = "Pod"
 )
 
@@ -49,6 +55,7 @@ type IncidentReportReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
+	Notifier *notify.Dispatcher
 	nowFn    func() time.Time
 }
 
@@ -66,6 +73,8 @@ func (r *IncidentReportReconciler) now() time.Time {
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="apps",resources=deployments,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=rca.rca-operator.tech,resources=rcaagents,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 func (r *IncidentReportReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
@@ -76,12 +85,14 @@ func (r *IncidentReportReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	switch report.Status.Phase {
-	case "", phaseResolved:
+	case "":
 		return ctrl.Result{}, nil
 	case phaseDetecting:
 		return r.reconcileDetecting(ctx, log, report)
 	case phaseActive:
 		return r.reconcileActive(ctx, log, report)
+	case phaseResolved:
+		return r.reconcileResolved(ctx, log, report)
 	default:
 		log.Info("IncidentReport has unrecognised phase; skipping", "phase", report.Status.Phase)
 		return ctrl.Result{}, nil
@@ -89,10 +100,7 @@ func (r *IncidentReportReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 }
 
 func (r *IncidentReportReconciler) reconcileDetecting(ctx context.Context, _ logr.Logger, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
-	firstObserved := report.Status.FirstObservedAt
-	if firstObserved == nil {
-		firstObserved = report.Status.StartTime
-	}
+	firstObserved := incidentstatus.EffectiveStartTime(report.Status)
 	if firstObserved == nil {
 		return r.transitionToActive(ctx, report)
 	}
@@ -123,12 +131,15 @@ func (r *IncidentReportReconciler) reconcileDetecting(ctx context.Context, _ log
 }
 
 func (r *IncidentReportReconciler) reconcileActive(ctx context.Context, _ logr.Logger, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+	if !report.Status.Notified {
+		if err := r.sendOpenNotifications(ctx, report); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	lastObserved := report.Status.LastObservedAt
 	if lastObserved == nil {
-		lastObserved = report.Status.FirstObservedAt
-	}
-	if lastObserved == nil {
-		lastObserved = report.Status.StartTime
+		lastObserved = incidentstatus.EffectiveStartTime(report.Status)
 	}
 	if lastObserved == nil {
 		lastObserved = &metav1.Time{Time: r.now()}
@@ -159,12 +170,22 @@ func (r *IncidentReportReconciler) reconcileActive(ctx context.Context, _ logr.L
 		fmt.Sprintf("No confirming signals for %.0f minutes and issue state cleared", healthyResolveWindow.Minutes()))
 }
 
+func (r *IncidentReportReconciler) reconcileResolved(ctx context.Context, _ logr.Logger, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+	if err := r.recordResolvedMetric(ctx, report); err != nil {
+		return ctrl.Result{}, err
+	}
+	if report.Status.Notified {
+		if err := r.sendResolvedNotifications(ctx, report); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+	return ctrl.Result{}, nil
+}
+
 func (r *IncidentReportReconciler) transitionToActive(ctx context.Context, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
 	now := metav1.NewTime(r.now())
 	base := report.DeepCopy()
-	report.Status.Phase = phaseActive
-	report.Status.ActiveAt = &now
-	report.Status.Timeline = appendTimeline(report.Status.Timeline, now, "Incident confirmed active after stabilisation period")
+	incidentstatus.MarkActive(report, now, "Incident confirmed active after stabilisation period")
 	if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to transition IncidentReport %s/%s to Active: %w", report.Namespace, report.Name, err)
 	}
@@ -178,10 +199,7 @@ func (r *IncidentReportReconciler) transitionToActive(ctx context.Context, repor
 func (r *IncidentReportReconciler) transitionToResolved(ctx context.Context, report *rcav1alpha1.IncidentReport, reason string) (ctrl.Result, error) {
 	now := metav1.NewTime(r.now())
 	base := report.DeepCopy()
-	report.Status.Phase = phaseResolved
-	report.Status.ResolvedTime = &now
-	report.Status.ResolvedAt = &now
-	report.Status.Timeline = appendTimeline(report.Status.Timeline, now, reason)
+	incidentstatus.MarkResolved(report, now, reason)
 	if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to resolve IncidentReport %s/%s: %w", report.Namespace, report.Name, err)
 	}
@@ -278,19 +296,74 @@ func isPodReady(pod *corev1.Pod) bool {
 	return false
 }
 
-func appendTimeline(tl []rcav1alpha1.TimelineEvent, t metav1.Time, msg string) []rcav1alpha1.TimelineEvent {
-	tl = append(tl, rcav1alpha1.TimelineEvent{Time: t, Event: msg})
-	if len(tl) > maxTimelineEntriesCtrl {
-		tl = tl[len(tl)-maxTimelineEntriesCtrl:]
-	}
-	return tl
-}
-
 func stabilizationWindow(report *rcav1alpha1.IncidentReport) time.Duration {
 	if report != nil && report.Status.StabilizationWindowSeconds > 0 {
 		return time.Duration(report.Status.StabilizationWindowSeconds) * time.Second
 	}
 	return 30 * time.Second
+}
+
+func (r *IncidentReportReconciler) sendOpenNotifications(ctx context.Context, report *rcav1alpha1.IncidentReport) error {
+	if r.Notifier == nil {
+		return nil
+	}
+	if err := r.Notifier.NotifyIncident(ctx, report, "trigger"); err != nil {
+		return fmt.Errorf("notify open incident %s/%s: %w", report.Namespace, report.Name, err)
+	}
+
+	base := report.DeepCopy()
+	if report.Annotations == nil {
+		report.Annotations = make(map[string]string)
+	}
+	report.Annotations[notificationOpenSentKey] = annotationTrue
+	report.Status.Notified = true
+	if err := r.Patch(ctx, report, client.MergeFrom(base)); err != nil {
+		return fmt.Errorf("mark open notification metadata for %s/%s: %w", report.Namespace, report.Name, err)
+	}
+	if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
+		return fmt.Errorf("mark incident notified for %s/%s: %w", report.Namespace, report.Name, err)
+	}
+	return nil
+}
+
+func (r *IncidentReportReconciler) sendResolvedNotifications(ctx context.Context, report *rcav1alpha1.IncidentReport) error {
+	if report.Annotations != nil && report.Annotations[notificationResolvedSentKey] == annotationTrue {
+		return nil
+	}
+	if r.Notifier == nil {
+		return nil
+	}
+	if err := r.Notifier.NotifyIncident(ctx, report, "resolve"); err != nil {
+		return fmt.Errorf("notify resolved incident %s/%s: %w", report.Namespace, report.Name, err)
+	}
+
+	base := report.DeepCopy()
+	if report.Annotations == nil {
+		report.Annotations = make(map[string]string)
+	}
+	report.Annotations[notificationResolvedSentKey] = annotationTrue
+	if err := r.Patch(ctx, report, client.MergeFrom(base)); err != nil {
+		return fmt.Errorf("mark resolved notification metadata for %s/%s: %w", report.Namespace, report.Name, err)
+	}
+	return nil
+}
+
+func (r *IncidentReportReconciler) recordResolvedMetric(ctx context.Context, report *rcav1alpha1.IncidentReport) error {
+	if report.Annotations != nil && report.Annotations[resolvedMetricRecordedKey] == annotationTrue {
+		return nil
+	}
+
+	metrics.RecordIncidentResolved(report.Spec.AgentRef, report.Status.IncidentType, report.Status.Severity)
+
+	base := report.DeepCopy()
+	if report.Annotations == nil {
+		report.Annotations = make(map[string]string)
+	}
+	report.Annotations[resolvedMetricRecordedKey] = annotationTrue
+	if err := r.Patch(ctx, report, client.MergeFrom(base)); err != nil {
+		return fmt.Errorf("mark resolved metric metadata for %s/%s: %w", report.Namespace, report.Name, err)
+	}
+	return nil
 }
 
 func (r *IncidentReportReconciler) SetupWithManager(mgr ctrl.Manager) error {

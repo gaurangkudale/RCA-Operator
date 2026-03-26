@@ -20,6 +20,8 @@ import (
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 	"github.com/gaurangkudale/rca-operator/internal/incident"
+	"github.com/gaurangkudale/rca-operator/internal/incidentstatus"
+	"github.com/gaurangkudale/rca-operator/internal/metrics"
 )
 
 const (
@@ -55,7 +57,7 @@ const (
 )
 
 const (
-	MaxTimelineEntries = 50
+	MaxTimelineEntries = incidentstatus.MaxTimelineEntries
 	MaxSignalEntries   = 20
 )
 
@@ -194,13 +196,14 @@ func (r *Reporter) createIncident(ctx context.Context, input incident.Input, fin
 		Notified:                   false,
 		AffectedResources:          trimAffectedResources(input.AffectedResources),
 		CorrelatedSignals:          []string{input.Summary},
-		Timeline:                   []rcav1alpha1.TimelineEvent{{Time: firstSeen, Event: input.Summary}},
+		Timeline:                   incidentstatus.AppendTimeline(nil, firstSeen, input.Summary),
 	}
 	if err := r.client.Status().Patch(ctx, report, client.MergeFrom(statusBase)); err != nil {
 		return fmt.Errorf("failed to patch IncidentReport status: %w", err)
 	}
 
 	r.openByFingerprint[fingerprint] = types.NamespacedName{Namespace: report.Namespace, Name: report.Name}
+	metrics.RecordIncidentDetected(input.AgentRef, input.IncidentType, input.Severity)
 	r.log.Info("Created IncidentReport",
 		"namespace", report.Namespace,
 		"name", report.Name,
@@ -249,10 +252,7 @@ func (r *Reporter) ResolveForHealthyPod(ctx context.Context, namespace, podName 
 			continue
 		}
 		base := report.DeepCopy()
-		report.Status.Phase = PhaseResolved
-		report.Status.ResolvedTime = &now
-		report.Status.ResolvedAt = &now
-		report.Status.Timeline = appendTimeline(report.Status.Timeline, now, fmt.Sprintf("Pod %s became Running and Ready", podName))
+		incidentstatus.MarkResolved(report, now, fmt.Sprintf("Pod %s became Running and Ready", podName))
 		if err := r.client.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
 			return fmt.Errorf("failed to patch IncidentReport resolve status: %w", err)
 		}
@@ -273,10 +273,7 @@ func (r *Reporter) ResolveForDeletedPod(ctx context.Context, namespace, podName 
 			continue
 		}
 		base := report.DeepCopy()
-		report.Status.Phase = PhaseResolved
-		report.Status.ResolvedTime = &now
-		report.Status.ResolvedAt = &now
-		report.Status.Timeline = appendTimeline(report.Status.Timeline, now, fmt.Sprintf("Pod %s was deleted from the cluster", podName))
+		incidentstatus.MarkResolved(report, now, fmt.Sprintf("Pod %s was deleted from the cluster", podName))
 		if err := r.client.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
 			return fmt.Errorf("failed to patch IncidentReport resolve status for deleted pod: %w", err)
 		}
@@ -338,11 +335,11 @@ func (r *Reporter) Consolidate(ctx context.Context) error {
 
 		for _, extra := range group.extras {
 			base := extra.DeepCopy()
-			extra.Status.Phase = PhaseResolved
-			extra.Status.ResolvedTime = &now
-			extra.Status.ResolvedAt = &now
-			extra.Status.Timeline = appendTimeline(extra.Status.Timeline, now,
-				fmt.Sprintf("Merged into canonical incident %s during startup consolidation", group.canonical.Name))
+			incidentstatus.MarkResolved(
+				extra,
+				now,
+				fmt.Sprintf("Merged into canonical incident %s during startup consolidation", group.canonical.Name),
+			)
 			if err := r.client.Status().Patch(ctx, extra, client.MergeFrom(base)); err != nil {
 				r.log.Error(err, "failed to resolve duplicate incident during consolidation",
 					"namespace", extra.Namespace, "name", extra.Name)
@@ -395,10 +392,7 @@ func (r *Reporter) findResolvableIncident(ctx context.Context, namespace, finger
 	var best *rcav1alpha1.IncidentReport
 	for i := range list.Items {
 		report := &list.Items[i]
-		resolvedAt := report.Status.ResolvedAt
-		if resolvedAt == nil {
-			resolvedAt = report.Status.ResolvedTime
-		}
+		resolvedAt := incidentstatus.EffectiveResolvedTime(report.Status)
 		if report.Status.Phase != PhaseResolved || reportFingerprint(report) != fingerprint || resolvedAt == nil {
 			continue
 		}
@@ -450,7 +444,7 @@ func (r *Reporter) updateActiveIncident(ctx context.Context, report *rcav1alpha1
 	report.Status.LastObservedAt = &now
 	report.Status.StartTime = report.Status.FirstObservedAt
 	report.Status.SignalCount++
-	report.Status.Timeline = appendTimeline(report.Status.Timeline, now, input.Summary)
+	report.Status.Timeline = incidentstatus.AppendTimeline(report.Status.Timeline, now, input.Summary)
 	report.Status.CorrelatedSignals = append(report.Status.CorrelatedSignals, input.Summary)
 	report.Status.CorrelatedSignals = trimSignals(report.Status.CorrelatedSignals)
 	report.Status.AffectedResources = mergeAffectedResources(report.Status.AffectedResources, input.AffectedResources)
@@ -505,7 +499,7 @@ func (r *Reporter) reopenIncident(ctx context.Context, report *rcav1alpha1.Incid
 		report.Status.SignalCount++
 	}
 	report.Status.StabilizationWindowSeconds = int64((5 * time.Minute).Seconds())
-	report.Status.Timeline = appendTimeline(report.Status.Timeline, now, fmt.Sprintf("Incident re-opened: %s", input.Summary))
+	report.Status.Timeline = incidentstatus.AppendTimeline(report.Status.Timeline, now, fmt.Sprintf("Incident re-opened: %s", input.Summary))
 	report.Status.CorrelatedSignals = append(report.Status.CorrelatedSignals, input.Summary)
 	report.Status.CorrelatedSignals = trimSignals(report.Status.CorrelatedSignals)
 	report.Status.AffectedResources = mergeAffectedResources(report.Status.AffectedResources, input.AffectedResources)
@@ -514,6 +508,7 @@ func (r *Reporter) reopenIncident(ctx context.Context, report *rcav1alpha1.Incid
 	}
 
 	r.openByFingerprint[fingerprint] = types.NamespacedName{Namespace: report.Namespace, Name: report.Name}
+	metrics.RecordIncidentDetected(input.AgentRef, input.IncidentType, input.Severity)
 	if r.Recorder != nil {
 		r.Recorder.Eventf(report, corev1.EventTypeWarning, "IncidentReopened", "Incident re-opened: %s", input.Summary)
 	}
@@ -539,18 +534,6 @@ func isPodCurrentlyReady(pod *corev1.Pod) bool {
 		}
 	}
 	return false
-}
-
-func trimTimeline(in []rcav1alpha1.TimelineEvent) []rcav1alpha1.TimelineEvent {
-	if len(in) <= MaxTimelineEntries {
-		return in
-	}
-	return in[len(in)-MaxTimelineEntries:]
-}
-
-func appendTimeline(in []rcav1alpha1.TimelineEvent, t metav1.Time, msg string) []rcav1alpha1.TimelineEvent {
-	in = append(in, rcav1alpha1.TimelineEvent{Time: t, Event: msg})
-	return trimTimeline(in)
 }
 
 func trimSignals(in []string) []string {
@@ -730,8 +713,5 @@ func bestResolvedTime(report *rcav1alpha1.IncidentReport) *metav1.Time {
 	if report == nil {
 		return nil
 	}
-	if report.Status.ResolvedAt != nil {
-		return report.Status.ResolvedAt
-	}
-	return report.Status.ResolvedTime
+	return incidentstatus.EffectiveResolvedTime(report.Status)
 }

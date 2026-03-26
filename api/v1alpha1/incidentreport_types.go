@@ -166,12 +166,12 @@ type IncidentReportStatus struct {
 	LastObservedAt *metav1.Time `json:"lastObservedAt,omitempty"`
 
 	// startTime is when the incident was first detected.
-	// Deprecated: use firstObservedAt.
+	// Deprecated: use firstObservedAt. Retained only for compatibility with older clients.
 	// +required
 	StartTime *metav1.Time `json:"startTime,omitempty"`
 
 	// resolvedTime is when the incident was resolved. Empty while still active.
-	// Deprecated: use resolvedAt.
+	// Deprecated: use resolvedAt. Retained only for compatibility with older clients.
 	// +optional
 	ResolvedTime *metav1.Time `json:"resolvedTime,omitempty"`
 

@@ -40,9 +40,9 @@ This is the official scope document for **Phase 1 of the RCA Operator**. It defi
 
 Phase 1 is about shipping a **real, deployable operator** — not a prototype. The goal is the minimum vertical slice that delivers immediate value:
 
-> A Kubernetes operator that runs in-cluster, watches pods and events, correlates signals into meaningful incidents, and notifies the team via Slack and PagerDuty.
+> A Kubernetes operator that runs in-cluster, watches pods and events, correlates signals into meaningful incidents, notifies the team via Slack and PagerDuty, and exposes a lightweight built-in incident dashboard.
 
-Everything else — LLM analysis, remediation playbooks, autonomy levels, dashboards — comes in later phases. Phase 1 plants the flag.
+Everything else — LLM analysis, remediation playbooks, and autonomy levels — comes in later phases. Phase 1 plants the flag.
 
 ---
 
@@ -150,6 +150,13 @@ CrashLoop resolve semantics in current implementation:
   - `rca_watcher_events_processed_total`
 - Structured JSON logging with incident ID correlation field
 
+### 2.7 Built-in Dashboard
+
+- Embedded web dashboard served by the operator
+- Backed only by `IncidentReport` and `RCAAgent` data
+- Intended for internal/operator-facing visibility in Phase 1
+- Server-side filtering and pagination support on the dashboard API
+
 ---
 
 ## Explicitly Out of Scope
@@ -168,7 +175,7 @@ The following are planned for later phases. **Do not build them now.**
 | Grafana dashboard provisioning | Phase 4 | Nice-to-have, not core value |
 | Email notifications | Phase 2 | Slack + PagerDuty sufficient for MVP |
 | Multi-cluster support | Phase 5 / v1.0 | Significantly increases scope |
-| Web UI for incident history | Phase 5 / v1.0 | API-first; UI is a later concern |
+| Multi-user authenticated incident portal | Phase 5 / v1.0 | Phase 1 ships a lightweight built-in dashboard, not a full standalone UI product |
 | Custom runbook engine (ConfigMap) | Phase 3 | Runbooks have no executor in Phase 1 |
 | SLO / error budget tracking | Phase 4 | Requires metric history |
 

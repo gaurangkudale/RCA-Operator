@@ -304,19 +304,27 @@ manager:
 
 The dashboard exposes a REST API for integration:
 
-- `GET /api/incidents` - List all incidents
-- `GET /api/incidents/{id}` - Get specific incident
-- `GET /api/agents` - List all RCAAgents
-- `GET /api/health` - Dashboard health check
-- `GET /api/metrics` - Dashboard metrics
+- `GET /api/incidents` - List incidents
+- `GET /api/stats` - Aggregate dashboard stats, namespaces, and agents
+
+Supported query parameters for `GET /api/incidents`:
+
+- `namespace`
+- `phase`
+- `severity`
+- `type`
+- `query`
+- `sort` with `newest`, `oldest`, or `severity`
+- `limit`
+- `offset`
 
 **Example:**
 ```bash
 # Get incidents via API
-curl http://localhost:9090/api/incidents
+curl "http://localhost:9090/api/incidents?phase=Active&severity=P1&sort=severity&limit=50"
 
-# Health check
-curl http://localhost:9090/api/health
+# Fetch dashboard stats
+curl http://localhost:9090/api/stats
 ```
 
 ## Integration Examples

@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
+	"github.com/gaurangkudale/rca-operator/internal/incidentstatus"
 	"github.com/gaurangkudale/rca-operator/internal/retention"
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
@@ -633,15 +634,7 @@ func (r *RCAAgentReconciler) resolveOrphanedIncidents(ctx context.Context, agent
 			}
 
 			base := report.DeepCopy()
-			report.Status.Phase = phaseResolved
-			report.Status.ResolvedTime = &now
-			report.Status.Timeline = append(report.Status.Timeline, rcav1alpha1.TimelineEvent{
-				Time:  now,
-				Event: "Pod no longer exists in cluster; incident auto-resolved",
-			})
-			if len(report.Status.Timeline) > 50 {
-				report.Status.Timeline = report.Status.Timeline[len(report.Status.Timeline)-50:]
-			}
+			incidentstatus.MarkResolved(report, now, "Pod no longer exists in cluster; incident auto-resolved")
 
 			if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
 				if errors.IsNotFound(err) {
@@ -709,15 +702,11 @@ func (r *RCAAgentReconciler) resolveStaleThrottlingIncidents(ctx context.Context
 			// TTL exceeded — auto-resolve.
 			nowMeta := metav1.NewTime(now)
 			base := report.DeepCopy()
-			report.Status.Phase = phaseResolved
-			report.Status.ResolvedTime = &nowMeta
-			report.Status.Timeline = append(report.Status.Timeline, rcav1alpha1.TimelineEvent{
-				Time:  nowMeta,
-				Event: fmt.Sprintf("No CPUThrottling signals for %.0f minutes; incident auto-resolved", defaultThrottlingTTL.Minutes()),
-			})
-			if len(report.Status.Timeline) > 50 {
-				report.Status.Timeline = report.Status.Timeline[len(report.Status.Timeline)-50:]
-			}
+			incidentstatus.MarkResolved(
+				report,
+				nowMeta,
+				fmt.Sprintf("No CPUThrottling signals for %.0f minutes; incident auto-resolved", defaultThrottlingTTL.Minutes()),
+			)
 
 			if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
 				if errors.IsNotFound(err) {
@@ -753,10 +742,11 @@ func belongsToAgent(report *rcav1alpha1.IncidentReport, agentName string) bool {
 func shouldPruneIncidentReport(report *rcav1alpha1.IncidentReport, now time.Time, retentionDuration time.Duration) bool {
 	// Prune Resolved incidents older than the retention window.
 	if report.Status.Phase == phaseResolved {
-		if report.Status.ResolvedTime == nil || report.Status.ResolvedTime.IsZero() {
+		resolvedAt := incidentstatus.EffectiveResolvedTime(report.Status)
+		if resolvedAt == nil || resolvedAt.IsZero() {
 			return false
 		}
-		return now.Sub(report.Status.ResolvedTime.Time) > retentionDuration
+		return now.Sub(resolvedAt.Time) > retentionDuration
 	}
 
 	// Prune uninitialized incidents (status.phase == "") — these are zombie CRs

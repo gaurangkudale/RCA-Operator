@@ -302,7 +302,7 @@ spec:
               resolvedTime:
                 description: |-
                   resolvedTime is when the incident was resolved. Empty while still active.
-                  Deprecated: use resolvedAt.
+                  Deprecated: use resolvedAt. Retained only for compatibility with older clients.
                 format: date-time
                 type: string
               rootCause:
@@ -332,7 +332,7 @@ spec:
               startTime:
                 description: |-
                   startTime is when the incident was first detected.
-                  Deprecated: use firstObservedAt.
+                  Deprecated: use firstObservedAt. Retained only for compatibility with older clients.
                 format: date-time
                 type: string
               summary:

@@ -480,6 +480,8 @@ input::placeholder{color:var(--dim)}
     return m+'m '+sec+'s';
   }
   function incKey(inc){return inc.name+'/'+inc.namespace}
+  function incidentStartTime(inc){return inc.firstObservedAt||inc.startTime||''}
+  function incidentResolvedTime(inc){return inc.resolvedAt||inc.resolvedTime||''}
   function findAffectedResource(inc,kind){
     var res=inc.affectedResources||[];
     for(var i=0;i<res.length;i++){ if(res[i].kind===kind) return res[i]; }
@@ -538,7 +540,7 @@ input::placeholder{color:var(--dim)}
     return list.slice().sort(function(a,b){
       var d=(rank[b.severity]||0)-(rank[a.severity]||0);
       if(d!==0) return d;
-      return (b.startTime||'').localeCompare(a.startTime||'');
+      return incidentStartTime(b).localeCompare(incidentStartTime(a));
     });
   }
 
@@ -687,8 +689,8 @@ input::placeholder{color:var(--dim)}
         if(PH[inc.phase]&&PH[inc.phase].pulse) html+=pulse(PH[inc.phase].c,5);
         html+=esc(inc.phase)+'</span>';
         if(!hasSel){
-          html+='<div class="inc-time"><div class="inc-time-rel">'+relTime(inc.startTime)+'</div>';
-          html+='<div class="inc-time-abs">'+absTime(inc.startTime)+'</div></div>';
+          html+='<div class="inc-time"><div class="inc-time-rel">'+relTime(incidentStartTime(inc))+'</div>';
+          html+='<div class="inc-time-abs">'+absTime(incidentStartTime(inc))+'</div></div>';
         }
         html+='</div>';
       });
@@ -723,12 +725,12 @@ input::placeholder{color:var(--dim)}
     else html+='<span class="tag tag-purple">pending</span>';
     html+='</div>';
     html+='<div class="detail-title">'+esc(name)+'</div>';
-    html+='<div class="detail-meta"><span>'+esc(inc.namespace)+'</span><span class="dim"> \u00b7 </span><span>'+esc(inc.agentRef)+'</span><span class="dim"> \u00b7 started </span><span>'+absTime(inc.startTime)+'</span>';
-    if(inc.resolvedTime) html+=' \u2192 <span class="grn">'+absTime(inc.resolvedTime)+'</span>';
+    html+='<div class="detail-meta"><span>'+esc(inc.namespace)+'</span><span class="dim"> \u00b7 </span><span>'+esc(inc.agentRef)+'</span><span class="dim"> \u00b7 started </span><span>'+absTime(incidentStartTime(inc))+'</span>';
+    if(incidentResolvedTime(inc)) html+=' \u2192 <span class="grn">'+absTime(incidentResolvedTime(inc))+'</span>';
     html+='</div>';
     html+='<div class="detail-dur"><span class="detail-dur-label">DURATION</span><span class="detail-dur-val" id="live-dur">';
-    if(inc.phase==='Resolved') html+='<span style="color:var(--sub)">'+finDur(inc.startTime,inc.resolvedTime)+'</span>';
-    else html+='<span style="color:'+(inc.phase==='Active'?'var(--amber)':'var(--purple)')+'">'+liveDur(inc.startTime)+'</span>';
+    if(inc.phase==='Resolved') html+='<span style="color:var(--sub)">'+finDur(incidentStartTime(inc),incidentResolvedTime(inc))+'</span>';
+    else html+='<span style="color:'+(inc.phase==='Active'?'var(--amber)':'var(--purple)')+'">'+liveDur(incidentStartTime(inc))+'</span>';
     html+='</span></div>';
     html+='</div>';
     html+='<button class="detail-close" onclick="window._close()">\u00d7</button>';
@@ -933,7 +935,7 @@ input::placeholder{color:var(--dim)}
     if(!el||!selectedKey) return;
     var inc=incidents.find(function(i){return incKey(i)===selectedKey});
     if(!inc||inc.phase==='Resolved') return;
-    el.innerHTML='<span style="color:'+(inc.phase==='Active'?'var(--amber)':'var(--purple)')+'">'+liveDur(inc.startTime)+'</span>';
+    el.innerHTML='<span style="color:'+(inc.phase==='Active'?'var(--amber)':'var(--purple)')+'">'+liveDur(incidentStartTime(inc))+'</span>';
   },1000);
 
   /* ── Clock ─────────────────────────────────── */

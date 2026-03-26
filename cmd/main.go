@@ -40,6 +40,7 @@ import (
 	"github.com/gaurangkudale/rca-operator/internal/controller"
 	"github.com/gaurangkudale/rca-operator/internal/correlator"
 	"github.com/gaurangkudale/rca-operator/internal/dashboard"
+	"github.com/gaurangkudale/rca-operator/internal/notify"
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
 	// +kubebuilder:scaffold:imports
 )
@@ -219,6 +220,7 @@ func main() {
 		Scheme: mgr.GetScheme(),
 		//nolint:staticcheck // TODO: Migrate to events.EventRecorder API
 		Recorder: mgr.GetEventRecorderFor("incidentreport-controller"),
+		Notifier: notify.NewDispatcher(mgr.GetClient(), ctrl.Log),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "IncidentReport")
 		os.Exit(1)
