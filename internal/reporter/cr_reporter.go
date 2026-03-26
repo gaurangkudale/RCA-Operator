@@ -36,10 +36,12 @@ const (
 )
 
 const (
-	PhaseDetecting = "Detecting"
-	PhaseActive    = "Active"
-	PhaseResolved  = "Resolved"
-	ValueUnknown   = "unknown"
+	PhaseDetecting   = "Detecting"
+	PhaseActive      = "Active"
+	PhaseResolved    = "Resolved"
+	ValueUnknown     = "unknown"
+	resourceKindPod  = "Pod"
+	defaultNameToken = "incident"
 )
 
 const (
@@ -94,13 +96,13 @@ func (r *Reporter) EnsureIncident(
 			Namespace: namespace,
 			ResourceRef: &rcav1alpha1.IncidentObjectRef{
 				APIVersion: corev1.SchemeGroupVersion.String(),
-				Kind:       "Pod",
+				Kind:       resourceKindPod,
 				Namespace:  namespace,
 				Name:       podName,
 			},
 		},
 		AffectedResources: []rcav1alpha1.AffectedResource{
-			{APIVersion: corev1.SchemeGroupVersion.String(), Kind: "Pod", Namespace: namespace, Name: podName},
+			{APIVersion: corev1.SchemeGroupVersion.String(), Kind: resourceKindPod, Namespace: namespace, Name: podName},
 		},
 	}
 	return r.EnsureSignal(ctx, input)
@@ -520,7 +522,7 @@ func (r *Reporter) reopenIncident(ctx context.Context, report *rcav1alpha1.Incid
 
 func incidentAffectsPod(report *rcav1alpha1.IncidentReport, podName, namespace string) bool {
 	for _, resource := range report.Status.AffectedResources {
-		if resource.Kind == "Pod" && resource.Name == podName && resource.Namespace == namespace {
+		if resource.Kind == resourceKindPod && resource.Name == podName && resource.Namespace == namespace {
 			return true
 		}
 	}
@@ -611,7 +613,7 @@ func safeLabelValue(in string) string {
 
 func safeNameToken(in string) string {
 	if in == "" {
-		return "incident"
+		return defaultNameToken
 	}
 	replaced := strings.ToLower(in)
 	b := strings.Builder{}
@@ -630,14 +632,14 @@ func safeNameToken(in string) string {
 	}
 	out := strings.Trim(b.String(), "-")
 	if out == "" {
-		return "incident"
+		return defaultNameToken
 	}
 	return out
 }
 
 func primaryPodName(in incident.Input) string {
 	for _, resource := range in.AffectedResources {
-		if resource.Kind == "Pod" {
+		if resource.Kind == resourceKindPod {
 			return resource.Name
 		}
 	}

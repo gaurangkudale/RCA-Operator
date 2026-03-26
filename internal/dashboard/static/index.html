@@ -53,7 +53,23 @@ input::placeholder{color:var(--dim)}
 .pill-active{display:flex;align-items:center;gap:5px;padding:3px 9px;border-radius:3px;
   background:rgba(252,165,165,0.1);border:.5px solid rgba(252,165,165,0.3);
   font-family:var(--mono);font-size:9px;color:var(--red)}
-.pill-clock{font-family:var(--mono);font-size:9px;color:var(--dim);min-width:65px;text-align:right;letter-spacing:.3px}
+.pill-clock{font-family:var(--mono);font-size:9px;color:var(--dim);min-width:90px;text-align:right;letter-spacing:.3px}
+.timezone-wrap{display:flex;align-items:center;gap:6px;min-width:0}
+.timezone-label{font-family:var(--mono);font-size:8px;color:var(--dim);letter-spacing:1px}
+.timezone-select{
+  width:180px;max-width:22vw;min-width:120px;font-family:var(--mono);font-size:9px;color:var(--acc);background:var(--card);
+  border:.5px solid var(--brdr);border-radius:3px;padding:4px 22px 4px 8px;cursor:pointer;outline:none;
+  appearance:none;-webkit-appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23334155'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 7px center
+}
+.timezone-select option{background:var(--surf);color:var(--txt)}
+@media (max-width:980px){
+  .topbar{height:auto;min-height:48px;flex-wrap:wrap;gap:8px;padding-top:8px;padding-bottom:8px}
+  .topbar-nav{order:3;width:100%}
+  .topbar-right{margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
+  .timezone-select{max-width:40vw}
+}
 
 /* ── Body ────────────────────────────────────── */
 .body{display:flex;flex:1;overflow:hidden;min-height:0}
@@ -322,6 +338,10 @@ input::placeholder{color:var(--dim)}
   var filters = { phase:'all', ns:'all', sev:'all', type:'all' };
   var connected = false;
   var signalsOpen = true;
+  var tzStorageKey = 'rca-dashboard-timezone';
+  var browserTimeZone = detectBrowserTimeZone();
+  var timezoneOptions = buildTimeZoneOptions();
+  var selectedTimeZone = loadSavedTimeZone();
 
   /* ── Severity / Phase configs ──────────────── */
   var SEV = {
@@ -356,6 +376,76 @@ input::placeholder{color:var(--dim)}
       '</span>';
   }
 
+  function detectBrowserTimeZone(){
+    try{
+      return Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC';
+    }catch(e){
+      return 'UTC';
+    }
+  }
+
+  function buildTimeZoneOptions(){
+    var zones=[];
+    try{
+      if(Intl.supportedValuesOf) zones=Intl.supportedValuesOf('timeZone')||[];
+    }catch(e){}
+    if(!zones.length){
+      zones=['UTC',browserTimeZone,'America/Los_Angeles','America/Denver','America/Chicago','America/New_York','Europe/London','Europe/Berlin','Asia/Kolkata','Asia/Singapore','Asia/Tokyo','Australia/Sydney'];
+    }
+    var uniq={};
+    var list=['Local'];
+    zones.forEach(function(zone){
+      if(!zone||uniq[zone]) return;
+      uniq[zone]=true;
+      list.push(zone);
+    });
+    if(!uniq.UTC) list.splice(1,0,'UTC');
+    return list;
+  }
+
+  function loadSavedTimeZone(){
+    var fallback='UTC';
+    try{
+      var saved=localStorage.getItem(tzStorageKey);
+      if(saved&&timezoneOptions.indexOf(saved)!==-1) return saved;
+    }catch(e){}
+    return fallback;
+  }
+
+  function getActiveTimeZone(){
+    return selectedTimeZone==='Local'?browserTimeZone:selectedTimeZone;
+  }
+
+  function timeZoneLabel(){
+    if(selectedTimeZone==='Local') return 'LOCAL';
+    return selectedTimeZone;
+  }
+
+  function formatClockTime(date,timeZone){
+    try{
+      var parts=new Intl.DateTimeFormat('en-GB',{
+        hour:'2-digit',minute:'2-digit',second:'2-digit',
+        hour12:false,timeZone:timeZone
+      }).formatToParts(date);
+      var map={};
+      parts.forEach(function(part){map[part.type]=part.value});
+      if(map.hour&&map.minute&&map.second) return map.hour+':'+map.minute+':'+map.second;
+    }catch(e){}
+    return date.toISOString().slice(11,19);
+  }
+
+  function formatZoneSuffix(date,timeZone){
+    try{
+      var parts=new Intl.DateTimeFormat('en-US',{
+        timeZone:timeZone,timeZoneName:'short'
+      }).formatToParts(date);
+      for(var i=0;i<parts.length;i++){
+        if(parts[i].type==='timeZoneName') return parts[i].value;
+      }
+    }catch(e){}
+    return timeZone==='UTC'?'UTC':timeZone;
+  }
+
   function relTime(iso){
     if(!iso) return '';
     var diff=Math.floor((Date.now()-new Date(iso).getTime())/1000);
@@ -366,7 +456,12 @@ input::placeholder{color:var(--dim)}
   }
   function absTime(iso){
     if(!iso) return '';
-    try{var d=new Date(iso);if(isNaN(d.getTime()))return '';return d.toISOString().slice(11,19)+' UTC'}catch(e){return ''}
+    try{
+      var d=new Date(iso);
+      if(isNaN(d.getTime())) return '';
+      var zone=getActiveTimeZone();
+      return formatClockTime(d,zone)+' '+formatZoneSuffix(d,zone);
+    }catch(e){return ''}
   }
   function liveDur(iso){
     if(!iso) return '';
@@ -460,6 +555,12 @@ input::placeholder{color:var(--dim)}
     var html='';
     if(p1>0) html+='<span class="pill-p1">'+pulse('#FCA5A5',5)+' '+p1+' P1</span>';
     html+='<span class="pill-active">'+pulse('#FCA5A5',4)+' '+active+' active</span>';
+    html+='<label class="timezone-wrap"><span class="timezone-label">TZ</span><select class="timezone-select" id="timezone-select" onchange="window._setTimeZone(this.value)">';
+    timezoneOptions.forEach(function(zone){
+      var label=zone==='Local'?'Local ('+browserTimeZone+')':zone;
+      html+='<option value="'+esc(zone)+'"'+(selectedTimeZone===zone?' selected':'')+'>'+esc(label)+'</option>';
+    });
+    html+='</select></label>';
     html+='<span class="pill-clock" id="utc-clock"></span>';
     el.innerHTML=html;
   }
@@ -836,7 +937,25 @@ input::placeholder{color:var(--dim)}
   },1000);
 
   /* ── Clock ─────────────────────────────────── */
-  function tickClock(){var el=document.getElementById('utc-clock');if(el)el.textContent=new Date().toISOString().slice(11,19)+' UTC'}
+  function setTimeZone(next){
+    if(timezoneOptions.indexOf(next)===-1) return;
+    selectedTimeZone=next;
+    try{localStorage.setItem(tzStorageKey,next)}catch(e){}
+    renderIncidents();
+    renderDetail();
+    tickClock();
+  }
+
+  function tickClock(){
+    var el=document.getElementById('utc-clock');
+    if(!el) return;
+    var now=new Date();
+    var zone=getActiveTimeZone();
+    el.textContent=formatClockTime(now,zone)+' '+formatZoneSuffix(now,zone);
+    el.title='Display timezone: '+timeZoneLabel();
+  }
+
+  window._setTimeZone=setTimeZone;
 
   /* ── Init ──────────────────────────────────── */
   document.getElementById('conn-pulse').innerHTML=pulse('#4ADE80',8);

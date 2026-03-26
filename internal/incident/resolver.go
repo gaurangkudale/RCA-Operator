@@ -59,8 +59,8 @@ func (r *Resolver) ResolvePodScope(ctx context.Context, namespace, podName strin
 		},
 	}
 
-	workloadRef, err := r.resolveTopOwner(ctx, pod)
-	if err == nil && workloadRef != nil {
+	workloadRef := r.resolveTopOwner(ctx, pod)
+	if workloadRef != nil {
 		scope.Level = ScopeLevelWorkload
 		scope.WorkloadRef = workloadRef
 		affected = append(affected, rcav1alpha1.AffectedResource{
@@ -83,10 +83,10 @@ func (r *Resolver) ResolvePodScope(ctx context.Context, namespace, podName strin
 	return scope, affected, nil
 }
 
-func (r *Resolver) resolveTopOwner(ctx context.Context, pod *corev1.Pod) (*rcav1alpha1.IncidentObjectRef, error) {
+func (r *Resolver) resolveTopOwner(ctx context.Context, pod *corev1.Pod) *rcav1alpha1.IncidentObjectRef {
 	owner := metav1.GetControllerOf(pod)
 	if owner == nil {
-		return nil, nil
+		return nil
 	}
 
 	switch owner.Kind {
@@ -97,7 +97,7 @@ func (r *Resolver) resolveTopOwner(ctx context.Context, pod *corev1.Pod) (*rcav1
 			Namespace:  pod.Namespace,
 			Name:       owner.Name,
 			UID:        string(owner.UID),
-		}, nil
+		}
 	case "ReplicaSet":
 		rs := &appsv1.ReplicaSet{}
 		if err := r.client.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: owner.Name}, rs); err != nil {
@@ -107,7 +107,7 @@ func (r *Resolver) resolveTopOwner(ctx context.Context, pod *corev1.Pod) (*rcav1
 				Namespace:  pod.Namespace,
 				Name:       owner.Name,
 				UID:        string(owner.UID),
-			}, nil
+			}
 		}
 		rsOwner := metav1.GetControllerOf(rs)
 		if rsOwner != nil && rsOwner.Kind == "Deployment" {
@@ -117,7 +117,7 @@ func (r *Resolver) resolveTopOwner(ctx context.Context, pod *corev1.Pod) (*rcav1
 				Namespace:  pod.Namespace,
 				Name:       rsOwner.Name,
 				UID:        string(rsOwner.UID),
-			}, nil
+			}
 		}
 		return &rcav1alpha1.IncidentObjectRef{
 			APIVersion: appsv1.SchemeGroupVersion.String(),
@@ -125,7 +125,7 @@ func (r *Resolver) resolveTopOwner(ctx context.Context, pod *corev1.Pod) (*rcav1
 			Namespace:  pod.Namespace,
 			Name:       rs.Name,
 			UID:        string(rs.UID),
-		}, nil
+		}
 	case "CronJob":
 		return &rcav1alpha1.IncidentObjectRef{
 			APIVersion: batchv1.SchemeGroupVersion.String(),
@@ -133,7 +133,7 @@ func (r *Resolver) resolveTopOwner(ctx context.Context, pod *corev1.Pod) (*rcav1
 			Namespace:  pod.Namespace,
 			Name:       owner.Name,
 			UID:        string(owner.UID),
-		}, nil
+		}
 	default:
 		return &rcav1alpha1.IncidentObjectRef{
 			APIVersion: owner.APIVersion,
@@ -141,7 +141,7 @@ func (r *Resolver) resolveTopOwner(ctx context.Context, pod *corev1.Pod) (*rcav1
 			Namespace:  pod.Namespace,
 			Name:       owner.Name,
 			UID:        string(owner.UID),
-		}, nil
+		}
 	}
 }
 
