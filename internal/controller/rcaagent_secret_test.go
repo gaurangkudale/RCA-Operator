@@ -28,13 +28,17 @@ func TestFindRCAAgentsForSecret_ReturnsMatchingAgents(t *testing.T) {
 	agentA := &rcav1alpha1.RCAAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "agent-a", Namespace: "dev"},
 		Spec: rcav1alpha1.RCAAgentSpec{
-			AIProviderConfig: &rcav1alpha1.AIProviderConfig{SecretRef: "my-secret"},
+			Notifications: &rcav1alpha1.NotificationsConfig{
+				Slack: &rcav1alpha1.SlackConfig{WebhookSecretRef: "my-secret", Channel: "#incidents"},
+			},
 		},
 	}
 	agentB := &rcav1alpha1.RCAAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "agent-b", Namespace: "dev"},
 		Spec: rcav1alpha1.RCAAgentSpec{
-			AIProviderConfig: &rcav1alpha1.AIProviderConfig{SecretRef: "other-secret"},
+			Notifications: &rcav1alpha1.NotificationsConfig{
+				Slack: &rcav1alpha1.SlackConfig{WebhookSecretRef: "other-secret", Channel: "#incidents"},
+			},
 		},
 	}
 

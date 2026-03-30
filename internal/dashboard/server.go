@@ -56,6 +56,9 @@ func (s *Server) Start(ctx context.Context) error {
 		Addr:              s.addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
 		BaseContext:       func(_ net.Listener) context.Context { return ctx },
 	}
 
@@ -99,7 +102,6 @@ type incidentResponse struct {
 	Timeline          []timelineEntry                `json:"timeline"`
 	AgentRef          string                         `json:"agentRef"`
 	LastSeen          string                         `json:"lastSeen"`
-	RootCause         string                         `json:"rootCause,omitempty"`
 }
 
 type timelineEntry struct {
@@ -306,7 +308,6 @@ func toIncidentResponse(item *rcav1alpha1.IncidentReport) incidentResponse {
 		AgentRef:          item.Spec.AgentRef,
 		LastSeen:          item.Annotations[reporter.AnnotationLastSeen],
 		SignalCount:       item.Status.SignalCount,
-		RootCause:         item.Status.RootCause,
 	}
 	if item.Status.FirstObservedAt != nil {
 		t := item.Status.FirstObservedAt.Time

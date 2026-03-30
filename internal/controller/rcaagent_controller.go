@@ -144,8 +144,7 @@ func (r *RCAAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			log.Info("Running cleanup for deleted RCAAgent", "name", agent.Name)
 			r.stopWatcher(req.NamespacedName)
 
-			// Phase 1: nothing external to clean up yet.
-			// Phase 2+: stop watchers, cancel goroutines, etc.
+			// Stop all watcher pipelines before removing the finalizer.
 
 			controllerutil.RemoveFinalizer(agent, rcaAgentFinalizer)
 			if err := r.Update(ctx, agent); err != nil {
@@ -167,11 +166,11 @@ func (r *RCAAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// ── 4. VALIDATE SPEC ──────────────────────────────────────────────────────
-	// Validate that the referenced secret actually exists.
-	if err := r.validateSecret(ctx, agent); err != nil {
-		log.Error(err, "Secret validation failed", "secretRef", agent.Spec.AIProviderConfig.SecretRef)
+	// Validate that notification secrets actually exist.
+	if err := r.validateReferencedSecrets(ctx, agent); err != nil {
+		log.Error(err, "Secret validation failed")
 
-		msg := fmt.Sprintf("Secret %q not found in namespace %q", agent.Spec.AIProviderConfig.SecretRef, agent.Namespace)
+		msg := err.Error()
 
 		// Mark Available=False so the STATUS column reflects the problem
 		if statusErr := r.setCondition(ctx, agent, ConditionTypeAvailable, metav1.ConditionFalse,
@@ -232,16 +231,18 @@ func (r *RCAAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 
-// validateSecret checks that the Secret named in spec.aiProviderConfig.secretRef
-// exists in the same namespace as the RCAAgent.
-func (r *RCAAgentReconciler) validateSecret(ctx context.Context, agent *rcav1alpha1.RCAAgent) error {
-	secret := &corev1.Secret{}
-	key := types.NamespacedName{
-		Name:      agent.Spec.AIProviderConfig.SecretRef,
-		Namespace: agent.Namespace,
-	}
-	if err := r.Get(ctx, key, secret); err != nil {
-		return fmt.Errorf("secret %q not found: %w", key.Name, err)
+// validateReferencedSecrets checks that notification secrets referenced by the
+// RCAAgent exist in the same namespace as the RCAAgent.
+func (r *RCAAgentReconciler) validateReferencedSecrets(ctx context.Context, agent *rcav1alpha1.RCAAgent) error {
+	for _, ref := range referencedSecretRefs(agent) {
+		secret := &corev1.Secret{}
+		key := types.NamespacedName{
+			Name:      ref.name,
+			Namespace: agent.Namespace,
+		}
+		if err := r.Get(ctx, key, secret); err != nil {
+			return fmt.Errorf("%s secret %q not found in namespace %q: %w", ref.usage, ref.name, agent.Namespace, err)
+		}
 	}
 	return nil
 }
@@ -299,7 +300,7 @@ func (r *RCAAgentReconciler) setCondition(
 }
 
 // findRCAAgentsForSecret maps a Secret event to the RCAAgents that reference it,
-// so that deleting/updating a Secret immediately triggers reconciliation.
+// so deleting or updating a notification Secret immediately triggers reconciliation.
 func (r *RCAAgentReconciler) findRCAAgentsForSecret(ctx context.Context, obj client.Object) []reconcile.Request {
 	log := logf.FromContext(ctx)
 
@@ -311,7 +312,7 @@ func (r *RCAAgentReconciler) findRCAAgentsForSecret(ctx context.Context, obj cli
 
 	var requests []reconcile.Request
 	for _, agent := range agentList.Items {
-		if agent.Spec.AIProviderConfig != nil && agent.Spec.AIProviderConfig.SecretRef == obj.GetName() {
+		if referencesSecret(&agent, obj.GetName()) {
 			requests = append(requests, reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      agent.Name,
@@ -331,8 +332,8 @@ func (r *RCAAgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&rcav1alpha1.RCAAgent{}).
-		// Watch Secrets — when a Secret is created/updated/deleted, reconcile any
-		// RCAAgent that references it via spec.aiProviderConfig.secretRef.
+		// Watch notification Secrets so the agent is re-validated immediately when
+		// Slack or PagerDuty credentials change.
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.findRCAAgentsForSecret),
@@ -509,6 +510,41 @@ func normalizeNamespaces(namespaces []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+type secretRefUsage struct {
+	name  string
+	usage string
+}
+
+func referencedSecretRefs(agent *rcav1alpha1.RCAAgent) []secretRefUsage {
+	if agent == nil || agent.Spec.Notifications == nil {
+		return nil
+	}
+
+	refs := make([]secretRefUsage, 0, 2)
+	if slack := agent.Spec.Notifications.Slack; slack != nil && strings.TrimSpace(slack.WebhookSecretRef) != "" {
+		refs = append(refs, secretRefUsage{
+			name:  strings.TrimSpace(slack.WebhookSecretRef),
+			usage: "Slack webhook",
+		})
+	}
+	if pagerDuty := agent.Spec.Notifications.PagerDuty; pagerDuty != nil && strings.TrimSpace(pagerDuty.SecretRef) != "" {
+		refs = append(refs, secretRefUsage{
+			name:  strings.TrimSpace(pagerDuty.SecretRef),
+			usage: "PagerDuty routing key",
+		})
+	}
+	return refs
+}
+
+func referencesSecret(agent *rcav1alpha1.RCAAgent, secretName string) bool {
+	for _, ref := range referencedSecretRefs(agent) {
+		if ref.name == secretName {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *RCAAgentReconciler) cleanupResolvedIncidents(ctx context.Context, agent *rcav1alpha1.RCAAgent) error {

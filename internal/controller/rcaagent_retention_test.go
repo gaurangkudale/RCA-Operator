@@ -378,9 +378,9 @@ func TestBelongsToAgent(t *testing.T) {
 	})
 }
 
-// ── validateSecret ────────────────────────────────────────────────────────────
+// ── validateReferencedSecrets ─────────────────────────────────────────────────
 
-func TestValidateSecret_FoundAndMissing(t *testing.T) {
+func TestValidateReferencedSecrets_FoundAndMissing(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
 		t.Fatalf("add core scheme: %v", err)
@@ -395,14 +395,19 @@ func TestValidateSecret_FoundAndMissing(t *testing.T) {
 	agent := &rcav1alpha1.RCAAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "agent-a", Namespace: "development"},
 		Spec: rcav1alpha1.RCAAgentSpec{
-			AIProviderConfig: &rcav1alpha1.AIProviderConfig{SecretRef: "my-secret"},
+			Notifications: &rcav1alpha1.NotificationsConfig{
+				Slack: &rcav1alpha1.SlackConfig{
+					WebhookSecretRef: "my-secret",
+					Channel:          "#incidents",
+				},
+			},
 		},
 	}
 
 	t.Run("secret exists — no error", func(t *testing.T) {
 		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
 		r := &RCAAgentReconciler{Client: c}
-		if err := r.validateSecret(context.Background(), agent); err != nil {
+		if err := r.validateReferencedSecrets(context.Background(), agent); err != nil {
 			t.Errorf("expected no error, got: %v", err)
 		}
 	})
@@ -410,7 +415,7 @@ func TestValidateSecret_FoundAndMissing(t *testing.T) {
 	t.Run("secret missing — returns error", func(t *testing.T) {
 		c := fake.NewClientBuilder().WithScheme(scheme).Build()
 		r := &RCAAgentReconciler{Client: c}
-		if err := r.validateSecret(context.Background(), agent); err == nil {
+		if err := r.validateReferencedSecrets(context.Background(), agent); err == nil {
 			t.Error("expected error when secret is missing")
 		}
 	})

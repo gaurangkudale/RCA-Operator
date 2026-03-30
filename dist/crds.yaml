@@ -304,11 +304,6 @@ spec:
                   Deprecated: use resolvedAt. Retained only for compatibility with older clients.
                 format: date-time
                 type: string
-              rootCause:
-                description: |-
-                  rootCause is a human-readable summary of the root cause.
-                  Stub in Phase 1 — populated by the RCA engine in Phase 2.
-                type: string
               severity:
                 description: severity is the incident severity level assigned by the
                   correlator.
@@ -395,14 +390,6 @@ spec:
       jsonPath: .status.conditions[?(@.type=='Available')].status
       name: Status
       type: string
-    - description: AI provider type
-      jsonPath: .spec.aiProviderConfig.type
-      name: Provider
-      type: string
-    - description: AI model in use
-      jsonPath: .spec.aiProviderConfig.model
-      name: Model
-      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -431,104 +418,6 @@ spec:
           spec:
             description: spec defines the desired state of RCAAgent
             properties:
-              aiProviderConfig:
-                description: 'AIProviderConfig holds the configuration for the LLM
-                  backend. Phase 1: stored only — not used by the operator yet.'
-                properties:
-                  model:
-                    default: gpt-4o
-                    description: Model is the model identifier to use (e.g. gpt-4o,
-                      claude-3-opus).
-                    example: gpt-4o
-                    type: string
-                  secretRef:
-                    description: |-
-                      SecretRef is the name of the Kubernetes Secret containing the API key.
-                      The secret must have a key named "apiKey".
-                    example: rca-agent-openai-secret
-                    minLength: 1
-                    type: string
-                  type:
-                    default: openai
-                    description: Type is the LLM provider to use.
-                    enum:
-                    - openai
-                    example: openai
-                    type: string
-                required:
-                - model
-                - secretRef
-                - type
-                type: object
-              decision:
-                description: |-
-                  Decision configures autonomy and safety policy after RCA analysis has completed.
-                  Phase 2+: stored now so the CRD can model the target architecture.
-                properties:
-                  allowPlaybooks:
-                    description: AllowPlaybooks is the allow-list of safe playbook
-                      identifiers the operator may consider executing.
-                    items:
-                      type: string
-                    type: array
-                    x-kubernetes-list-type: set
-                  defaultAutonomy:
-                    default: 1
-                    description: DefaultAutonomy is the baseline autonomy level when
-                      no namespace override matches.
-                    enum:
-                    - 0
-                    - 1
-                    - 2
-                    - 3
-                    format: int32
-                    type: integer
-                  namespaceAutonomy:
-                    description: NamespaceAutonomy overrides DefaultAutonomy for specific
-                      namespaces.
-                    items:
-                      description: NamespaceAutonomyPolicy overrides the default autonomy
-                        level for one namespace.
-                      properties:
-                        level:
-                          description: Level is the autonomy level to enforce for
-                            the namespace.
-                          enum:
-                          - 0
-                          - 1
-                          - 2
-                          - 3
-                          format: int32
-                          type: integer
-                        namespace:
-                          description: Namespace is the Kubernetes namespace this
-                            policy applies to.
-                          minLength: 1
-                          type: string
-                      required:
-                      - level
-                      - namespace
-                      type: object
-                    type: array
-                    x-kubernetes-list-map-keys:
-                    - namespace
-                    x-kubernetes-list-type: map
-                  requireHumanApprovalFor:
-                    description: RequireHumanApprovalFor lists action categories that
-                      must never execute automatically.
-                    items:
-                      description: RemediationAction is a high-level action category
-                        used by the decision layer.
-                      enum:
-                      - restartPod
-                      - rollbackWorkload
-                      - scaleWorkload
-                      - cordonNode
-                      - drainNode
-                      type: string
-                    type: array
-                    x-kubernetes-list-type: set
-                type: object
               incidentRetention:
                 default: 30d
                 description: |-
@@ -596,72 +485,6 @@ spec:
                     - webhookSecretRef
                     type: object
                 type: object
-              observability:
-                description: |-
-                  Observability configures OTLP telemetry export for traces, metrics, and logs.
-                  The API stays backend-agnostic so users can target SigNoz or any OTLP-compatible sink.
-                  Phase 2+: stored now so the CRD can model the target architecture.
-                properties:
-                  otlp:
-                    description: OTLP enables OpenTelemetry export using a backend-agnostic
-                      OTLP endpoint.
-                    properties:
-                      endpoint:
-                        description: |-
-                          Endpoint is the OTLP gRPC or HTTP collector endpoint.
-                          Example: "http://otel-collector.observability.svc.cluster.local:4317"
-                        minLength: 1
-                        type: string
-                      headersSecretRef:
-                        description: |-
-                          HeadersSecretRef references a Secret in the same namespace containing OTLP headers.
-                          The secret may hold keys such as "Authorization" or vendor-specific routing headers.
-                        type: string
-                      insecure:
-                        description: Insecure disables transport security for in-cluster
-                          development collectors.
-                        type: boolean
-                      resourceAttributes:
-                        additionalProperties:
-                          type: string
-                        description: ResourceAttributes adds static OpenTelemetry
-                          resource attributes to exported telemetry.
-                        type: object
-                    type: object
-                type: object
-              signalProcessing:
-                description: |-
-                  SignalProcessing configures the normalization, enrichment, and deduplication
-                  stage that runs before incident correlation.
-                  Phase 2+: stored now so the CRD can model the target architecture.
-                properties:
-                  correlationWindow:
-                    default: 5m
-                    description: |-
-                      CorrelationWindow is the maximum window used to group related normalized signals into one incident candidate.
-                      Supported suffixes: s (seconds), m (minutes), h (hours), for example "30s", "5m", "1h".
-                    pattern: ^[1-9][0-9]*(s|m|h)$
-                    type: string
-                  dedupWindow:
-                    default: 2m
-                    description: |-
-                      DedupWindow is how long equivalent raw signals are suppressed before they can re-open correlation work.
-                      Supported suffixes: s (seconds), m (minutes), h (hours), for example "30s", "2m", "1h".
-                    pattern: ^[1-9][0-9]*(s|m|h)$
-                    type: string
-                  enableOwnerEnrichment:
-                    default: true
-                    description: EnableOwnerEnrichment controls whether signals are
-                      enriched with top-level workload ownership before correlation.
-                    type: boolean
-                  meaningfulIncidentWindow:
-                    default: 5m
-                    description: |-
-                      MeaningfulIncidentWindow is the minimum continuous observation time before a detecting incident is promoted as meaningful.
-                      Supported suffixes: s (seconds), m (minutes), h (hours), for example "30s", "5m", "1h".
-                    pattern: ^[1-9][0-9]*(s|m|h)$
-                    type: string
-                type: object
               watchNamespaces:
                 default:
                 - default
@@ -674,7 +497,6 @@ spec:
                   type: string
                 type: array
             required:
-            - aiProviderConfig
             - watchNamespaces
             type: object
           status:

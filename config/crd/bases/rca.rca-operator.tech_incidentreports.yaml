@@ -305,11 +305,6 @@ spec:
                   Deprecated: use resolvedAt. Retained only for compatibility with older clients.
                 format: date-time
                 type: string
-              rootCause:
-                description: |-
-                  rootCause is a human-readable summary of the root cause.
-                  Stub in Phase 1 — populated by the RCA engine in Phase 2.
-                type: string
               severity:
                 description: severity is the incident severity level assigned by the
                   correlator.

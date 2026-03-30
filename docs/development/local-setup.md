@@ -42,6 +42,8 @@ kubectl apply -f test/fixtures/agents/
 kubectl apply -f test/fixtures/pods/crashloop.yaml
 ```
 
+The checked-in sample is intentionally minimal and does not require Slack or PagerDuty secrets. Use `test/fixtures/agents/` if you want notification-enabled examples.
+
 ## Watch Operator Logs
 
 ```bash

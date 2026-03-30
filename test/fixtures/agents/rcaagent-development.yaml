@@ -8,10 +8,6 @@ spec:
   # via rcaagent-development while incident-scenario pods in development use rcaagent-sample.
   watchNamespaces:
     - default
-  aiProviderConfig:
-    type: openai
-    model: gpt-4o
-    secretRef: rca-agent-openai-secret
   notifications:
     slack:
       webhookSecretRef: slack-webhook

@@ -596,4 +596,4 @@ The strongest Phase 1 architecture for RCA Operator is:
 - `IncidentReport` as the durable incident database
 - a dashboard that renders only normalized incident state
 
-That gives you a production-ready Phase 1 with low operational complexity, clean deduplication, and a solid foundation for Phase 2 AI-based RCA.
+That gives you a production-ready Phase 1 with low operational complexity, clean deduplication, and a durable incident model centered on Kubernetes resources.

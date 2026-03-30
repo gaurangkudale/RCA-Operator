@@ -197,10 +197,6 @@ spec:
   watchNamespaces:
     - production
     - staging
-  aiProviderConfig:             # stub only in Phase 1 — stored, not used
-    type: openai
-    model: gpt-4o
-    secretRef: ai-api-key
   notifications:
     slack:
       webhookSecretRef: slack-webhook
@@ -215,7 +211,6 @@ spec:
 | Field | Type | Description |
 |---|---|---|
 | `spec.watchNamespaces` | `[]string` | Namespaces to watch. Empty = all namespaces. |
-| `spec.aiProviderConfig` | `object` | Stub in Phase 1 — type and secretRef stored, not used yet. |
 | `spec.notifications.slack.webhookSecretRef` | `string` | Secret name containing the Slack webhook URL. |
 | `spec.notifications.slack.channel` | `string` | Target Slack channel (e.g. `#incidents`). |
 | `spec.notifications.slack.mentionOnP1` | `string` | User or group to mention on P1 incidents. |
@@ -246,7 +241,6 @@ status:
       event: "Pod payment-service-xxx entered CrashLoopBackOff"
     - time: "10:33:00"
       event: "OOMKilled event correlated"
-  rootCause: ""                  # stub — populated by RCA engine in Phase 2
 ```
 
 | Field | Type | Validation / Notes |
@@ -262,7 +256,6 @@ For CrashLoop incidents, the correlator may also embed the last classified non-O
 | `status.affectedResources` | `[]AffectedResource` | `kind`, `name`, `namespace` of each impacted resource (`+listType=atomic`) |
 | `status.correlatedSignals` | `[]string` | Raw signal strings from the correlator (`+listType=atomic`) |
 | `status.timeline` | `[]TimelineEvent` | Ordered `{time, event}` entries (`+listType=atomic`) |
-| `status.rootCause` | `string` | Stub in Phase 1 — populated by the RCA engine in Phase 2 |
 | `status.conditions` | `[]metav1.Condition` | Standard Kubernetes status conditions (`+listType=map`) |
 
 #### About `status.conditions`
@@ -613,7 +606,6 @@ status:
       event: "Pod payment-service-xxx entered CrashLoopBackOff"
     - time: "RFC3339"
       event: "OOMKilled event correlated"
-  rootCause: ""                 # stub — Phase 2
 ```
 
 **Step 4 — IncidentReport controller reconciles**
@@ -651,7 +643,6 @@ pod_watcher.go: pod Running + Ready for N consecutive minutes
 | `status.correlatedSignals` | `cr_reporter.go` | On creation |
 | `status.timeline` | `cr_reporter.go` | On creation; appended on resolve |
 | `status.notified` | `incidentreport_controller.go` | After notifications are dispatched |
-| `status.rootCause` | _RCA engine (Phase 2)_ | Not set in Phase 1 |
 | `status.conditions` | `incidentreport_controller.go` | On each reconcile |
 
 ### Key Invariants

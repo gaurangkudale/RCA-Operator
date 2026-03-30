@@ -40,11 +40,7 @@ test/fixtures/
 # 1. Create namespaces (if they don't already exist)
 kubectl create namespace development --dry-run=client -o yaml | kubectl apply -f -
 
-# 2. Create secrets (operator requires these before it marks Available=True)
-kubectl create secret generic rca-agent-openai-secret \
-  --from-literal=apiKey=sk-test-placeholder \
-  -n development --dry-run=client -o yaml | kubectl apply -f -
-
+# 2. Create notification secrets
 kubectl create secret generic slack-webhook \
   --from-literal=webhookURL=https://hooks.slack.com/placeholder \
   -n development --dry-run=client -o yaml | kubectl apply -f -

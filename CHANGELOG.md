@@ -20,9 +20,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- ADR-0001 documenting the signal-first incident pipeline, autonomy policy boundary, and backend-agnostic OTLP observability direction
-- Optional `RCAAgent` schema for `signalProcessing`, `decision`, and `observability.otlp`
-- Updated `RCAAgent` reference docs and sample manifests for the planned Phase 2 architecture
+- ADR-0001 documenting the Phase 1 Kubernetes-native incident architecture
+
+### Changed
+
+- Simplified `RCAAgent` to Phase 1 fields only
+- Switched secret validation from unused AI settings to real Slack and PagerDuty notification secrets
+- Rewrote core docs and samples to focus on watcher, correlator, incident lifecycle, notifications, and dashboard
 
 ---
 

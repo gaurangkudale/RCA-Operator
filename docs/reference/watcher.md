@@ -151,10 +151,10 @@ Detection thresholds are set on the `PodWatcher` when the `RCAAgent` controller 
 
 | Parameter                   | Default  | Description                                                        | Governed by CRD field         |
 |-----------------------------|----------|--------------------------------------------------------------------|-------------------------------|
-| `CrashLoopRestartThreshold` | `3`      | Minimum restart count before a `CrashLoopBackOff` event fires      | *(Phase 2: spec field)*       |
-| `PendingTimeout`            | `5m`     | How long a pod must be Pending before `PodPendingTooLong` fires    | *(Phase 2: spec field)*       |
-| `PendingScanInterval`       | `30s`    | How often the watcher scans for Pending/Ready/GracePeriod states   | *(Phase 2: spec field)*       |
-| `ReadyStabilityWindow`      | `60s`    | How long a pod must be Ready before `PodHealthy` fires             | *(Phase 2: spec field)*       |
+| `CrashLoopRestartThreshold` | `3`      | Minimum restart count before a `CrashLoopBackOff` event fires      | hard-coded Phase 1 default    |
+| `PendingTimeout`            | `5m`     | How long a pod must be Pending before `PodPendingTooLong` fires    | hard-coded Phase 1 default    |
+| `PendingScanInterval`       | `30s`    | How often the watcher scans for Pending/Ready/GracePeriod states   | hard-coded Phase 1 default    |
+| `ReadyStabilityWindow`      | `60s`    | How long a pod must be Ready before `PodHealthy` fires             | hard-coded Phase 1 default    |
 | `WatchNamespaces`           | —        | Namespaces the watcher monitors; inherits `spec.watchNamespaces`   | `spec.watchNamespaces`        |
 
 ### spec.watchNamespaces

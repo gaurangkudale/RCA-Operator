@@ -7,95 +7,31 @@ spec:
   # Namespaces the operator monitors for pod failures.
   watchNamespaces:
     - development
-  aiProviderConfig:
-    type: openai
-    model: gpt-4o
-    # Name of a Secret in this namespace with key "apiKey".
-    secretRef: rca-agent-openai-secret
-  # Optional — remove both blocks if you don't need alerting.
-  notifications:
-    slack:
-      # Name of a Secret in this namespace with key "webhookURL".
-      webhookSecretRef: slack-webhook
-      channel: "#incidents"
-    pagerduty:
-      # Name of a Secret in this namespace with key "apiKey".
-      secretRef: pd-api-key
   # How long to keep Resolved IncidentReport CRs. Supported: m, h, d (e.g. 24h, 30d).
   incidentRetention: 5m
-  # Phase 2+ target architecture: normalize and deduplicate signals before correlation.
-  signalProcessing:
-    dedupWindow: 2m
-    correlationWindow: 5m
-    meaningfulIncidentWindow: 5m
-    enableOwnerEnrichment: true
-  # Phase 2+ target architecture: keep autonomy conservative by default.
-  decision:
-    defaultAutonomy: 1
-    namespaceAutonomy:
-      - namespace: development
-        level: 2
-    requireHumanApprovalFor:
-      - rollbackWorkload
-      - cordonNode
-    allowPlaybooks:
-      - restart-pod
-      - scale-workload
-  # Backend-agnostic OTLP export. SigNoz is one possible OTLP-compatible backend.
-  observability:
-    otlp:
-      endpoint: http://signoz-otel-collector.platform-observability.svc.cluster.local:4317
-      insecure: true
-      resourceAttributes:
-        service.name: rca-operator
-        deployment.environment: development
+  # Optional notifications example:
+  # notifications:
+  #   slack:
+  #     webhookSecretRef: slack-webhook
+  #     channel: "#incidents"
+  #   pagerduty:
+  #     secretRef: pd-api-key
 ---
 apiVersion: rca.rca-operator.tech/v1alpha1
 kind: RCAAgent
 metadata:
   name: rcaagent-sample-default
-  namespace: qln-dev
+  namespace: default
 spec:
   # Namespaces the operator monitors for pod failures.
   watchNamespaces:
-    - qln-dev
-  aiProviderConfig:
-    type: openai
-    model: gpt-4o
-    # Name of a Secret in this namespace with key "apiKey".
-    secretRef: rca-agent-openai-secret
-  # Optional — remove both blocks if you don't need alerting.
-  notifications:
-    slack:
-      # Name of a Secret in this namespace with key "webhookURL".
-      webhookSecretRef: slack-webhook
-      channel: "#random"
-    pagerduty:
-      # Name of a Secret in this namespace with key "apiKey".
-      secretRef: pd-api-key
+    - default
   # How long to keep Resolved IncidentReport CRs. Supported: m, h, d (e.g. 24h, 30d).
   incidentRetention: 5m
-  signalProcessing:
-    dedupWindow: 2m
-    correlationWindow: 5m
-    meaningfulIncidentWindow: 5m
-    enableOwnerEnrichment: true
-  decision:
-    defaultAutonomy: 1
-    namespaceAutonomy:
-      - namespace: qln-dev
-        level: 2
-      - namespace: production
-        level: 1
-    requireHumanApprovalFor:
-      - rollbackWorkload
-      - drainNode
-    allowPlaybooks:
-      - restart-pod
-  observability:
-    otlp:
-      endpoint: http://signoz-otel-collector.platform-observability.svc.cluster.local:4317
-      insecure: true
-      resourceAttributes:
-        service.name: rca-operator
-        deployment.environment: qln-dev
+  # Optional notifications example:
+  # notifications:
+  #   slack:
+  #     webhookSecretRef: slack-webhook
+  #     channel: "#random"
+  #   pagerduty:
+  #     secretRef: pd-api-key

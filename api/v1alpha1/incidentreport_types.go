@@ -208,11 +208,6 @@ type IncidentReportStatus struct {
 	// +listType=atomic
 	Timeline []TimelineEvent `json:"timeline,omitempty"`
 
-	// rootCause is a human-readable summary of the root cause.
-	// Stub in Phase 1 — populated by the RCA engine in Phase 2.
-	// +optional
-	RootCause string `json:"rootCause,omitempty"`
-
 	// conditions represent the current state of the IncidentReport resource.
 	// +listType=map
 	// +listMapKey=type

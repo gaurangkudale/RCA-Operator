@@ -57,11 +57,6 @@ var _ = Describe("RCAAgent Controller", func() {
 					},
 					Spec: rcav1alpha1.RCAAgentSpec{
 						WatchNamespaces: []string{"default"},
-						AIProviderConfig: &rcav1alpha1.AIProviderConfig{
-							Type:      "openai",
-							Model:     "gpt-4o",
-							SecretRef: "rca-agent-openai-secret",
-						},
 					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())

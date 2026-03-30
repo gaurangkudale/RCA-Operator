@@ -28,14 +28,14 @@ helm version
 go install sigs.k8s.io/kind@latest
 ```
 
-## AI Provider
+## Optional Notification Secrets
 
-You need one of:
-- An **OpenAI API key** (`gpt-4o` or similar)
-- An **Anthropic API key** (Phase 2+)
-- A running **Ollama** instance (Phase 2+)
+If you enable notifications, create Kubernetes `Secret` objects for:
 
-The key is stored in a Kubernetes `Secret` — it is never embedded in the CRD directly.
+- Slack webhook URL
+- PagerDuty Events API routing key
+
+These secrets live in the same namespace as the `RCAAgent`.
 
 ---
 

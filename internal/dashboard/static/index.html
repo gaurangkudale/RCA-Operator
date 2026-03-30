@@ -849,17 +849,27 @@ input::placeholder{color:var(--dim)}
     });
     html+='</div></div>';
 
-    /* 6. Root cause analysis */
-    html+='<div><div class="sec-hdr">root cause analysis</div>';
-    if(inc.rootCause){
-      html+='<div style="font-family:var(--mono);font-size:10px;color:var(--txt);line-height:1.7">'+esc(inc.rootCause)+'</div>';
+    /* 6. Phase 1 evidence summary */
+    html+='<div><div class="sec-hdr">phase 1 evidence summary</div>';
+    html+='<div class="rca-stub"><div class="rca-label"><span class="rca-label-dot"></span>';
+    html+='<span class="rca-label-text">RULE-BASED INCIDENT VIEW</span></div>';
+    if(inc.summary){
+      html+='<div class="rca-body">'+esc(inc.summary)+'</div>';
+    } else if(inc.message){
+      html+='<div class="rca-body">'+esc(inc.message)+'</div>';
+    } else if(inc.correlatedSignals&&inc.correlatedSignals.length){
+      html+='<div class="rca-body">'+esc(inc.correlatedSignals[0])+'</div>';
     } else {
-      html+='<div class="rca-stub"><div class="rca-label"><span class="rca-label-dot"></span>';
-      html+='<span class="rca-label-text">AI ENGINE \u00b7 PHASE 2</span></div>';
-      html+='<div class="rca-body">LLM-powered root cause will appear here once the RCA engine is enabled. The AI analyzer will correlate evidence from logs, metrics, and the full event timeline to generate a diagnosis with confidence scoring.</div>';
-      if(inc.phase==='Resolved') html+='<div class="rca-postmortem">AUTO POST-MORTEM \u00b7 PHASE 4</div>';
+      html+='<div class="rca-body">Phase 1 records the signals, affected resources, and timeline needed for operators to investigate quickly. No automated root-cause narrative is generated in this phase.</div>';
+    }
+    if(inc.correlatedSignals&&inc.correlatedSignals.length){
+      html+='<div style="margin-top:8px;display:flex;flex-direction:column;gap:5px">';
+      inc.correlatedSignals.slice(0,4).forEach(function(sig){
+        html+='<div class="cmd-row"><span class="play-num">\u2022</span><code class="cmd-code muted">'+esc(sig)+'</code></div>';
+      });
       html+='</div>';
     }
+    html+='</div>';
     html+='</div>';
 
     /* 7. status.conditions */
