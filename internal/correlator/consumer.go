@@ -35,6 +35,7 @@ const (
 
 	incidentTypeNodeFailure = reporter.IncidentTypeNodeFailure
 	incidentTypeRegistry    = reporter.IncidentTypeRegistry
+	incidentTypeBadDeploy   = "BadDeploy"
 
 	maxTimelineEntries = reporter.MaxTimelineEntries
 	maxSignalEntries   = reporter.MaxSignalEntries
@@ -148,6 +149,12 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 		}
 	}
 
+	coalesced, err := c.coalesceOverlappingIncident(ctx, input)
+	if err != nil {
+		return err
+	}
+	input = coalesced
+
 	return c.rep.EnsureSignal(ctx, input)
 }
 
@@ -169,14 +176,11 @@ func (c *Consumer) mapEvent(ctx context.Context, event watcher.CorrelatorEvent) 
 	case watcher.ImagePullBackOffEvent:
 		summary := fmt.Sprintf("Image pull failure reason=%s message=%s", e.Reason, e.Message)
 		input := c.podScopedInput(ctx, e.Namespace, e.PodName, e.AgentName, incidentTypeRegistry, "P3", e.Reason, summary, event)
-		input.Scope.Level = incident.ScopeLevelNamespace
-		input.Scope.Namespace = e.Namespace
-		input.Scope.WorkloadRef = nil
-		input.Scope.ResourceRef = nil
+		input = promoteRegistryScope(input, e.Namespace, e.PodName)
 		return input, true
 	case watcher.PodPendingTooLongEvent:
 		summary := fmt.Sprintf("Pod pending too long pendingFor=%s timeout=%s", e.PendingFor.String(), e.Timeout.String())
-		return c.podScopedInput(ctx, e.Namespace, e.PodName, e.AgentName, "BadDeploy", "P3", "PendingTooLong", summary, event), true
+		return c.podScopedInput(ctx, e.Namespace, e.PodName, e.AgentName, incidentTypeBadDeploy, "P3", "PendingTooLong", summary, event), true
 	case watcher.GracePeriodViolationEvent:
 		summary := fmt.Sprintf("Pod deletion exceeded grace period grace=%ds overdue=%s", e.GracePeriodSeconds, e.OverdueFor.String())
 		return c.podScopedInput(ctx, e.Namespace, e.PodName, e.AgentName, "GracePeriodViolation", "P2", "GracePeriodExceeded", summary, event), true
@@ -215,7 +219,7 @@ func (c *Consumer) mapEvent(ctx context.Context, event watcher.CorrelatorEvent) 
 		return incident.Input{
 			Namespace:    e.Namespace,
 			AgentRef:     e.AgentName,
-			IncidentType: "BadDeploy",
+			IncidentType: incidentTypeBadDeploy,
 			Severity:     "P2",
 			Summary:      summary,
 			Reason:       e.Reason,
@@ -316,6 +320,146 @@ func mergeAffectedResources(existing, incoming []rcav1alpha1.AffectedResource) [
 		}
 	}
 	return out
+}
+
+func promoteRegistryScope(input incident.Input, namespace, podName string) incident.Input {
+	if input.Scope.WorkloadRef != nil && input.Scope.WorkloadRef.Name != "" {
+		input.Scope.Level = incident.ScopeLevelWorkload
+		input.Scope.Namespace = namespace
+		input.Scope.ResourceRef = input.Scope.WorkloadRef
+		return input
+	}
+
+	workloadName := guessDeploymentNameFromPod(podName)
+	if workloadName == "" {
+		input.Scope.Level = incident.ScopeLevelNamespace
+		input.Scope.Namespace = namespace
+		input.Scope.WorkloadRef = nil
+		input.Scope.ResourceRef = nil
+		return input
+	}
+
+	workloadRef := &rcav1alpha1.IncidentObjectRef{
+		APIVersion: "apps/v1",
+		Kind:       "Deployment",
+		Namespace:  namespace,
+		Name:       workloadName,
+	}
+	input.Scope.Level = incident.ScopeLevelWorkload
+	input.Scope.Namespace = namespace
+	input.Scope.WorkloadRef = workloadRef
+	input.Scope.ResourceRef = workloadRef
+	input.AffectedResources = mergeAffectedResources(input.AffectedResources, []rcav1alpha1.AffectedResource{
+		{APIVersion: "apps/v1", Kind: "Deployment", Namespace: namespace, Name: workloadName},
+	})
+	return input
+}
+
+func guessDeploymentNameFromPod(podName string) string {
+	parts := strings.Split(strings.TrimSpace(podName), "-")
+	if len(parts) < 2 {
+		return ""
+	}
+
+	last := parts[len(parts)-1]
+	if len(last) == 5 {
+		if len(parts) >= 3 && looksLikeReplicaSetHash(parts[len(parts)-2]) {
+			return strings.Join(parts[:len(parts)-2], "-")
+		}
+		return strings.Join(parts[:len(parts)-1], "-")
+	}
+
+	return ""
+}
+
+func looksLikeReplicaSetHash(token string) bool {
+	if len(token) < 8 || len(token) > 10 {
+		return false
+	}
+	for _, r := range token {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= '0' && r <= '9':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func (c *Consumer) coalesceOverlappingIncident(ctx context.Context, input incident.Input) (incident.Input, error) {
+	if input.Scope.Level != incident.ScopeLevelWorkload || input.Scope.WorkloadRef == nil {
+		return input, nil
+	}
+
+	var overlappingType string
+	switch input.IncidentType {
+	case incidentTypeRegistry:
+		overlappingType = incidentTypeBadDeploy
+	case incidentTypeBadDeploy:
+		overlappingType = incidentTypeRegistry
+	default:
+		return input, nil
+	}
+
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := c.client.List(ctx, list, client.InNamespace(input.Namespace)); err != nil {
+		return input, fmt.Errorf("list IncidentReports for overlap check: %w", err)
+	}
+
+	for i := range list.Items {
+		report := &list.Items[i]
+		if report.Status.Phase == phaseResolved {
+			continue
+		}
+		reportType := report.Spec.IncidentType
+		if reportType == "" {
+			reportType = report.Status.IncidentType
+		}
+		if reportType != overlappingType {
+			continue
+		}
+		if !incidentMatchesWorkload(report, input.Scope.WorkloadRef) {
+			continue
+		}
+
+		originalType := input.IncidentType
+		input.IncidentType = overlappingType
+		input.Severity = higherSeverity(input.Severity, report.Status.Severity)
+		c.log.Info("Coalesced overlapping incident into existing workload incident",
+			"fromType", originalType,
+			"toType", overlappingType,
+			"namespace", input.Namespace,
+			"workload", input.Scope.WorkloadRef.Name,
+			"incident", report.Name,
+		)
+		return input, nil
+	}
+
+	return input, nil
+}
+
+func incidentMatchesWorkload(report *rcav1alpha1.IncidentReport, workload *rcav1alpha1.IncidentObjectRef) bool {
+	if report == nil || workload == nil {
+		return false
+	}
+
+	if ref := report.Spec.Scope.WorkloadRef; ref != nil {
+		if ref.Kind == workload.Kind && ref.Namespace == workload.Namespace && ref.Name == workload.Name {
+			return true
+		}
+	}
+	if ref := report.Spec.Scope.ResourceRef; ref != nil && report.Spec.Scope.Level == incident.ScopeLevelWorkload {
+		if ref.Kind == workload.Kind && ref.Namespace == workload.Namespace && ref.Name == workload.Name {
+			return true
+		}
+	}
+	for _, res := range report.Status.AffectedResources {
+		if res.Kind == workload.Kind && res.Namespace == workload.Namespace && res.Name == workload.Name {
+			return true
+		}
+	}
+	return false
 }
 
 // Utility helpers kept for existing package tests.
@@ -444,7 +588,7 @@ func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, inci
 	case watcher.ImagePullBackOffEvent:
 		return e.Namespace, e.PodName, e.AgentName, "Registry", "P3", fmt.Sprintf("Image pull failure reason=%s", e.Reason)
 	case watcher.PodPendingTooLongEvent:
-		return e.Namespace, e.PodName, e.AgentName, "BadDeploy", "P3", fmt.Sprintf("Pod pending too long pendingFor=%s timeout=%s", e.PendingFor.String(), e.Timeout.String())
+		return e.Namespace, e.PodName, e.AgentName, incidentTypeBadDeploy, "P3", fmt.Sprintf("Pod pending too long pendingFor=%s timeout=%s", e.PendingFor.String(), e.Timeout.String())
 	case watcher.GracePeriodViolationEvent:
 		return e.Namespace, e.PodName, e.AgentName, "GracePeriodViolation", "P2", fmt.Sprintf("Pod deletion exceeded grace period grace=%ds overdue=%s", e.GracePeriodSeconds, e.OverdueFor.String())
 	case watcher.NodeNotReadyEvent:
@@ -454,7 +598,7 @@ func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, inci
 	case watcher.ProbeFailureEvent:
 		return e.Namespace, e.PodName, e.AgentName, "ProbeFailure", "P3", fmt.Sprintf("Probe failed probeType=%s message=%s", e.ProbeType, e.Message)
 	case watcher.StalledRolloutEvent:
-		return e.Namespace, e.DeploymentName, e.AgentName, "BadDeploy", "P2",
+		return e.Namespace, e.DeploymentName, e.AgentName, incidentTypeBadDeploy, "P2",
 			fmt.Sprintf("Deployment rollout stalled reason=%s desiredReplicas=%d readyReplicas=%d message=%s",
 				e.Reason, e.DesiredReplicas, e.ReadyReplicas, e.Message)
 	case watcher.NodePressureEvent:

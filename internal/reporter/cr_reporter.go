@@ -681,6 +681,14 @@ func reportFingerprint(report *rcav1alpha1.IncidentReport) string {
 		incidentType = report.Status.IncidentType
 	}
 	if incidentType == IncidentTypeRegistry {
+		if report.Spec.Scope.WorkloadRef != nil && report.Spec.Scope.WorkloadRef.Name != "" {
+			return strings.Join([]string{
+				incidentType,
+				report.Spec.Scope.WorkloadRef.Namespace,
+				strings.ToLower(report.Spec.Scope.WorkloadRef.Kind),
+				report.Spec.Scope.WorkloadRef.Name,
+			}, "|")
+		}
 		return strings.Join([]string{incidentType, report.Namespace}, "|")
 	}
 	switch incidentType {

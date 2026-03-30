@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
+	"github.com/gaurangkudale/rca-operator/internal/incident"
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
@@ -1011,7 +1012,7 @@ func TestResolveIncidentsForPod_SkipsRecentSignalCooldown(t *testing.T) {
 			},
 		},
 	}
-	incident := &rcav1alpha1.IncidentReport{
+	report := &rcav1alpha1.IncidentReport{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "oom-oomkill-demo-abc",
 			Namespace: "dev",
@@ -1032,7 +1033,7 @@ func TestResolveIncidentsForPod_SkipsRecentSignalCooldown(t *testing.T) {
 	cl := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
-		WithObjects(pod, incident).
+		WithObjects(pod, report).
 		Build()
 
 	c := NewConsumer(cl, nil, logr.Discard())
@@ -1046,7 +1047,7 @@ func TestResolveIncidentsForPod_SkipsRecentSignalCooldown(t *testing.T) {
 	}
 
 	got := &rcav1alpha1.IncidentReport{}
-	if err := cl.Get(context.Background(), types.NamespacedName{Name: incident.Name, Namespace: "dev"}, got); err != nil {
+	if err := cl.Get(context.Background(), types.NamespacedName{Name: report.Name, Namespace: "dev"}, got); err != nil {
 		t.Fatalf("get: %v", err)
 	}
 	if got.Status.Phase == phaseResolved {
@@ -1115,6 +1116,99 @@ func TestHandleEventRegistryDedupsToOneIncidentPerNamespace(t *testing.T) {
 	}
 	if !pods["payment-service-4pkpz"] {
 		t.Error("expected payment-service-4pkpz in AffectedResources")
+	}
+}
+
+func TestHandleEvent_StalledRolloutCoalescesIntoExistingRegistryIncident(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add RCA scheme: %v", err)
+	}
+
+	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
+	existing := &rcav1alpha1.IncidentReport{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "registry-payment-service-abc",
+			Namespace: "dev",
+			Labels: map[string]string{
+				labelIncidentType: incidentTypeRegistry,
+				labelSeverity:     "P2",
+			},
+		},
+		Spec: rcav1alpha1.IncidentReportSpec{
+			AgentRef:     "ag",
+			Fingerprint:  "Registry|dev|deployment|payment-service",
+			IncidentType: incidentTypeRegistry,
+			Scope: rcav1alpha1.IncidentScope{
+				Level:     incident.ScopeLevelWorkload,
+				Namespace: "dev",
+				WorkloadRef: &rcav1alpha1.IncidentObjectRef{
+					APIVersion: "apps/v1",
+					Kind:       "Deployment",
+					Namespace:  "dev",
+					Name:       "payment-service",
+				},
+				ResourceRef: &rcav1alpha1.IncidentObjectRef{
+					APIVersion: "apps/v1",
+					Kind:       "Deployment",
+					Namespace:  "dev",
+					Name:       "payment-service",
+				},
+			},
+		},
+		Status: rcav1alpha1.IncidentReportStatus{
+			Phase:        phaseActive,
+			IncidentType: incidentTypeRegistry,
+			Severity:     "P2",
+			AffectedResources: []rcav1alpha1.AffectedResource{
+				{APIVersion: "apps/v1", Kind: "Deployment", Namespace: "dev", Name: "payment-service"},
+				{Kind: "Pod", Namespace: "dev", Name: "payment-service-69f84d75db-2lb58"},
+			},
+			Timeline: []rcav1alpha1.TimelineEvent{{
+				Time:  metav1.NewTime(now.Add(-2 * time.Minute)),
+				Event: "Registry: ImagePullBackOff with no prior success pod=payment-service-69f84d75db-2lb58 container=app reason=ErrImagePull",
+			}},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		WithObjects(existing).
+		Build()
+
+	c := NewConsumer(cl, nil, logr.Discard())
+	c.now = func() time.Time { return now }
+
+	if err := c.handleEvent(context.Background(), watcher.StalledRolloutEvent{
+		BaseEvent:       watcher.BaseEvent{At: now, AgentName: "ag", Namespace: "dev"},
+		DeploymentName:  "payment-service",
+		DesiredReplicas: 3,
+		ReadyReplicas:   0,
+		Reason:          "ProgressDeadlineExceeded",
+		Message:         "Deployment does not have minimum availability",
+	}); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := cl.List(context.Background(), list); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 incident after coalescing, got %d", len(list.Items))
+	}
+	if list.Items[0].Name != existing.Name {
+		t.Fatalf("expected rollout signal to update %q, got %q", existing.Name, list.Items[0].Name)
+	}
+	if list.Items[0].Status.IncidentType != incidentTypeRegistry {
+		t.Fatalf("incidentType: got %q, want %q", list.Items[0].Status.IncidentType, incidentTypeRegistry)
+	}
+	if got := len(list.Items[0].Status.Timeline); got < 2 {
+		t.Fatalf("expected rollout event appended to timeline, got %d entries", got)
 	}
 }
 
