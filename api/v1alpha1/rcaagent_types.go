@@ -57,6 +57,23 @@ type RCAAgentSpec struct {
 	// +kubebuilder:default=30
 	// +optional
 	IncidentRetentionDays int `json:"incidentRetentionDays,omitempty"`
+
+	// SignalProcessing configures the normalization, enrichment, and deduplication
+	// stage that runs before incident correlation.
+	// Phase 2+: stored now so the CRD can model the target architecture.
+	// +optional
+	SignalProcessing *SignalProcessingConfig `json:"signalProcessing,omitempty"`
+
+	// Decision configures autonomy and safety policy after RCA analysis has completed.
+	// Phase 2+: stored now so the CRD can model the target architecture.
+	// +optional
+	Decision *DecisionConfig `json:"decision,omitempty"`
+
+	// Observability configures OTLP telemetry export for traces, metrics, and logs.
+	// The API stays backend-agnostic so users can target SigNoz or any OTLP-compatible sink.
+	// Phase 2+: stored now so the CRD can model the target architecture.
+	// +optional
+	Observability *ObservabilityConfig `json:"observability,omitempty"`
 }
 
 // AIProviderConfig holds the LLM backend configuration.
@@ -132,6 +149,109 @@ type PagerDutyConfig struct {
 	// +kubebuilder:default=P2
 	// +optional
 	Severity string `json:"severity,omitempty"`
+}
+
+// AutonomyLevel controls how much action the operator may take without human approval.
+// 0 = observe only, 1 = suggest, 2 = safe auto-remediation, 3 = full auto-remediation.
+// +kubebuilder:validation:Enum=0;1;2;3
+type AutonomyLevel int32
+
+// RemediationAction is a high-level action category used by the decision layer.
+// +kubebuilder:validation:Enum=restartPod;rollbackWorkload;scaleWorkload;cordonNode;drainNode
+type RemediationAction string
+
+// SignalProcessingConfig defines pre-correlation signal handling.
+type SignalProcessingConfig struct {
+	// DedupWindow is how long equivalent raw signals are suppressed before they can re-open correlation work.
+	// Supported suffixes: s (seconds), m (minutes), h (hours), for example "30s", "2m", "1h".
+	// +kubebuilder:validation:Pattern=`^[1-9][0-9]*(s|m|h)$`
+	// +kubebuilder:default="2m"
+	// +optional
+	DedupWindow string `json:"dedupWindow,omitempty"`
+
+	// CorrelationWindow is the maximum window used to group related normalized signals into one incident candidate.
+	// Supported suffixes: s (seconds), m (minutes), h (hours), for example "30s", "5m", "1h".
+	// +kubebuilder:validation:Pattern=`^[1-9][0-9]*(s|m|h)$`
+	// +kubebuilder:default="5m"
+	// +optional
+	CorrelationWindow string `json:"correlationWindow,omitempty"`
+
+	// MeaningfulIncidentWindow is the minimum continuous observation time before a detecting incident is promoted as meaningful.
+	// Supported suffixes: s (seconds), m (minutes), h (hours), for example "30s", "5m", "1h".
+	// +kubebuilder:validation:Pattern=`^[1-9][0-9]*(s|m|h)$`
+	// +kubebuilder:default="5m"
+	// +optional
+	MeaningfulIncidentWindow string `json:"meaningfulIncidentWindow,omitempty"`
+
+	// EnableOwnerEnrichment controls whether signals are enriched with top-level workload ownership before correlation.
+	// +kubebuilder:default=true
+	// +optional
+	EnableOwnerEnrichment bool `json:"enableOwnerEnrichment,omitempty"`
+}
+
+// NamespaceAutonomyPolicy overrides the default autonomy level for one namespace.
+type NamespaceAutonomyPolicy struct {
+	// Namespace is the Kubernetes namespace this policy applies to.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Namespace string `json:"namespace"`
+
+	// Level is the autonomy level to enforce for the namespace.
+	// +kubebuilder:validation:Required
+	Level AutonomyLevel `json:"level"`
+}
+
+// DecisionConfig defines autonomy and safety policy for remediation decisions.
+type DecisionConfig struct {
+	// DefaultAutonomy is the baseline autonomy level when no namespace override matches.
+	// +kubebuilder:default=1
+	// +optional
+	DefaultAutonomy AutonomyLevel `json:"defaultAutonomy,omitempty"`
+
+	// NamespaceAutonomy overrides DefaultAutonomy for specific namespaces.
+	// +listType=map
+	// +listMapKey=namespace
+	// +optional
+	NamespaceAutonomy []NamespaceAutonomyPolicy `json:"namespaceAutonomy,omitempty"`
+
+	// RequireHumanApprovalFor lists action categories that must never execute automatically.
+	// +listType=set
+	// +optional
+	RequireHumanApprovalFor []RemediationAction `json:"requireHumanApprovalFor,omitempty"`
+
+	// AllowPlaybooks is the allow-list of safe playbook identifiers the operator may consider executing.
+	// +listType=set
+	// +optional
+	AllowPlaybooks []string `json:"allowPlaybooks,omitempty"`
+}
+
+// OTLPExporterConfig defines generic OTLP telemetry export settings.
+type OTLPExporterConfig struct {
+	// Endpoint is the OTLP gRPC or HTTP collector endpoint.
+	// Example: "http://otel-collector.observability.svc.cluster.local:4317"
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	Endpoint string `json:"endpoint,omitempty"`
+
+	// HeadersSecretRef references a Secret in the same namespace containing OTLP headers.
+	// The secret may hold keys such as "Authorization" or vendor-specific routing headers.
+	// +optional
+	HeadersSecretRef string `json:"headersSecretRef,omitempty"`
+
+	// Insecure disables transport security for in-cluster development collectors.
+	// +optional
+	Insecure bool `json:"insecure,omitempty"`
+
+	// ResourceAttributes adds static OpenTelemetry resource attributes to exported telemetry.
+	// +optional
+	ResourceAttributes map[string]string `json:"resourceAttributes,omitempty"`
+}
+
+// ObservabilityConfig defines telemetry export behavior for the operator.
+type ObservabilityConfig struct {
+	// OTLP enables OpenTelemetry export using a backend-agnostic OTLP endpoint.
+	// +optional
+	OTLP *OTLPExporterConfig `json:"otlp,omitempty"`
 }
 
 // RCAAgentStatus defines the observed state of RCAAgent.

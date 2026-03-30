@@ -23,6 +23,32 @@ spec:
       secretRef: pd-api-key
   # How long to keep Resolved IncidentReport CRs. Supported: m, h, d (e.g. 24h, 30d).
   incidentRetention: 5m
+  # Phase 2+ target architecture: normalize and deduplicate signals before correlation.
+  signalProcessing:
+    dedupWindow: 2m
+    correlationWindow: 5m
+    meaningfulIncidentWindow: 5m
+    enableOwnerEnrichment: true
+  # Phase 2+ target architecture: keep autonomy conservative by default.
+  decision:
+    defaultAutonomy: 1
+    namespaceAutonomy:
+      - namespace: development
+        level: 2
+    requireHumanApprovalFor:
+      - rollbackWorkload
+      - cordonNode
+    allowPlaybooks:
+      - restart-pod
+      - scale-workload
+  # Backend-agnostic OTLP export. SigNoz is one possible OTLP-compatible backend.
+  observability:
+    otlp:
+      endpoint: http://signoz-otel-collector.platform-observability.svc.cluster.local:4317
+      insecure: true
+      resourceAttributes:
+        service.name: rca-operator
+        deployment.environment: development
 ---
 apiVersion: rca.rca-operator.tech/v1alpha1
 kind: RCAAgent
@@ -49,3 +75,27 @@ spec:
       secretRef: pd-api-key
   # How long to keep Resolved IncidentReport CRs. Supported: m, h, d (e.g. 24h, 30d).
   incidentRetention: 5m
+  signalProcessing:
+    dedupWindow: 2m
+    correlationWindow: 5m
+    meaningfulIncidentWindow: 5m
+    enableOwnerEnrichment: true
+  decision:
+    defaultAutonomy: 1
+    namespaceAutonomy:
+      - namespace: qln-dev
+        level: 2
+      - namespace: production
+        level: 1
+    requireHumanApprovalFor:
+      - rollbackWorkload
+      - drainNode
+    allowPlaybooks:
+      - restart-pod
+  observability:
+    otlp:
+      endpoint: http://signoz-otel-collector.platform-observability.svc.cluster.local:4317
+      insecure: true
+      resourceAttributes:
+        service.name: rca-operator
+        deployment.environment: qln-dev

@@ -20,7 +20,9 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- *(nothing yet — add your change here)*
+- ADR-0001 documenting the signal-first incident pipeline, autonomy policy boundary, and backend-agnostic OTLP observability direction
+- Optional `RCAAgent` schema for `signalProcessing`, `decision`, and `observability.otlp`
+- Updated `RCAAgent` reference docs and sample manifests for the planned Phase 2 architecture
 
 ---
 
