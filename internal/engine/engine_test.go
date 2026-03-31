@@ -7,13 +7,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+const defaultRuleEngineName = "correlator"
+
 func TestNewIncidentEngine_ResolvesDefaultRuleEngine(t *testing.T) {
 	incidentEngine, err := NewIncidentEngine(fake.NewClientBuilder().Build(), nil, logr.Discard())
 	if err != nil {
 		t.Fatalf("NewIncidentEngine() error = %v", err)
 	}
-	if incidentEngine.RuleEngineName() != "correlator" {
-		t.Fatalf("RuleEngineName() = %q, want %q", incidentEngine.RuleEngineName(), "correlator")
+	if incidentEngine.RuleEngineName() != defaultRuleEngineName {
+		t.Fatalf("RuleEngineName() = %q, want %q", incidentEngine.RuleEngineName(), defaultRuleEngineName)
 	}
 }
 
