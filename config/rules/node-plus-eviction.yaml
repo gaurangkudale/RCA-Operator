@@ -1,0 +1,17 @@
+apiVersion: rca.rca-operator.tech/v1alpha1
+kind: RCACorrelationRule
+metadata:
+  name: node-plus-eviction
+spec:
+  priority: 500
+  trigger:
+    eventType: NodeNotReady
+  conditions:
+    - eventType: PodEvicted
+      scope: sameNode
+  fires:
+    incidentType: NodeFailure
+    severity: P1
+    summary: "NodeFailure: NodeNotReady+Eviction node={{.NodeName}}"
+    resource: node
+    scope: Cluster

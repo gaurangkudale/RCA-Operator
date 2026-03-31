@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"os"
@@ -41,6 +42,9 @@ import (
 	"github.com/gaurangkudale/rca-operator/internal/dashboard"
 	"github.com/gaurangkudale/rca-operator/internal/engine"
 	"github.com/gaurangkudale/rca-operator/internal/notify"
+	rcaotel "github.com/gaurangkudale/rca-operator/internal/otel"
+	"github.com/gaurangkudale/rca-operator/internal/rulengine"
+	rcawebhook "github.com/gaurangkudale/rca-operator/internal/webhook"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -66,6 +70,7 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var enableWebhooks bool
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&dashboardAddr, "dashboard-bind-address", ":9090", "The address the incident dashboard binds to.")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
@@ -76,6 +81,8 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.BoolVar(&secureMetrics, "metrics-secure", true,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
+	flag.BoolVar(&enableWebhooks, "enable-webhooks", false,
+		"Enable admission webhooks for RCAAgent and RCACorrelationRule validation.")
 	flag.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
 	flag.StringVar(&webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
 	flag.StringVar(&webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
@@ -108,6 +115,27 @@ func main() {
 		tlsOpts = append(tlsOpts, disableHTTP2)
 	}
 
+	// --- OTel Setup ---
+	otelEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	otelShutdown, err := rcaotel.Setup(context.Background(), rcaotel.Config{
+		Endpoint:    otelEndpoint,
+		ServiceName: "rca-operator",
+		SamplingRate: 1.0,
+		Insecure:    true,
+	})
+	if err != nil {
+		setupLog.Error(err, "Failed to initialize OpenTelemetry")
+		os.Exit(1)
+	}
+	defer func() {
+		if err := otelShutdown(context.Background()); err != nil {
+			setupLog.Error(err, "Failed to shutdown OpenTelemetry")
+		}
+	}()
+	if otelEndpoint != "" {
+		setupLog.Info("OpenTelemetry initialized", "endpoint", otelEndpoint)
+	}
+
 	// Initial webhook TLS options
 	webhookTLSOpts := tlsOpts
 	webhookServerOptions := webhook.Options{
@@ -126,9 +154,6 @@ func main() {
 	webhookServer := webhook.NewServer(webhookServerOptions)
 
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
-	// More info:
-	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/metrics/server
-	// - https://book.kubebuilder.io/reference/metrics.html
 	metricsServerOptions := metricsserver.Options{
 		BindAddress:   metricsAddr,
 		SecureServing: secureMetrics,
@@ -136,16 +161,9 @@ func main() {
 	}
 
 	if secureMetrics {
-		// FilterProvider is used to protect the metrics endpoint with authn/authz.
-		// These configurations ensure that only authorized users and service accounts
-		// can access the metrics endpoint. The RBAC are configured in 'config/rbac/kustomization.yaml'. More info:
-		// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/metrics/filters#WithAuthenticationAndAuthorization
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
 
-	// If the certificate is not specified, controller-runtime will automatically
-	// generate self-signed certificates for the metrics server. While convenient for development and testing,
-	// this setup is not recommended for production.
 	if len(metricsCertPath) > 0 {
 		setupLog.Info("Initializing metrics certificate loader using provided certificates",
 			"metrics-cert-path", metricsCertPath, "metrics-cert-name", metricsCertName, "metrics-cert-key", metricsCertKey)
@@ -162,24 +180,34 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "8faf7f69.rca-operator.tech",
-		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
-		// when the Manager ends. This requires the binary to immediately end when the
-		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
-		// speeds up voluntary leader transitions as the new leader don't have to wait
-		// LeaseDuration time first.
-		//
-		// In the default scaffold provided, the program ends immediately after
-		// the manager stops, so would be fine to enable this option. However,
-		// if you are doing or is intended to do any operation such as perform cleanups
-		// after the manager stops then its usage might be unsafe.
-		// LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
 		setupLog.Error(err, "Failed to start manager")
 		os.Exit(1)
 	}
 
+	// --- Webhooks ---
+	if enableWebhooks {
+		if err := rcawebhook.SetupRCAAgentWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create RCAAgent webhook")
+			os.Exit(1)
+		}
+		if err := rcawebhook.SetupRCACorrelationRuleWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create RCACorrelationRule webhook")
+			os.Exit(1)
+		}
+		setupLog.Info("Admission webhooks enabled")
+	}
+
 	managerCtx := ctrl.SetupSignalHandler()
+
+	// --- Register CRD Rule Engine Factory ---
+	engine.RegisterRuleEngineFactory(rulengine.Factory{
+		Client: mgr.GetClient(),
+		Logger: ctrl.Log,
+	})
+
+	// --- Signal channel + Incident Engine ---
 	signals := make(chan collectors.Signal, 1024)
 	signalEmitter := collectors.NewChannelSignalEmitter(signals, ctrl.Log)
 	incidentEngine, err := engine.NewIncidentEngine(
@@ -192,6 +220,7 @@ func main() {
 		setupLog.Error(err, "Failed to create incident engine")
 		os.Exit(1)
 	}
+	setupLog.Info("Incident engine created", "ruleEngine", incidentEngine.RuleEngineName())
 	go incidentEngine.Run(managerCtx)
 
 	dashboardServer := dashboard.NewServer(mgr.GetClient(), dashboardAddr, ctrl.Log)

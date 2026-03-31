@@ -8,7 +8,7 @@ import (
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
-type ruleFunc func(event watcher.CorrelatorEvent, entries []entry) CorrelationResult
+type ruleFunc func(event watcher.CorrelatorEvent, entries []Entry) CorrelationResult
 
 type registeredRule struct {
 	name     string
@@ -24,7 +24,7 @@ func (r registeredRule) Priority() int {
 	return r.priority
 }
 
-func (r registeredRule) Evaluate(event watcher.CorrelatorEvent, entries []entry) CorrelationResult {
+func (r registeredRule) Evaluate(event watcher.CorrelatorEvent, entries []Entry) CorrelationResult {
 	result := r.evaluate(event, entries)
 	if result.Fired && result.Rule == "" {
 		result.Rule = r.name
@@ -81,11 +81,11 @@ func init() {
 // Rule 1: CrashLoop + OOMKilled → MemoryPressure (type=OOM, severity=P2)
 // ─────────────────────────────────────────────────────────────────────────────
 
-func ruleCrashLoopPlusOOM(event watcher.CorrelatorEvent, entries []entry) CorrelationResult {
+func ruleCrashLoopPlusOOM(event watcher.CorrelatorEvent, entries []Entry) CorrelationResult {
 	switch e := event.(type) {
 	case watcher.CrashLoopBackOffEvent:
 		for _, en := range entries {
-			oom, ok := en.event.(watcher.OOMKilledEvent)
+			oom, ok := en.Event.(watcher.OOMKilledEvent)
 			if ok && oom.Namespace == e.Namespace && oom.PodName == e.PodName {
 				return CorrelationResult{
 					Fired:        true,
@@ -98,7 +98,7 @@ func ruleCrashLoopPlusOOM(event watcher.CorrelatorEvent, entries []entry) Correl
 		}
 	case watcher.OOMKilledEvent:
 		for _, en := range entries {
-			cl, ok := en.event.(watcher.CrashLoopBackOffEvent)
+			cl, ok := en.Event.(watcher.CrashLoopBackOffEvent)
 			if ok && cl.Namespace == e.Namespace && cl.PodName == e.PodName {
 				return CorrelationResult{
 					Fired:        true,
@@ -117,13 +117,13 @@ func ruleCrashLoopPlusOOM(event watcher.CorrelatorEvent, entries []entry) Correl
 // Rule 2: CrashLoop + recent StalledRollout in same namespace → BadDeploy, P2
 // ─────────────────────────────────────────────────────────────────────────────
 
-func ruleCrashLoopPlusBadDeploy(event watcher.CorrelatorEvent, entries []entry) CorrelationResult {
+func ruleCrashLoopPlusBadDeploy(event watcher.CorrelatorEvent, entries []Entry) CorrelationResult {
 	cl, ok := event.(watcher.CrashLoopBackOffEvent)
 	if !ok {
 		return CorrelationResult{}
 	}
 	for _, en := range entries {
-		stalled, ok := en.event.(watcher.StalledRolloutEvent)
+		stalled, ok := en.Event.(watcher.StalledRolloutEvent)
 		if ok && stalled.Namespace == cl.Namespace {
 			return CorrelationResult{
 				Fired:        true,
@@ -176,13 +176,13 @@ func failurePodKey(e watcher.CorrelatorEvent) string {
 // ruleImagePullNoHistory escalates an ImagePullBackOff from P3 to P2 when the
 // buffer contains no PodHealthyEvent for the same pod, indicating the container
 // image has never successfully started in the current window.
-func ruleImagePullNoHistory(event watcher.CorrelatorEvent, entries []entry) CorrelationResult {
+func ruleImagePullNoHistory(event watcher.CorrelatorEvent, entries []Entry) CorrelationResult {
 	pull, ok := event.(watcher.ImagePullBackOffEvent)
 	if !ok {
 		return CorrelationResult{}
 	}
 	for _, en := range entries {
-		healthy, ok := en.event.(watcher.PodHealthyEvent)
+		healthy, ok := en.Event.(watcher.PodHealthyEvent)
 		if ok && healthy.Namespace == pull.Namespace && healthy.PodName == pull.PodName {
 			// Pod was healthy recently — treat as transient pull failure, do not escalate.
 			return CorrelationResult{}
@@ -201,11 +201,11 @@ func ruleImagePullNoHistory(event watcher.CorrelatorEvent, entries []entry) Corr
 // Rule 5: NodeNotReady + eviction events on same node → NodeFailure, P1
 // ─────────────────────────────────────────────────────────────────────────────
 
-func ruleNodeNotReadyPlusEviction(event watcher.CorrelatorEvent, entries []entry) CorrelationResult {
+func ruleNodeNotReadyPlusEviction(event watcher.CorrelatorEvent, entries []Entry) CorrelationResult {
 	switch e := event.(type) {
 	case watcher.NodeNotReadyEvent:
 		for _, en := range entries {
-			evicted, ok := en.event.(watcher.PodEvictedEvent)
+			evicted, ok := en.Event.(watcher.PodEvictedEvent)
 			if ok && evicted.NodeName == e.NodeName {
 				return CorrelationResult{
 					Fired:        true,
@@ -221,7 +221,7 @@ func ruleNodeNotReadyPlusEviction(event watcher.CorrelatorEvent, entries []entry
 		}
 	case watcher.PodEvictedEvent:
 		for _, en := range entries {
-			notReady, ok := en.event.(watcher.NodeNotReadyEvent)
+			notReady, ok := en.Event.(watcher.NodeNotReadyEvent)
 			if ok && notReady.NodeName == e.NodeName {
 				return CorrelationResult{
 					Fired:        true,

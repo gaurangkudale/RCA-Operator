@@ -53,6 +53,57 @@ type RCAAgentSpec struct {
 	// +kubebuilder:default=30
 	// +optional
 	IncidentRetentionDays int `json:"incidentRetentionDays,omitempty"`
+
+	// OTel holds optional OpenTelemetry configuration for exporting traces and metrics to SigNoz.
+	// +optional
+	OTel *OTelConfig `json:"otel,omitempty"`
+
+	// SignalMappings allows overriding the default event-type → incident-type mapping.
+	// +optional
+	SignalMappings []SignalMappingConfig `json:"signalMappings,omitempty"`
+}
+
+// OTelConfig holds OpenTelemetry export settings.
+type OTelConfig struct {
+	// Endpoint is the OTLP gRPC collector address (e.g. "signoz-collector:4317").
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Endpoint string `json:"endpoint"`
+
+	// ServiceName is the service.name resource attribute. Defaults to "rca-operator".
+	// +optional
+	ServiceName string `json:"serviceName,omitempty"`
+
+	// SamplingRate is the trace sampling ratio as a string (e.g. "1.0"). Defaults to "1.0".
+	// +optional
+	SamplingRate string `json:"samplingRate,omitempty"`
+
+	// Insecure disables TLS on the gRPC connection (typical for in-cluster collectors).
+	// +optional
+	Insecure bool `json:"insecure,omitempty"`
+}
+
+// SignalMappingConfig overrides the default event→incident mapping for a single event type.
+type SignalMappingConfig struct {
+	// EventType is the watcher event type to override (e.g. "CrashLoopBackOff").
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	EventType string `json:"eventType"`
+
+	// IncidentType overrides the default incident type.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	IncidentType string `json:"incidentType"`
+
+	// Severity overrides the default severity.
+	// +kubebuilder:validation:Enum=P1;P2;P3;P4
+	// +optional
+	Severity string `json:"severity,omitempty"`
+
+	// Scope overrides the default scope level.
+	// +kubebuilder:validation:Enum=Pod;Workload;Namespace;Cluster
+	// +optional
+	Scope string `json:"scope,omitempty"`
 }
 
 // NotificationsConfig defines where to send RCAAgent notifications.
@@ -129,6 +180,7 @@ type RCAAgentStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=".status.conditions[?(@.type=='Available')].status",description="Overall status based on conditions"
+// +kubebuilder:printcolumn:name="Retention",type=string,JSONPath=".spec.incidentRetention",description="Incident retention duration"
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=".metadata.creationTimestamp"
 
 // RCAAgent is the Schema for the rcaagents API

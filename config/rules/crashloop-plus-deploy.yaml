@@ -1,0 +1,16 @@
+apiVersion: rca.rca-operator.tech/v1alpha1
+kind: RCACorrelationRule
+metadata:
+  name: crashloop-plus-deploy
+spec:
+  priority: 300
+  trigger:
+    eventType: CrashLoopBackOff
+  conditions:
+    - eventType: StalledRollout
+      scope: sameNamespace
+  fires:
+    incidentType: BadDeploy
+    severity: P2
+    summary: "BadDeploy: CrashLoop after stalled rollout pod={{.PodName}} ns={{.Namespace}}"
+    resource: deployment

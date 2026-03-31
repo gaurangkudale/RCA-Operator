@@ -9,23 +9,23 @@ import (
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
-// entry holds a single event and the time it was added to the buffer.
-type entry struct {
-	event   watcher.CorrelatorEvent
-	addedAt time.Time
+// Entry holds a single event and the time it was added to the buffer.
+type Entry struct {
+	Event   watcher.CorrelatorEvent
+	AddedAt time.Time
 }
 
 // Buffer is a sliding-window event store. Events older than the configured
 // window are discarded on each write. It is safe for concurrent use.
 type Buffer struct {
 	mu      sync.Mutex
-	entries []entry
+	entries []Entry
 	window  time.Duration
 	nowFn   func() time.Time // injectable for tests
 }
 
-// newBuffer returns a Buffer with the given time window.
-func newBuffer(window time.Duration) *Buffer {
+// NewBuffer returns a Buffer with the given time window.
+func NewBuffer(window time.Duration) *Buffer {
 	return &Buffer{window: window, nowFn: time.Now}
 }
 
@@ -36,7 +36,7 @@ func (b *Buffer) Add(e watcher.CorrelatorEvent) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.purgeOld(now)
-	b.entries = append(b.entries, entry{event: e, addedAt: now})
+	b.entries = append(b.entries, Entry{Event: e, AddedAt: now})
 }
 
 // purgeOld removes entries whose addedAt timestamp is before now-window.
@@ -44,19 +44,19 @@ func (b *Buffer) Add(e watcher.CorrelatorEvent) {
 func (b *Buffer) purgeOld(now time.Time) {
 	cutoff := now.Add(-b.window)
 	i := 0
-	for i < len(b.entries) && b.entries[i].addedAt.Before(cutoff) {
+	for i < len(b.entries) && b.entries[i].AddedAt.Before(cutoff) {
 		i++
 	}
 	b.entries = b.entries[i:]
 }
 
-// snapshot returns a copy of the current entries after purging stale ones.
-func (b *Buffer) snapshot() []entry {
+// Snapshot returns a copy of the current entries after purging stale ones.
+func (b *Buffer) Snapshot() []Entry {
 	now := b.nowFn()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.purgeOld(now)
-	out := make([]entry, len(b.entries))
+	out := make([]Entry, len(b.entries))
 	copy(out, b.entries)
 	return out
 }
@@ -89,7 +89,7 @@ type RuleEngine interface {
 type Rule interface {
 	Name() string
 	Priority() int
-	Evaluate(event watcher.CorrelatorEvent, entries []entry) CorrelationResult
+	Evaluate(event watcher.CorrelatorEvent, entries []Entry) CorrelationResult
 }
 
 type CorrelatorOption func(*Correlator)
@@ -112,7 +112,7 @@ type Correlator struct {
 // and the currently registered rule set.
 func NewCorrelator(window time.Duration, opts ...CorrelatorOption) *Correlator {
 	c := &Correlator{
-		buf:   newBuffer(window),
+		buf:   NewBuffer(window),
 		rules: RegisteredRules(),
 	}
 	for _, opt := range opts {
@@ -131,7 +131,7 @@ func (c *Correlator) Add(e watcher.CorrelatorEvent) {
 // the incoming event. The first rule that fires is returned; if no rule fires,
 // a zero CorrelationResult (Fired=false) is returned.
 func (c *Correlator) Evaluate(event watcher.CorrelatorEvent) CorrelationResult {
-	entries := c.buf.snapshot()
+	entries := c.buf.Snapshot()
 	for _, rule := range c.rules {
 		if result := rule.Evaluate(event, entries); result.Fired {
 			return result

@@ -1,0 +1,16 @@
+apiVersion: rca.rca-operator.tech/v1alpha1
+kind: RCACorrelationRule
+metadata:
+  name: imagepull-no-history
+spec:
+  priority: 200
+  trigger:
+    eventType: ImagePullBackOff
+  conditions:
+    - eventType: PodHealthy
+      scope: samePod
+      negate: true
+  fires:
+    incidentType: Registry
+    severity: P2
+    summary: "Registry: ImagePullBackOff with no prior success pod={{.PodName}} ns={{.Namespace}}"

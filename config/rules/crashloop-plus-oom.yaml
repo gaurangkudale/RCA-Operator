@@ -1,0 +1,15 @@
+apiVersion: rca.rca-operator.tech/v1alpha1
+kind: RCACorrelationRule
+metadata:
+  name: crashloop-plus-oom
+spec:
+  priority: 400
+  trigger:
+    eventType: CrashLoopBackOff
+  conditions:
+    - eventType: OOMKilled
+      scope: samePod
+  fires:
+    incidentType: OOM
+    severity: P2
+    summary: "MemoryPressure: CrashLoop+OOMKilled pod={{.PodName}} ns={{.Namespace}}"
