@@ -126,7 +126,7 @@ type TimelineEvent struct {
 
 // IncidentReportStatus defines the observed state of IncidentReport.
 type IncidentReportStatus struct {
-	// severity is the incident severity level assigned by the correlator.
+	// severity is the incident severity level assigned by the incident engine.
 	// +kubebuilder:validation:Enum=P1;P2;P3;P4
 	// +required
 	Severity string `json:"severity,omitempty"`
@@ -136,7 +136,7 @@ type IncidentReportStatus struct {
 	// +required
 	Phase string `json:"phase,omitempty"`
 
-	// incidentType is the category of incident detected by the correlator.
+	// incidentType is the category of incident detected by the incident engine.
 	// +kubebuilder:validation:Enum=CrashLoop;OOM;BadDeploy;NodeFailure;Registry;GracePeriodViolation;ProbeFailure
 	// +required
 	IncidentType string `json:"incidentType,omitempty"`

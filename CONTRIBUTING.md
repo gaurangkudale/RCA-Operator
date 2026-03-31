@@ -135,8 +135,10 @@ rca-operator/
 ├── api/v1alpha1/          ← CRD type definitions
 ├── internal/
 │   ├── controller/        ← Kubernetes controllers (reconcile loops)
-│   ├── watcher/           ← Pod, Event, Node, Deployment watchers
-│   ├── correlator/        ← Ring buffer, correlation rules, incident model
+│   ├── collectors/        ← Collector-facing runtime seam for pod, event, node, and workload signals
+│   ├── watcher/           ← Current informer-backed collector implementations
+│   ├── engine/            ← Incident engine runtime seam
+│   ├── correlator/        ← Current incident-engine internals and incident model
 │   ├── reporter/          ← Slack, PagerDuty, CR reporter
 │   └── rca/               ← RCA engine (Phase 2+, stubs only in Phase 1)
 ├── config/
@@ -148,7 +150,7 @@ rca-operator/
 └── tests/e2e/             ← End-to-end tests
 ```
 
-**Key design constraint:** watchers are read-only. They emit events into the correlator — they never write to the cluster. Only controllers and reporters write.
+**Key design constraint:** collectors are read-only. They emit signals into the incident engine and never write to the cluster directly. Only controllers and reporters write.
 
 ---
 
@@ -159,7 +161,7 @@ rca-operator/
 ```bash
 git checkout -b fix/crashloop-threshold-off-by-one
 # or
-git checkout -b feat/add-statefulset-watcher
+git checkout -b feat/add-workload-collector
 ```
 
 Branch naming:
@@ -190,7 +192,7 @@ Add an entry under `[Unreleased]`:
 ```markdown
 ## [Unreleased]
 ### Added
-- StatefulSet watcher for pod disruption detection (#42)
+- StatefulSet collector for pod disruption detection (#42)
 ```
 
 ---
@@ -219,15 +221,15 @@ We use [Conventional Commits](https://www.conventionalcommits.org/).
 | `chore` | CI, tooling, dependencies |
 | `perf` | Performance improvement |
 
-**Scopes:** `watcher`, `correlator`, `reporter`, `controller`, `api`, `helm`, `ci`, `docs`
+**Scopes:** `collector`, `engine`, `reporter`, `controller`, `api`, `helm`, `ci`, `docs`
 
 **Examples:**
 
-```
-feat(correlator): add ImagePullBackOff + registry rule
-fix(watcher): correct OOMKilled exit code check from 143 to 137
+```text
+feat(engine): add ImagePullBackOff + registry rule
+fix(collector): correct OOMKilled exit code check from 143 to 137
 docs(reference): add incidentRetention field to RCAAgent CRD ref
-test(correlator): add table-driven tests for node failure rule
+test(engine): add table-driven tests for node failure rule
 chore(ci): upgrade golangci-lint to v1.57
 ```
 
@@ -253,8 +255,8 @@ chore(ci): upgrade golangci-lint to v1.57
 
 Follow the same Conventional Commits format as your commit messages.
 
-```
-feat(watcher): add StatefulSet pod disruption detection
+```text
+feat(collector): add StatefulSet pod disruption detection
 ```
 
 ### PR description template
@@ -338,7 +340,7 @@ E2E tests are slower and are only run in CI on PRs to `main`. Don't gate your lo
 
 ### Coverage target
 
-We aim for **>80% coverage** on `internal/correlator/` and `internal/watcher/`. Check with:
+We aim for strong coverage across the incident pipeline, especially `internal/controller/`, `internal/engine/`, `internal/correlator/`, and the informer-backed collectors under `internal/watcher/`. Check with:
 
 ```bash
 make test-coverage

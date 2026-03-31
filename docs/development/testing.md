@@ -37,7 +37,7 @@ E2E test source is in `test/e2e/`.
 
 ## Manual Scenario Testing
 
-Use the fixtures in `test/fixtures/pods/` to trigger specific watcher signals against a live operator:
+Use the fixtures in `test/fixtures/pods/` to trigger specific collector signals against a live operator:
 
 ```bash
 # See README for the full scenario list

@@ -18,15 +18,15 @@ The operator still needs to be useful in production. That means the system must 
 
 Phase 1 uses this flow:
 
-`kube-apiserver -> watchers -> correlator -> IncidentReport -> notifications + dashboard`
+`kube-apiserver -> collectors -> incident engine -> IncidentReport -> notifications + dashboard`
 
 Key architectural choices:
 
 1. Kubernetes remains the only operational data source.
 2. `IncidentReport` is the durable incident record.
-3. Watchers emit operator events from pods, events, nodes, and deployments.
-4. The correlator owns deduplication, severity, grouping, and lifecycle transitions.
-5. Notifications are triggered from durable incident state, not directly from watcher events.
+3. Collectors emit normalized incident signals from pods, events, nodes, and workloads.
+4. The incident engine owns deduplication, severity, grouping, and lifecycle transitions.
+5. Notifications are triggered from durable incident state, not directly from collected signals.
 6. The dashboard reads only `IncidentReport` and `RCAAgent` resources.
 
 ## Consequences
@@ -47,5 +47,5 @@ Key architectural choices:
 ## Follow-up Rules
 
 - Do not require unused configuration such as AI provider secrets
-- Keep `RCAAgent` focused on watcher scope, notifications, and retention
+- Keep `RCAAgent` focused on collection scope, notifications, and retention
 - Prefer removing future-facing placeholders over keeping speculative API fields

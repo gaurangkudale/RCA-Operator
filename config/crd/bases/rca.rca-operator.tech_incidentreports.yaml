@@ -260,7 +260,7 @@ spec:
                 type: string
               incidentType:
                 description: incidentType is the category of incident detected by
-                  the correlator.
+                  the incident engine.
                 enum:
                 - CrashLoop
                 - OOM
@@ -306,7 +306,7 @@ spec:
                 type: string
               severity:
                 description: severity is the incident severity level assigned by the
-                  correlator.
+                  incident engine.
                 enum:
                 - P1
                 - P2

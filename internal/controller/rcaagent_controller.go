@@ -41,9 +41,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
+	"github.com/gaurangkudale/rca-operator/internal/collectors"
 	"github.com/gaurangkudale/rca-operator/internal/incidentstatus"
 	"github.com/gaurangkudale/rca-operator/internal/retention"
-	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
 const rcaAgentFinalizer = "rca.rca-operator.tech/finalizer"
@@ -71,35 +71,35 @@ type RCAAgentReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 
-	Cache            ctrlcache.Cache
-	WatcherEmitter   watcher.EventEmitter
-	ManagerContext   context.Context
-	newPodWatcher    func(ctrlcache.Cache, watcher.EventEmitter, logr.Logger, watcher.PodWatcherConfig) podWatcher
-	newEventWatcher  func(ctrlcache.Cache, watcher.EventEmitter, logr.Logger, watcher.EventWatcherConfig) eventWatcher
-	newDeployWatcher func(ctrlcache.Cache, watcher.EventEmitter, logr.Logger, watcher.DeploymentWatcherConfig) deploymentWatcher
-	newNodeWatcher   func(ctrlcache.Cache, watcher.EventEmitter, logr.Logger, watcher.NodeWatcherConfig) nodeWatcher
-	watcherRegistry  map[types.NamespacedName]watcherEntry
-	watcherRegistryM sync.Mutex
-	nowFn            func() time.Time
+	Cache                ctrlcache.Cache
+	SignalEmitter        collectors.SignalEmitter
+	ManagerContext       context.Context
+	newPodCollector      func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.PodCollectorConfig) podCollector
+	newEventCollector    func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.EventCollectorConfig) eventCollector
+	newWorkloadCollector func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.WorkloadCollectorConfig) workloadCollector
+	newNodeCollector     func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.NodeCollectorConfig) nodeCollector
+	collectorRegistry    map[types.NamespacedName]collectorEntry
+	collectorRegistryM   sync.Mutex
+	nowFn                func() time.Time
 }
 
-type podWatcher interface {
+type podCollector interface {
 	Start(ctx context.Context) error
 }
 
-type eventWatcher interface {
+type eventCollector interface {
 	Start(ctx context.Context) error
 }
 
-type deploymentWatcher interface {
+type workloadCollector interface {
 	Start(ctx context.Context) error
 }
 
-type nodeWatcher interface {
+type nodeCollector interface {
 	Start(ctx context.Context) error
 }
 
-type watcherEntry struct {
+type collectorEntry struct {
 	cancel          context.CancelFunc
 	watchNamespaces []string
 }
@@ -137,9 +137,9 @@ func (r *RCAAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if !agent.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(agent, rcaAgentFinalizer) {
 			log.Info("Running cleanup for deleted RCAAgent", "name", agent.Name)
-			r.stopWatcher(req.NamespacedName)
+			r.stopCollectors(req.NamespacedName)
 
-			// Stop all watcher pipelines before removing the finalizer.
+			// Stop all collector pipelines before removing the finalizer.
 
 			controllerutil.RemoveFinalizer(agent, rcaAgentFinalizer)
 			if err := r.Update(ctx, agent); err != nil {
@@ -188,7 +188,7 @@ func (r *RCAAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// Validate that watchNamespaces exist (warn only — don't block)
 	r.validateNamespaces(ctx, agent)
 
-	if err := r.ensureWatcherRunning(ctx, agent); err != nil {
+	if err := r.ensureCollectorsRunning(ctx, agent); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -316,7 +316,7 @@ func (r *RCAAgentReconciler) findRCAAgentsForSecret(ctx context.Context, obj cli
 }
 
 func (r *RCAAgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	r.initWatcherRegistry()
+	r.initCollectorRegistry()
 	if r.ManagerContext == nil {
 		r.ManagerContext = context.Background()
 	}
@@ -333,48 +333,48 @@ func (r *RCAAgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *RCAAgentReconciler) initWatcherRegistry() {
-	r.watcherRegistryM.Lock()
-	defer r.watcherRegistryM.Unlock()
-	if r.watcherRegistry == nil {
-		r.watcherRegistry = make(map[types.NamespacedName]watcherEntry)
+func (r *RCAAgentReconciler) initCollectorRegistry() {
+	r.collectorRegistryM.Lock()
+	defer r.collectorRegistryM.Unlock()
+	if r.collectorRegistry == nil {
+		r.collectorRegistry = make(map[types.NamespacedName]collectorEntry)
 	}
 }
 
-func (r *RCAAgentReconciler) ensureWatcherRunning(ctx context.Context, agent *rcav1alpha1.RCAAgent) error {
-	if r.WatcherEmitter == nil {
+func (r *RCAAgentReconciler) ensureCollectorsRunning(ctx context.Context, agent *rcav1alpha1.RCAAgent) error {
+	if r.SignalEmitter == nil {
 		return nil
 	}
 
 	key := types.NamespacedName{Name: agent.Name, Namespace: agent.Namespace}
 	desiredNamespaces := normalizeNamespaces(agent.Spec.WatchNamespaces)
 
-	podFactory := r.newPodWatcher
+	podFactory := r.newPodCollector
 	if podFactory == nil {
 		if r.Cache == nil {
 			return nil
 		}
-		podFactory = func(cache ctrlcache.Cache, emitter watcher.EventEmitter, logger logr.Logger, cfg watcher.PodWatcherConfig) podWatcher {
-			return watcher.NewPodWatcher(cache, emitter, logger, cfg)
+		podFactory = func(cache ctrlcache.Cache, emitter collectors.SignalEmitter, logger logr.Logger, cfg collectors.PodCollectorConfig) podCollector {
+			return collectors.NewPodCollector(cache, emitter, logger, cfg)
 		}
 	}
-	eventFactory := r.newEventWatcher
+	eventFactory := r.newEventCollector
 	if eventFactory == nil {
-		eventFactory = func(cache ctrlcache.Cache, emitter watcher.EventEmitter, logger logr.Logger, cfg watcher.EventWatcherConfig) eventWatcher {
-			return watcher.NewEventWatcher(cache, emitter, logger, cfg)
+		eventFactory = func(cache ctrlcache.Cache, emitter collectors.SignalEmitter, logger logr.Logger, cfg collectors.EventCollectorConfig) eventCollector {
+			return collectors.NewEventCollector(cache, emitter, logger, cfg)
 		}
 	}
 
-	r.watcherRegistryM.Lock()
-	entry, exists := r.watcherRegistry[key]
+	r.collectorRegistryM.Lock()
+	entry, exists := r.collectorRegistry[key]
 	if exists && reflect.DeepEqual(entry.watchNamespaces, desiredNamespaces) {
-		r.watcherRegistryM.Unlock()
+		r.collectorRegistryM.Unlock()
 		return nil
 	}
 	if exists {
-		delete(r.watcherRegistry, key)
+		delete(r.collectorRegistry, key)
 	}
-	r.watcherRegistryM.Unlock()
+	r.collectorRegistryM.Unlock()
 	if exists {
 		entry.cancel()
 	}
@@ -383,81 +383,81 @@ func (r *RCAAgentReconciler) ensureWatcherRunning(ctx context.Context, agent *rc
 	if baseCtx == nil {
 		baseCtx = context.Background()
 	}
-	watcherCtx, cancel := context.WithCancel(baseCtx)
+	collectorCtx, cancel := context.WithCancel(baseCtx)
 
 	log := logf.FromContext(ctx)
-	pw := podFactory(r.Cache, r.WatcherEmitter, log,
-		watcher.PodWatcherConfig{
+	pc := podFactory(r.Cache, r.SignalEmitter, log,
+		collectors.PodCollectorConfig{
 			AgentName:       agent.Name,
 			WatchNamespaces: desiredNamespaces,
 		},
 	)
-	if err := pw.Start(watcherCtx); err != nil {
+	if err := pc.Start(collectorCtx); err != nil {
 		cancel()
-		return fmt.Errorf("failed to start pod watcher for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
+		return fmt.Errorf("failed to start pod collector for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
 	}
 
-	ew := eventFactory(r.Cache, r.WatcherEmitter, log,
-		watcher.EventWatcherConfig{
+	ec := eventFactory(r.Cache, r.SignalEmitter, log,
+		collectors.EventCollectorConfig{
 			AgentName:       agent.Name,
 			WatchNamespaces: desiredNamespaces,
 		},
 	)
-	if err := ew.Start(watcherCtx); err != nil {
+	if err := ec.Start(collectorCtx); err != nil {
 		cancel()
-		return fmt.Errorf("failed to start event watcher for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
+		return fmt.Errorf("failed to start event collector for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
 	}
 
-	// DeploymentWatcher is started when either an injected factory is provided
-	// or a real cache is available.  When neither is true (e.g. unit tests that
-	// inject pod/event fakes but have no cache) the watcher is simply skipped so
+	// Workload collection is started when either an injected factory is provided
+	// or a real cache is available. When neither is true (e.g. unit tests that
+	// inject pod/event fakes but have no cache) the collector is simply skipped so
 	// test compatibility is preserved without requiring changes to existing tests.
-	deployFactory := r.newDeployWatcher
-	if deployFactory == nil && r.Cache != nil {
-		deployFactory = func(cache ctrlcache.Cache, emitter watcher.EventEmitter, logger logr.Logger, cfg watcher.DeploymentWatcherConfig) deploymentWatcher {
-			return watcher.NewDeploymentWatcher(cache, emitter, logger, cfg)
+	workloadFactory := r.newWorkloadCollector
+	if workloadFactory == nil && r.Cache != nil {
+		workloadFactory = func(cache ctrlcache.Cache, emitter collectors.SignalEmitter, logger logr.Logger, cfg collectors.WorkloadCollectorConfig) workloadCollector {
+			return collectors.NewWorkloadCollector(cache, emitter, logger, cfg)
 		}
 	}
-	if deployFactory != nil {
-		dw := deployFactory(r.Cache, r.WatcherEmitter, log,
-			watcher.DeploymentWatcherConfig{
+	if workloadFactory != nil {
+		wc := workloadFactory(r.Cache, r.SignalEmitter, log,
+			collectors.WorkloadCollectorConfig{
 				AgentName:       agent.Name,
 				WatchNamespaces: desiredNamespaces,
 			},
 		)
-		if err := dw.Start(watcherCtx); err != nil {
+		if err := wc.Start(collectorCtx); err != nil {
 			cancel()
-			return fmt.Errorf("failed to start deployment watcher for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
+			return fmt.Errorf("failed to start workload collector for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
 		}
 	}
 
-	// NodeWatcher monitors corev1.Node objects for NotReady/Pressure conditions.
-	// Same graceful-skip pattern as DeploymentWatcher: silently skipped when
+	// Node collection monitors corev1.Node objects for NotReady/Pressure conditions.
+	// Same graceful-skip pattern as workload collection: silently skipped when
 	// there is neither an injected factory nor a real cache (unit-test paths).
-	nodeFactory := r.newNodeWatcher
+	nodeFactory := r.newNodeCollector
 	if nodeFactory == nil && r.Cache != nil {
-		nodeFactory = func(cache ctrlcache.Cache, emitter watcher.EventEmitter, logger logr.Logger, cfg watcher.NodeWatcherConfig) nodeWatcher {
-			return watcher.NewNodeWatcher(cache, emitter, logger, cfg)
+		nodeFactory = func(cache ctrlcache.Cache, emitter collectors.SignalEmitter, logger logr.Logger, cfg collectors.NodeCollectorConfig) nodeCollector {
+			return collectors.NewNodeCollector(cache, emitter, logger, cfg)
 		}
 	}
 	if nodeFactory != nil {
-		nw := nodeFactory(r.Cache, r.WatcherEmitter, log,
-			watcher.NodeWatcherConfig{
+		nc := nodeFactory(r.Cache, r.SignalEmitter, log,
+			collectors.NodeCollectorConfig{
 				AgentName:         agent.Name,
 				IncidentNamespace: agent.Namespace,
 			},
 		)
-		if err := nw.Start(watcherCtx); err != nil {
+		if err := nc.Start(collectorCtx); err != nil {
 			cancel()
-			return fmt.Errorf("failed to start node watcher for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
+			return fmt.Errorf("failed to start node collector for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
 		}
 	}
 
-	r.watcherRegistryM.Lock()
-	defer r.watcherRegistryM.Unlock()
-	r.watcherRegistry[key] = watcherEntry{cancel: cancel, watchNamespaces: desiredNamespaces}
+	r.collectorRegistryM.Lock()
+	defer r.collectorRegistryM.Unlock()
+	r.collectorRegistry[key] = collectorEntry{cancel: cancel, watchNamespaces: desiredNamespaces}
 
-	log.Info("Started watchers for RCAAgent",
+	log.Info("Started collectors for RCAAgent",
 		"name", agent.Name,
 		"namespace", agent.Namespace,
 		"watchNamespaces", desiredNamespaces,
@@ -466,13 +466,13 @@ func (r *RCAAgentReconciler) ensureWatcherRunning(ctx context.Context, agent *rc
 	return nil
 }
 
-func (r *RCAAgentReconciler) stopWatcher(key types.NamespacedName) {
-	r.watcherRegistryM.Lock()
-	entry, ok := r.watcherRegistry[key]
+func (r *RCAAgentReconciler) stopCollectors(key types.NamespacedName) {
+	r.collectorRegistryM.Lock()
+	entry, ok := r.collectorRegistry[key]
 	if ok {
-		delete(r.watcherRegistry, key)
+		delete(r.collectorRegistry, key)
 	}
-	r.watcherRegistryM.Unlock()
+	r.collectorRegistryM.Unlock()
 
 	if ok {
 		entry.cancel()
