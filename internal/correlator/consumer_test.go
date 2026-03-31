@@ -1504,7 +1504,7 @@ func TestHandleEvent_Rule2BadDeploy_DedupsWithExistingIncident(t *testing.T) {
 		Reason:          "ProgressDeadlineExceeded",
 	})
 
-	c := NewConsumer(cl, nil, logr.Discard(), WithCorrelator(corr))
+	c := NewConsumer(cl, nil, logr.Discard(), WithRuleEngine(corr))
 	c.now = func() time.Time { return now }
 
 	// Fire a CrashLoop event; Rule 2 overrides podName → deployment name.
@@ -1581,7 +1581,7 @@ func TestHandleEvent_Rule5NodeFailure_DedupsWithNodeNotReadyIncident(t *testing.
 		Message:   "runtime network not ready",
 	})
 
-	c := NewConsumer(cl, nil, logr.Discard(), WithCorrelator(corr))
+	c := NewConsumer(cl, nil, logr.Discard(), WithRuleEngine(corr))
 	c.now = func() time.Time { return now }
 
 	// Fire a PodEvicted event; Rule 5 overrides podName → node name.

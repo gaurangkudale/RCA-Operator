@@ -2,24 +2,79 @@ package correlator
 
 import (
 	"fmt"
+	"sort"
+	"sync"
 
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
-// ruleFunc is the signature for every correlation rule.
-// event is the newly-arrived event; entries is a snapshot of the current buffer
-// (which already includes event). Return a fired CorrelationResult to override
-// the default single-event classification.
 type ruleFunc func(event watcher.CorrelatorEvent, entries []entry) CorrelationResult
 
-// allRules is the ordered list of correlation rules evaluated by Correlator.Evaluate.
-// Higher-severity rules are placed first so that a P1 result is not shadowed by a
-// later P2 rule when both could fire for the same event.
-var allRules = []ruleFunc{
-	ruleNodeNotReadyPlusEviction, // Rule 5 — P1
-	ruleCrashLoopPlusOOM,         // Rule 1 — P2
-	ruleCrashLoopPlusBadDeploy,   // Rule 2 — P2
-	ruleImagePullNoHistory,       // Rule 4 — P2 (escalated from P3)
+type registeredRule struct {
+	name     string
+	priority int
+	evaluate ruleFunc
+}
+
+func (r registeredRule) Name() string {
+	return r.name
+}
+
+func (r registeredRule) Priority() int {
+	return r.priority
+}
+
+func (r registeredRule) Evaluate(event watcher.CorrelatorEvent, entries []entry) CorrelationResult {
+	result := r.evaluate(event, entries)
+	if result.Fired && result.Rule == "" {
+		result.Rule = r.name
+	}
+	return result
+}
+
+var (
+	ruleRegistryMu sync.RWMutex
+	ruleRegistry   []Rule
+)
+
+// RegisterRule makes a rule discoverable by the rule engine at runtime.
+func RegisterRule(rule Rule) {
+	if rule == nil {
+		panic("correlator: cannot register nil rule")
+	}
+
+	ruleRegistryMu.Lock()
+	defer ruleRegistryMu.Unlock()
+
+	for _, existing := range ruleRegistry {
+		if existing.Name() == rule.Name() {
+			panic(fmt.Sprintf("correlator: duplicate rule registration %q", rule.Name()))
+		}
+	}
+
+	ruleRegistry = append(ruleRegistry, rule)
+}
+
+// RegisteredRules returns the ordered rule set discovered at runtime.
+func RegisteredRules() []Rule {
+	ruleRegistryMu.RLock()
+	defer ruleRegistryMu.RUnlock()
+
+	rules := append([]Rule(nil), ruleRegistry...)
+	sort.SliceStable(rules, func(i, j int) bool {
+		if rules[i].Priority() == rules[j].Priority() {
+			return rules[i].Name() < rules[j].Name()
+		}
+		return rules[i].Priority() > rules[j].Priority()
+	})
+	return rules
+}
+
+func init() {
+	RegisterRule(registeredRule{name: "NodeNotReadyPlusEviction", priority: 500, evaluate: ruleNodeNotReadyPlusEviction})
+	RegisterRule(registeredRule{name: "CrashLoopPlusOOM", priority: 400, evaluate: ruleCrashLoopPlusOOM})
+	RegisterRule(registeredRule{name: "CrashLoopPlusBadDeploy", priority: 300, evaluate: ruleCrashLoopPlusBadDeploy})
+	RegisterRule(registeredRule{name: "ImagePullNoHistory", priority: 200, evaluate: ruleImagePullNoHistory})
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

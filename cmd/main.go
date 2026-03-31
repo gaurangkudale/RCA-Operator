@@ -38,7 +38,6 @@ import (
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 	"github.com/gaurangkudale/rca-operator/internal/collectors"
 	"github.com/gaurangkudale/rca-operator/internal/controller"
-	"github.com/gaurangkudale/rca-operator/internal/correlator"
 	"github.com/gaurangkudale/rca-operator/internal/dashboard"
 	"github.com/gaurangkudale/rca-operator/internal/engine"
 	"github.com/gaurangkudale/rca-operator/internal/notify"
@@ -183,13 +182,16 @@ func main() {
 	managerCtx := ctrl.SetupSignalHandler()
 	signals := make(chan collectors.Signal, 1024)
 	signalEmitter := collectors.NewChannelSignalEmitter(signals, ctrl.Log)
-	incidentEngine := engine.NewIncidentEngine(
+	incidentEngine, err := engine.NewIncidentEngine(
 		mgr.GetClient(),
 		signals,
 		ctrl.Log,
-		//nolint:staticcheck // TODO: Migrate to events.EventRecorder API
-		engine.WithCorrelatorOption(correlator.WithEventRecorder(mgr.GetEventRecorderFor("rca-incident-engine"))),
+		engine.WithEventRecorder(mgr.GetEventRecorderFor("rca-incident-engine")),
 	)
+	if err != nil {
+		setupLog.Error(err, "Failed to create incident engine")
+		os.Exit(1)
+	}
 	go incidentEngine.Run(managerCtx)
 
 	dashboardServer := dashboard.NewServer(mgr.GetClient(), dashboardAddr, ctrl.Log)

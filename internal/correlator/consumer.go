@@ -46,7 +46,7 @@ type Consumer struct {
 	events     <-chan watcher.CorrelatorEvent
 	log        logr.Logger
 	now        func() time.Time
-	correlator *Correlator
+	ruleEngine RuleEngine
 	rep        *reporter.Reporter
 	resolver   *incident.Resolver
 }
@@ -55,7 +55,7 @@ func NewConsumer(c client.Client, events <-chan watcher.CorrelatorEvent, logger 
 	consumer := &Consumer{
 		client:   c,
 		events:   events,
-		log:      logger.WithName("correlator-consumer"),
+		log:      logger.WithName("incident-engine-consumer"),
 		now:      time.Now,
 		resolver: incident.NewResolver(c),
 	}
@@ -85,15 +85,15 @@ func (c *Consumer) Run(ctx context.Context) {
 				continue
 			}
 			if err := c.handleEvent(ctx, event); err != nil {
-				c.log.Error(err, "Could not process watcher event", "eventType", event.Type(), "dedupKey", event.DedupKey())
+				c.log.Error(err, "Could not process collected signal", "eventType", event.Type(), "dedupKey", event.DedupKey())
 			}
 		}
 	}
 }
 
 func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEvent) error {
-	if c.correlator != nil {
-		c.correlator.Add(event)
+	if c.ruleEngine != nil {
+		c.ruleEngine.Add(event)
 	}
 
 	if healthy, ok := event.(watcher.PodHealthyEvent); ok {
@@ -108,8 +108,8 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 		return nil
 	}
 
-	if c.correlator != nil {
-		if result := c.correlator.Evaluate(event); result.Fired {
+	if c.ruleEngine != nil {
+		if result := c.ruleEngine.Evaluate(event); result.Fired {
 			input.IncidentType = result.IncidentType
 			input.Severity = result.Severity
 			input.Summary = result.Summary
@@ -141,7 +141,7 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 					})
 				}
 			}
-			c.log.Info("Correlation rule fired",
+			c.log.Info("Rule engine produced incident override",
 				"rule", result.Rule,
 				"incidentType", input.IncidentType,
 				"severity", input.Severity,
