@@ -15,8 +15,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/events"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 	"github.com/gaurangkudale/rca-operator/internal/incident"
@@ -64,7 +64,7 @@ const (
 type Reporter struct {
 	client   client.Client
 	log      logr.Logger
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 	Now      func() time.Time
 
 	openByFingerprint map[string]types.NamespacedName
@@ -211,8 +211,12 @@ func (r *Reporter) createIncident(ctx context.Context, input incident.Input, fin
 		"fingerprint", fingerprint,
 	)
 	if r.Recorder != nil {
-		r.Recorder.Eventf(report, corev1.EventTypeWarning, "IncidentDetected",
-			"New %s incident detected severity=%s: %s", input.IncidentType, input.Severity, input.Summary)
+		r.Recorder.Publish(events.Event{
+			Type:    corev1.EventTypeWarning,
+			Reason:  "IncidentDetected",
+			Message: fmt.Sprintf("New %s incident detected severity=%s: %s", input.IncidentType, input.Severity, input.Summary),
+			Object:  report,
+		})
 	}
 	return nil
 }
@@ -510,7 +514,12 @@ func (r *Reporter) reopenIncident(ctx context.Context, report *rcav1alpha1.Incid
 	r.openByFingerprint[fingerprint] = types.NamespacedName{Namespace: report.Namespace, Name: report.Name}
 	metrics.RecordIncidentDetected(input.AgentRef, input.IncidentType, input.Severity)
 	if r.Recorder != nil {
-		r.Recorder.Eventf(report, corev1.EventTypeWarning, "IncidentReopened", "Incident re-opened: %s", input.Summary)
+		r.Recorder.Publish(events.Event{
+			Type:    corev1.EventTypeWarning,
+			Reason:  "IncidentReopened",
+			Message: fmt.Sprintf("Incident re-opened: %s", input.Summary),
+			Object:  report,
+		})
 	}
 	return nil
 }

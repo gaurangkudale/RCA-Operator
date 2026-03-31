@@ -27,9 +27,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/events"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
@@ -54,7 +54,7 @@ const (
 type IncidentReportReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 	Notifier *notify.Dispatcher
 	nowFn    func() time.Time
 }
