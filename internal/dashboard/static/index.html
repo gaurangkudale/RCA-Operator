@@ -358,7 +358,6 @@ input::placeholder{color:var(--dim)}
     NodeFailure:['kubectl describe node <node-name>','kubectl get events -n <ns> --sort-by=\'.lastTimestamp\'','kubectl get pods -n <ns> -o wide | grep <node-name>'],
     BadDeploy:['kubectl rollout history deployment/<name> -n <ns>','kubectl rollout undo deployment/<name> -n <ns>','kubectl logs deployment/<name> -n <ns> --previous'],
     OOM:['kubectl top pod -n <ns>','kubectl describe pod <pod-name> -n <ns>','kubectl get limitrange -n <ns>'],
-    ResourceSaturation:['kubectl top pod -n <ns>','kubectl describe hpa -n <ns>','kubectl get resourcequota -n <ns>'],
     Registry:['kubectl describe pod <pod-name> -n <ns>','kubectl get secret -n <ns> | grep docker','kubectl create secret docker-registry regcred ...'],
     CrashLoop:['kubectl logs <pod-name> -n <ns> --previous','kubectl describe pod <pod-name> -n <ns>','kubectl get events -n <ns> --field-selector involvedObject.name=<pod>'],
     GracePeriodViolation:['kubectl describe pod <pod-name> -n <ns>','kubectl get pod <pod-name> -n <ns> -o yaml | grep terminationGracePeriod'],

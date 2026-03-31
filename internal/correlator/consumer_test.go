@@ -22,11 +22,10 @@ import (
 const testPhaseResolved = "Resolved"
 
 const (
-	testAgentA                    = "agent-a"
-	testIncidentTypeBadDeploy     = "BadDeploy"
-	testIncidentTypeNodeFailure   = "NodeFailure"
-	testIncidentTypeResSaturation = "ResourceSaturation"
-	testNamespaceDev              = "development"
+	testAgentA                  = "agent-a"
+	testIncidentTypeBadDeploy   = "BadDeploy"
+	testIncidentTypeNodeFailure = "NodeFailure"
+	testNamespaceDev            = "development"
 )
 
 func TestHandleEventResolvesActiveIncidentWhenPodIsHealthy(t *testing.T) {
@@ -326,89 +325,6 @@ func TestMapEventForNodePressure(t *testing.T) {
 				t.Errorf("summary missing pressure type %q: %q", tc.pressureType, summary)
 			}
 		})
-	}
-}
-
-// ── CPUThrottling ─────────────────────────────────────────────────────────────
-
-func TestMapEventForCPUThrottling(t *testing.T) {
-	ev := watcher.CPUThrottlingEvent{
-		BaseEvent:     watcher.BaseEvent{Namespace: testNamespaceDev, PodName: "cpu-throttle-demo", AgentName: testAgentA},
-		ContainerName: "throttle-demo",
-		Message:       "45% throttling of CPU",
-	}
-
-	namespace, pod, agent, incidentType, severity, summary := mapEvent(ev)
-
-	if namespace != testNamespaceDev {
-		t.Errorf("namespace: got %q, want development", namespace)
-	}
-	if pod != "cpu-throttle-demo" {
-		t.Errorf("pod: got %q, want cpu-throttle-demo", pod)
-	}
-	if agent != testAgentA {
-		t.Errorf("agent: got %q", agent)
-	}
-	if incidentType != testIncidentTypeResSaturation {
-		t.Errorf("incidentType: got %q, want ResourceSaturation", incidentType)
-	}
-	if severity != "P3" {
-		t.Errorf("severity: got %q, want P3", severity)
-	}
-	if !strings.Contains(summary, "throttle-demo") {
-		t.Errorf("summary missing container name: %q", summary)
-	}
-	if !strings.Contains(summary, "45% throttling") {
-		t.Errorf("summary missing message: %q", summary)
-	}
-}
-
-func TestHandleEventCreatesCPUThrottlingIncident(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := clientgoscheme.AddToScheme(scheme); err != nil {
-		t.Fatalf("failed to add core scheme: %v", err)
-	}
-	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
-		t.Fatalf("failed to add RCA scheme: %v", err)
-	}
-
-	now := time.Date(2026, 3, 14, 10, 0, 0, 0, time.UTC)
-	cl := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
-		Build()
-
-	consumer := NewConsumer(cl, nil, logr.Discard())
-	consumer.now = func() time.Time { return now }
-
-	err := consumer.handleEvent(context.Background(), watcher.CPUThrottlingEvent{
-		BaseEvent:     watcher.BaseEvent{At: now, AgentName: testAgentA, Namespace: testNamespaceDev, PodName: "cpu-throttle-demo"},
-		ContainerName: "throttle-demo",
-		Message:       "45% throttling of CPU",
-	})
-	if err != nil {
-		t.Fatalf("handleEvent: %v", err)
-	}
-
-	list := &rcav1alpha1.IncidentReportList{}
-	if err := cl.List(context.Background(), list); err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	if len(list.Items) != 1 {
-		t.Fatalf("expected 1 IncidentReport, got %d", len(list.Items))
-	}
-	report := list.Items[0]
-	if report.Status.IncidentType != testIncidentTypeResSaturation {
-		t.Errorf("incidentType: got %q, want ResourceSaturation", report.Status.IncidentType)
-	}
-	if report.Status.Severity != "P3" {
-		t.Errorf("severity: got %q, want P3", report.Status.Severity)
-	}
-	if report.Status.Phase != phaseDetecting {
-		t.Errorf("phase: got %q, want Detecting", report.Status.Phase)
-	}
-	if !strings.HasPrefix(report.Name, "resourcesaturation-cpu-throttle-demo-") {
-		t.Errorf("name prefix: got %q", report.Name)
 	}
 }
 
@@ -774,14 +690,6 @@ func TestMapEvent_AllBranches(t *testing.T) {
 			wantNS:       "dev",
 			wantPod:      "node-3",
 			wantType:     testIncidentTypeNodeFailure,
-			wantSeverity: "P3",
-		},
-		{
-			name:         "CPUThrottling",
-			event:        watcher.CPUThrottlingEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", PodName: "pod-h", AgentName: "ag"}, ContainerName: "app"},
-			wantNS:       "dev",
-			wantPod:      "pod-h",
-			wantType:     testIncidentTypeResSaturation,
 			wantSeverity: "P3",
 		},
 		{
@@ -1355,90 +1263,6 @@ func TestHandleEvent_CreatesNewIfResolvedTooOld(t *testing.T) {
 	}
 	if len(list.Items) != 2 {
 		t.Fatalf("expected 2 IncidentReports (old stale + new), got %d", len(list.Items))
-	}
-}
-
-// TestHandleEvent_ReopensResolvedResourceSaturationIncident verifies that CPU
-// throttling signals reopen an existing resolved ResourceSaturation incident
-// for the same pod, matching the user-visible scenario where the same pod
-// repeatedly hits its cpu-limit.
-func TestHandleEvent_ReopensResolvedResourceSaturationIncident(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := clientgoscheme.AddToScheme(scheme); err != nil {
-		t.Fatalf("add core scheme: %v", err)
-	}
-	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
-		t.Fatalf("add RCA scheme: %v", err)
-	}
-
-	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
-	resolvedAt := metav1.NewTime(now.Add(-5 * time.Minute))
-
-	existing := &rcav1alpha1.IncidentReport{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "resourcesaturation-cpu-throttle-demo-abc",
-			Namespace: "dev",
-			Labels: map[string]string{
-				labelSeverity:     "P3",
-				labelIncidentType: "ResourceSaturation",
-				labelPodName:      "cpu-throttle-demo",
-			},
-			Annotations: map[string]string{
-				annotationLastSeen:   resolvedAt.Format(time.RFC3339),
-				annotationSignalSeen: "2",
-			},
-		},
-		Spec: rcav1alpha1.IncidentReportSpec{AgentRef: "ag"},
-		Status: rcav1alpha1.IncidentReportStatus{
-			Phase:        phaseResolved,
-			IncidentType: "ResourceSaturation",
-			Severity:     "P3",
-			ResolvedTime: &resolvedAt,
-			AffectedResources: []rcav1alpha1.AffectedResource{
-				{Kind: "Pod", Name: "cpu-throttle-demo", Namespace: "dev"},
-			},
-		},
-	}
-
-	cl := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
-		WithObjects(existing).
-		Build()
-
-	c := NewConsumer(cl, nil, logr.Discard())
-	c.now = func() time.Time { return now }
-
-	// CPU throttling fires again for the same pod.
-	if err := c.handleEvent(context.Background(), watcher.CPUThrottlingEvent{
-		BaseEvent:     watcher.BaseEvent{At: now, AgentName: "ag", Namespace: "dev", PodName: "cpu-throttle-demo"},
-		ContainerName: "throttle-demo",
-		Message:       "CPUThrottlingHigh",
-	}); err != nil {
-		t.Fatalf("handleEvent: %v", err)
-	}
-
-	list := &rcav1alpha1.IncidentReportList{}
-	if err := cl.List(context.Background(), list); err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	if len(list.Items) != 1 {
-		t.Fatalf("expected 1 IncidentReport (reopened, not new), got %d", len(list.Items))
-	}
-
-	got := list.Items[0]
-	if got.Name != existing.Name {
-		t.Errorf("incident name changed: got %q, want %q", got.Name, existing.Name)
-	}
-	if got.Status.Phase != phaseDetecting {
-		t.Errorf("Phase=%q; want Detecting after reopen", got.Status.Phase)
-	}
-	if got.Status.ResolvedTime != nil {
-		t.Error("ResolvedTime should be cleared after reopen")
-	}
-	// Signal counter carried over and incremented.
-	if got.Annotations[annotationSignalSeen] != "3" {
-		t.Errorf("signal-count: got %q, want 3", got.Annotations[annotationSignalSeen])
 	}
 }
 

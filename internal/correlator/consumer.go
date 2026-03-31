@@ -273,9 +273,6 @@ func (c *Consumer) mapEvent(ctx context.Context, event watcher.CorrelatorEvent) 
 				{APIVersion: corev1.SchemeGroupVersion.String(), Kind: "Node", Name: e.NodeName},
 			},
 		}, true
-	case watcher.CPUThrottlingEvent:
-		summary := fmt.Sprintf("CPU throttling high container=%s message=%s", e.ContainerName, e.Message)
-		return c.podScopedInput(ctx, e.Namespace, e.PodName, e.AgentName, "ResourceSaturation", "P3", "CPUThrottlingHigh", summary, event), true
 	default:
 		return incident.Input{}, false
 	}
@@ -608,9 +605,6 @@ func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, inci
 		}
 		return e.Namespace, e.NodeName, e.AgentName, incidentTypeNodeFailure, severity,
 			fmt.Sprintf("Node %s condition=%s message=%s", e.NodeName, e.PressureType, e.Message)
-	case watcher.CPUThrottlingEvent:
-		return e.Namespace, e.PodName, e.AgentName, "ResourceSaturation", "P3",
-			fmt.Sprintf("CPU throttling high container=%s message=%s", e.ContainerName, e.Message)
 	default:
 		return "", "", "", "", "", ""
 	}

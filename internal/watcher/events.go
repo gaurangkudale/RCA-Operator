@@ -26,10 +26,6 @@ const (
 	// NodeNotReady is also captured via event_watcher.go; both paths feed the correlator
 	// and the dedup key (namespace+nodeName) prevents duplicate incidents.
 	EventTypeNodePressure EventType = "NodePressure"
-
-	// CPU-throttling signal emitted when the kubelet fires a CPUThrottlingHigh
-	// warning on a container. Sourced from the core/v1 Event stream.
-	EventTypeCPUThrottling EventType = "CPUThrottling"
 )
 
 // CorrelatorEvent is the shared typed event interface consumed by the correlator.
@@ -247,23 +243,4 @@ func (e NodePressureEvent) DedupKey() string {
 	// Keyed on NodeName + PressureType so each distinct pressure type on the
 	// same node can fire independently.
 	return string(e.Type()) + ":" + e.NodeName + ":" + e.PressureType
-}
-
-// CPUThrottlingEvent is emitted when the kubelet fires a CPUThrottlingHigh warning
-// for a container, indicating that the container is being throttled by the CPU CFS
-// scheduler due to a cpu-limit being set in the pod spec.
-//
-// Sourced from the core/v1 Event stream (reason: CPUThrottlingHigh) by event_watcher.go.
-type CPUThrottlingEvent struct {
-	BaseEvent
-	// ContainerName is parsed from InvolvedObject.FieldPath ("spec.containers{name}").
-	ContainerName string
-	// Message is the full kubelet event message, e.g. "25% throttling of CPU in namespace ...".
-	Message string
-}
-
-func (e CPUThrottlingEvent) Type() EventType       { return EventTypeCPUThrottling }
-func (e CPUThrottlingEvent) OccurredAt() time.Time { return e.At }
-func (e CPUThrottlingEvent) DedupKey() string {
-	return string(e.Type()) + ":" + e.Namespace + ":" + e.PodName + ":" + e.ContainerName
 }

@@ -1,6 +1,6 @@
 apiVersion: v2
 name: rca-operator
-description: An AI-powered SRE Operator that watches your cluster 24x7 and performs autonomous root cause analysis
+description: A Kubernetes-native incident detection operator with durable incident state and a built-in dashboard
 type: application
 version: 0.0.4
 appVersion: "0.0.4"
@@ -11,7 +11,6 @@ keywords:
   - rca
   - root-cause-analysis
   - incident-management
-  - ai
 home: https://github.com/gaurangkudale/RCA-Operator
 sources:
   - https://github.com/gaurangkudale/RCA-Operator

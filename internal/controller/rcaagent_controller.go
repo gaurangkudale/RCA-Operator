@@ -56,13 +56,8 @@ const (
 	phaseResolved          = "Resolved"
 
 	// annotationLastSeen mirrors the key written by consumer.go so the controller
-	// can read the timestamp and auto-resolve stale ResourceSaturation incidents.
+	// can read the timestamp during retention and lifecycle cleanup paths.
 	annotationLastSeen = "rca.rca-operator.tech/last-seen"
-
-	// defaultThrottlingTTL is how long a ResourceSaturation incident may remain
-	// Active without receiving a new CPUThrottlingHigh signal before the controller
-	// automatically marks it Resolved.
-	defaultThrottlingTTL = 10 * time.Minute
 )
 
 // Condition type constants — used in status.conditions
@@ -198,10 +193,6 @@ func (r *RCAAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if err := r.resolveOrphanedIncidents(ctx, agent); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if err := r.resolveStaleThrottlingIncidents(ctx, agent); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -686,79 +677,6 @@ func (r *RCAAgentReconciler) resolveOrphanedIncidents(ctx context.Context, agent
 		logf.FromContext(ctx).Info("Resolved orphaned IncidentReports for deleted pods",
 			"agent", agent.Name,
 			"resolvedCount", resolvedCount,
-		)
-	}
-
-	return nil
-}
-
-// resolveStaleThrottlingIncidents auto-resolves Active ResourceSaturation incidents
-// that have not received a new CPUThrottlingHigh signal within defaultThrottlingTTL.
-// The last-signal time is read from the rca.rca-operator.tech/last-seen annotation,
-// which the correlator consumer keeps up-to-date on every signal update.
-func (r *RCAAgentReconciler) resolveStaleThrottlingIncidents(ctx context.Context, agent *rcav1alpha1.RCAAgent) error {
-	namespaces, err := r.retentionNamespaces(ctx, agent)
-	if err != nil {
-		return err
-	}
-
-	now := r.now()
-	resolvedCount := 0
-	for _, namespace := range namespaces {
-		list := &rcav1alpha1.IncidentReportList{}
-		if err := r.List(ctx, list, client.InNamespace(namespace)); err != nil {
-			return fmt.Errorf("failed to list IncidentReports for throttling TTL check in %q: %w", namespace, err)
-		}
-
-		for i := range list.Items {
-			report := &list.Items[i]
-			if report.Status.Phase == phaseResolved {
-				continue
-			}
-			if report.Status.IncidentType != "ResourceSaturation" {
-				continue
-			}
-			if !belongsToAgent(report, agent.Name) {
-				continue
-			}
-
-			// Read the last-signal timestamp from annotations.
-			lastSeenStr, ok := report.Annotations[annotationLastSeen]
-			if !ok || lastSeenStr == "" {
-				continue
-			}
-			lastSeen, parseErr := time.Parse(time.RFC3339, lastSeenStr)
-			if parseErr != nil {
-				continue
-			}
-			if now.Sub(lastSeen) < defaultThrottlingTTL {
-				continue
-			}
-
-			// TTL exceeded — auto-resolve.
-			nowMeta := metav1.NewTime(now)
-			base := report.DeepCopy()
-			incidentstatus.MarkResolved(
-				report,
-				nowMeta,
-				fmt.Sprintf("No CPUThrottling signals for %.0f minutes; incident auto-resolved", defaultThrottlingTTL.Minutes()),
-			)
-
-			if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
-				if errors.IsNotFound(err) {
-					continue
-				}
-				return fmt.Errorf("failed to resolve stale ResourceSaturation incident %s/%s: %w", report.Namespace, report.Name, err)
-			}
-			resolvedCount++
-		}
-	}
-
-	if resolvedCount > 0 {
-		logf.FromContext(ctx).Info("Auto-resolved stale ResourceSaturation incidents (TTL exceeded)",
-			"agent", agent.Name,
-			"resolvedCount", resolvedCount,
-			"ttl", defaultThrottlingTTL.String(),
 		)
 	}
 

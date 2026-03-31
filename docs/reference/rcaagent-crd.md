@@ -1,6 +1,6 @@
 # RCAAgent CRD Reference
 
-`RCAAgent` is the Phase 1 configuration resource for the operator. One agent can watch one or more namespaces, validate notification secrets, start watcher pipelines, and apply incident retention policy.
+`RCAAgent` is the Phase 1 configuration resource for the operator. One agent can watch one or more namespaces, validate notification secrets, start signal collection for that scope, and apply incident retention policy.
 
 ```bash
 kubectl get rcaagent -A
@@ -50,7 +50,7 @@ spec:
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `watchNamespaces` | `[]string` | Yes | `["default"]` | Namespaces the operator monitors for pod, event, and deployment incidents |
+| `watchNamespaces` | `[]string` | Yes | `["default"]` | Namespaces the operator monitors for Kubernetes-native incident signals |
 
 If a namespace does not exist at reconcile time the operator logs a warning and continues. The agent becomes fully active once those namespaces exist.
 
@@ -95,7 +95,7 @@ The operator sets standard Kubernetes conditions on `status.conditions`:
 
 | Type | Meaning |
 |---|---|
-| `Available` | `True` when the agent is configured and watchers are running |
+| `Available` | `True` when the agent is configured and collection is running |
 | `Degraded` | `True` when a referenced secret is missing or another validation error blocks operation |
 | `Progressing` | Reserved for future controller-managed transitions; Phase 1 does not rely on it |
 
@@ -115,13 +115,12 @@ kubectl describe rcaagent sre-agent -n default
 # Edit live
 kubectl edit rcaagent sre-agent -n default
 
-# Delete and stop its watcher pipelines
+# Delete and stop collection for that agent
 kubectl delete rcaagent sre-agent -n default
 ```
 
 ## Related
 
 - [Architecture](../concepts/Architecture.md)
-- [Watcher event catalog](watcher.md)
 - [RBAC permissions](rbac.md)
 - [Quick Start](../getting-started/quickstart.md)

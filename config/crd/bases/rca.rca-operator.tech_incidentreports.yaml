@@ -269,7 +269,6 @@ spec:
                 - Registry
                 - GracePeriodViolation
                 - ProbeFailure
-                - ResourceSaturation
                 type: string
               lastObservedAt:
                 description: lastObservedAt is when the most recent confirming signal

@@ -88,7 +88,7 @@ affinity: {}
 leaderElection:
   enabled: true
 
-# Metrics service configuration (for Prometheus scraping)
+# Metrics endpoint configuration
 metrics:
   enabled: true
   service:
@@ -118,4 +118,3 @@ dashboard:
     #  - secretName: rca-operator-tls
     #    hosts:
     #      - rca-operator.local
-

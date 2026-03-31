@@ -26,7 +26,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Simplified `RCAAgent` to Phase 1 fields only
 - Switched secret validation from unused AI settings to real Slack and PagerDuty notification secrets
-- Rewrote core docs and samples to focus on watcher, correlator, incident lifecycle, notifications, and dashboard
+- Rewrote core docs and samples to align with the Phase 1 incident-engine architecture
+
+### Removed
+
+- CPU throttling and `ResourceSaturation` incident paths that are outside the current Phase 1 architecture
+- stale AI/OpenAI setup guidance and watcher-first planning docs that no longer match the repo direction
 
 ---
 

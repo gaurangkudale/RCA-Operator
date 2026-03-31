@@ -137,7 +137,7 @@ type IncidentReportStatus struct {
 	Phase string `json:"phase,omitempty"`
 
 	// incidentType is the category of incident detected by the correlator.
-	// +kubebuilder:validation:Enum=CrashLoop;OOM;BadDeploy;NodeFailure;Registry;GracePeriodViolation;ProbeFailure;ResourceSaturation
+	// +kubebuilder:validation:Enum=CrashLoop;OOM;BadDeploy;NodeFailure;Registry;GracePeriodViolation;ProbeFailure
 	// +required
 	IncidentType string `json:"incidentType,omitempty"`
 

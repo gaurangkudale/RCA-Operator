@@ -115,15 +115,6 @@ func TestEventTypesAndKeys(t *testing.T) {
 			wantType: EventTypeNodePressure,
 			wantKey:  "NodePressure:node-2:DiskPressure",
 		},
-		{
-			name: "CPUThrottlingEvent",
-			event: CPUThrottlingEvent{
-				BaseEvent:     BaseEvent{At: now, Namespace: "dev", PodName: "pod-j"},
-				ContainerName: "app",
-			},
-			wantType: EventTypeCPUThrottling,
-			wantKey:  "CPUThrottling:dev:pod-j:app",
-		},
 	}
 
 	for _, tc := range events {

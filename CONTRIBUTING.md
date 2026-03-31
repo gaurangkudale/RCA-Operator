@@ -50,7 +50,7 @@ You don't have to write code to contribute meaningfully.
 
 Before building a significant feature, check:
 
-1. **Is it in scope for the current phase?** See [`docs/phases/PHASE1.md`](docs/phases/PHASE1.md). If it's explicitly out of scope, it will be rejected — not because it's a bad idea, but because we're protecting the shipping schedule.
+1. **Is it in scope for the current phase?** See [`docs/phases/PHASE1_ARCHITECTURE.md`](docs/phases/PHASE1_ARCHITECTURE.md). If it's explicitly out of scope, it will be rejected — not because it's a bad idea, but because we're protecting the shipping schedule.
 2. **Does an issue already exist?** Search [open issues](../../issues) first.
 3. **For large changes** — open an issue and discuss the approach before writing code. This saves everyone time.
 
@@ -402,7 +402,7 @@ Add a row to the correlation rules table in `docs/concepts/correlation-rules.md`
 
 Docs are first-class contributions. The bar is the same as code.
 
-- Docs live in `docs/` — see [`DOCS-STRUCTURE.md`](DOCS-STRUCTURE.md) for where each type of doc belongs.
+- Docs live in `docs/`. Keep architecture, getting-started, reference, and development docs aligned with the current Phase 1 architecture.
 - Don't add long explanations to `README.md` — link to `docs/` instead.
 - If you change a CRD field, update `docs/reference/rcaagent-crd.md` or `docs/reference/incidentreport-crd.md` in the same PR.
 - All links in `docs/` are checked by CI (`lychee`). Don't add dead links.

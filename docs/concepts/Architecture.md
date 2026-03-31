@@ -1,17 +1,19 @@
 # Architecture
 
-This document describes the production target for RCA Operator Phase 1 only.
+This document summarizes the target Phase 1 production architecture for RCA Operator.
 
 ## Goal
 
-Phase 1 exists to answer four questions reliably:
+Phase 1 should answer one question reliably:
 
-1. What is broken right now?
-2. Which resources are affected?
-3. Is this a new incident or the same incident repeating?
-4. Have humans been notified and given enough context to act?
+> What is broken right now, what resources are affected, and is this the same incident or a new one?
 
-Phase 1 does not include AI analysis, autonomous remediation, or external incident databases.
+Phase 1 intentionally excludes:
+
+- AI or LLM-based RCA
+- autonomous remediation
+- external incident databases
+- direct dashboard reads from raw cluster resources
 
 ## Runtime Topology
 
@@ -26,106 +28,85 @@ Kubernetes API Server
 |  - health endpoints         |
 +-------------+---------------+
               |
-      +-------+-------+-------------------+
-      |               |                   |
-      v               v                   v
-+-------------+ +-------------+ +-------------------+
-| Pod Watcher  | | Event Watcher| | Deployment Watcher|
-+-------------+ +-------------+ +-------------------+
-      |               |                   |
-      +---------------+---------+---------+
-                                |
-                                v
-                      +-------------------+
-                      | Node Watcher      |
-                      +---------+---------+
-                                |
-                                v
-                      +-------------------+
-                      | Correlator        |
-                      | - deduplication   |
-                      | - grouping        |
-                      | - severity        |
-                      +---------+---------+
-                                |
-                                v
-                      +-------------------+
-                      | IncidentReport CR |
-                      | durable state     |
-                      +----+---------+----+
-                           |         |
-                           v         v
-                 +---------------+  +----------------+
-                 | Notifications |  | Dashboard API  |
-                 | Slack/PD/K8s  |  | + static UI    |
-                 +---------------+  +----------------+
+      +-------+-------+
+      |               |
+      v               v
++-----------------------------+   +-----------------------------+
+| Signal Collectors           |   | Dashboard API Server        |
+|  - node                     |   | Reads IncidentReport CRs    |
+|  - pod                      |   | Reads RCAAgent CRs          |
+|  - workload                 |   | No raw cluster reads        |
+|  - event                    |   +-----------------------------+
++-------------+---------------+
+              |
+              v
++-----------------------------+
+| Incident Engine             |
+|  - fingerprinting           |
+|  - stabilization            |
+|  - deduplication            |
+|  - lifecycle transitions    |
++-------------+---------------+
+              |
+              v
++-----------------------------+
+| IncidentReport CRD          |
+| Durable source of truth     |
++-------------+---------------+
+              |
+      +-------+-------+
+      |               |
+      v               v
++-------------+  +----------------+
+| Notifications|  | Dashboard UI   |
+| Slack/PD/K8s |  | reads CRs only |
++-------------+  +----------------+
 ```
 
-## Source of Truth
+## Core Principles
 
-`IncidentReport` is the durable record for Phase 1.
-
-The operator may use in-memory correlation buffers and watcher state, but dashboards, notifications, restart recovery, and human investigation all center on the `IncidentReport` resource written into the cluster.
+- `IncidentReport` is the durable incident record for Phase 1.
+- Signal collection is read-only and Kubernetes-native.
+- Only one active incident should exist per fingerprint.
+- Incident lifecycle is explicit: `Detecting`, `Active`, `Resolved`.
+- The dashboard reads normalized incident data only.
 
 ## Layer Responsibilities
 
-### Watchers
+### Signal Collectors
 
-Watchers convert raw Kubernetes object changes into normalized operator events.
+Collectors observe Kubernetes resources and convert them into normalized failure signals. Phase 1 focuses on node, pod, workload, and event-derived signals.
 
-Current Phase 1 watcher coverage:
+### Incident Engine
 
-- pods
-- events
-- nodes
-- deployments
+The incident engine is the single writer for incident lifecycle state. It owns:
 
-### Correlator
+- fingerprinting
+- deduplication
+- stabilization windows
+- activation and resolution
+- persistence into `IncidentReport`
 
-The correlator:
+### Notifications
 
-- suppresses duplicate signals
-- groups related symptoms into one incident
-- assigns severity
-- decides whether to create, update, reopen, or resolve an `IncidentReport`
-
-### Incident Lifecycle
-
-`IncidentReport` resources move through:
-
-- `Detecting`
-- `Active`
-- `Resolved`
-
-This lets the operator distinguish noisy first observations from incidents that remain present long enough to matter.
-
-### Notification Layer
-
-The incident controller sends notifications from `IncidentReport` state:
-
-- Slack
-- PagerDuty
-- Kubernetes events on the `IncidentReport`
-
-This keeps outbound alerting tied to the durable incident lifecycle rather than transient watcher events.
+Notifications are driven from durable incident state, not transient input signals.
 
 ### Dashboard
 
-The dashboard serves a static UI and JSON API from the operator process. It reads only `IncidentReport` and `RCAAgent` resources, never raw cluster objects, so the UI stays cheap to run and consistent with the operator’s incident model.
+The dashboard serves a static UI and JSON API from the operator process. It reads only `IncidentReport` and `RCAAgent` resources.
 
 ## Production Properties
 
-Phase 1 is considered production-ready when these properties hold:
+Phase 1 is production-ready when these properties hold:
 
 - one active incident per fingerprint
-- deterministic incident lifecycle
+- deterministic lifecycle transitions
 - safe restart behavior using CR-backed state
-- notification deduplication
-- dashboard driven entirely from CR data
+- dashboard rendered entirely from CR data
 - least-privilege RBAC
 
 ## Related
 
-- [Phase 1 Plan](../phases/PHASE1.md)
 - [Phase 1 Architecture](../phases/PHASE1_ARCHITECTURE.md)
+- [ADR-0001](../development/architecture-decisions/ADR-0001-phase1-incident-architecture.md)
 - [RCAAgent Reference](../reference/rcaagent-crd.md)

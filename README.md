@@ -2,7 +2,7 @@
 
 **RCA Operator for Kubernetes Phase 1**
 
-*Cluster-native incident detection, correlation, notification, and dashboarding*
+*Cluster-native incident detection, durable incident state, notifications, and dashboarding*
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://golang.org)
@@ -11,16 +11,16 @@
 
 </div>
 
-## What RCA Operator Does Today
+## What RCA Operator Does
 
-RCA Operator Phase 1 is a production-focused Kubernetes operator that:
+RCA Operator Phase 1 is a Kubernetes-native incident detection operator that:
 
-- watches pods, events, nodes, and deployments
-- correlates noisy signals into durable `IncidentReport` resources
-- notifies humans through Slack and PagerDuty
-- exposes a built-in dashboard backed only by Kubernetes custom resources
+- collects failure signals from native Kubernetes APIs
+- persists durable incident state in `IncidentReport`
+- notifies humans from incident lifecycle state
+- serves a built-in dashboard backed only by `IncidentReport` and `RCAAgent`
 
-The Phase 1 goal is simple: detect what is broken, group repeated symptoms into one incident, preserve a useful timeline, and keep the operator easy to run in-cluster.
+Phase 1 is intentionally narrow. It avoids AI systems, external databases, and log-scraping dependencies so the operator stays easy to run and reason about in-cluster.
 
 ## Phase 1 Architecture
 
@@ -34,20 +34,23 @@ Kubernetes API Server
 |  - shared cache/informers   |
 +-------------+---------------+
               |
-              v
-+-----------------------------+
-| Watchers                     |
-|  - Pod watcher               |
-|  - Event watcher             |
-|  - Deployment watcher        |
-|  - Node watcher              |
+      +-------+-------+
+      |               |
+      v               v
++-----------------------------+   +-----------------------------+
+| Signal Collectors           |   | Dashboard API Server        |
+|  - node                     |   | Reads IncidentReport CRs    |
+|  - pod                      |   | Reads RCAAgent CRs          |
+|  - workload                 |   | No raw cluster reads        |
+|  - event                    |   +-----------------------------+
 +-------------+---------------+
               |
               v
 +-----------------------------+
-| Correlator & Incident Logic |
+| Incident Engine             |
+|  - fingerprinting           |
+|  - 5m stabilization         |
 |  - deduplication            |
-|  - severity scoring         |
 |  - lifecycle transitions    |
 +-------------+---------------+
               |
@@ -66,14 +69,14 @@ Kubernetes API Server
 +-------------+  +----------------+
 ```
 
-More detail lives in [Architecture](docs/concepts/Architecture.md) and [PHASE1_ARCHITECTURE.md](docs/phases/PHASE1_ARCHITECTURE.md).
+More detail lives in [Architecture](docs/concepts/Architecture.md) and [Phase 1 Architecture](docs/phases/PHASE1_ARCHITECTURE.md).
 
 ## Current Feature Set
 
 | Feature | Description |
 |---|---|
-| Watcher pipeline | Watches pod, event, deployment, and node state from Kubernetes |
-| Incident correlation | Deduplicates and groups related signals into one `IncidentReport` |
+| Native Kubernetes signal collection | Reads pod, event, node, and workload state from Kubernetes |
+| Durable incident records | Deduplicates repeated signals into one `IncidentReport` per fingerprint |
 | Incident lifecycle | Tracks `Detecting`, `Active`, and `Resolved` phases |
 | Notifications | Sends Slack and PagerDuty notifications and emits Kubernetes events |
 | Dashboard | Built-in incident dashboard served by the operator |
@@ -107,12 +110,12 @@ The checked-in sample is minimal and does not require notification secrets. If y
 | [Installation](docs/getting-started/installation.md) | Helm and kubectl installation |
 | [Quick Start](docs/getting-started/quickstart.md) | Deploy your first agent in minutes |
 | [Architecture](docs/concepts/Architecture.md) | Phase 1 system design and data flow |
+| [Phase 1 Architecture](docs/phases/PHASE1_ARCHITECTURE.md) | Production target and cleanup baseline |
 | [RCAAgent CRD Reference](docs/reference/rcaagent-crd.md) | `RCAAgent` schema and examples |
-| [Watcher Reference](docs/reference/watcher.md) | Signal catalog and trigger rules |
+| [Dashboard](docs/features/DASHBOARD.md) | Dashboard data model and access patterns |
 | [RBAC Reference](docs/reference/rbac.md) | Permissions used by the operator |
 | [Local Development](docs/development/local-setup.md) | Run locally against a cluster |
 | [Testing Guide](docs/development/testing.md) | Unit, envtest, and e2e coverage |
-| [Phase 1 Plan](docs/phases/PHASE1.md) | Scope and definition of done |
 | [Fixtures](test/fixtures/README.md) | Manual scenarios for incident testing |
 
 ## Custom Resources
@@ -128,7 +131,7 @@ kubectl describe rcaagent <name> -n <namespace>
 
 ### IncidentReport
 
-Created automatically for detected incidents. Each report carries the current lifecycle phase, severity, affected resources, correlated signals, and timeline.
+Created automatically for detected incidents. Each report carries the incident fingerprint, lifecycle phase, severity, affected resources, and timeline.
 
 ```bash
 kubectl get incidentreport -A
