@@ -53,7 +53,23 @@ input::placeholder{color:var(--dim)}
 .pill-active{display:flex;align-items:center;gap:5px;padding:3px 9px;border-radius:3px;
   background:rgba(252,165,165,0.1);border:.5px solid rgba(252,165,165,0.3);
   font-family:var(--mono);font-size:9px;color:var(--red)}
-.pill-clock{font-family:var(--mono);font-size:9px;color:var(--dim);min-width:65px;text-align:right;letter-spacing:.3px}
+.pill-clock{font-family:var(--mono);font-size:9px;color:var(--dim);min-width:90px;text-align:right;letter-spacing:.3px}
+.timezone-wrap{display:flex;align-items:center;gap:6px;min-width:0}
+.timezone-label{font-family:var(--mono);font-size:8px;color:var(--dim);letter-spacing:1px}
+.timezone-select{
+  width:180px;max-width:22vw;min-width:120px;font-family:var(--mono);font-size:9px;color:var(--acc);background:var(--card);
+  border:.5px solid var(--brdr);border-radius:3px;padding:4px 22px 4px 8px;cursor:pointer;outline:none;
+  appearance:none;-webkit-appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23334155'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 7px center
+}
+.timezone-select option{background:var(--surf);color:var(--txt)}
+@media (max-width:980px){
+  .topbar{height:auto;min-height:48px;flex-wrap:wrap;gap:8px;padding-top:8px;padding-bottom:8px}
+  .topbar-nav{order:3;width:100%}
+  .topbar-right{margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
+  .timezone-select{max-width:40vw}
+}
 
 /* ── Body ────────────────────────────────────── */
 .body{display:flex;flex:1;overflow:hidden;min-height:0}
@@ -322,6 +338,10 @@ input::placeholder{color:var(--dim)}
   var filters = { phase:'all', ns:'all', sev:'all', type:'all' };
   var connected = false;
   var signalsOpen = true;
+  var tzStorageKey = 'rca-dashboard-timezone';
+  var browserTimeZone = detectBrowserTimeZone();
+  var timezoneOptions = buildTimeZoneOptions();
+  var selectedTimeZone = loadSavedTimeZone();
 
   /* ── Severity / Phase configs ──────────────── */
   var SEV = {
@@ -338,7 +358,6 @@ input::placeholder{color:var(--dim)}
     NodeFailure:['kubectl describe node <node-name>','kubectl get events -n <ns> --sort-by=\'.lastTimestamp\'','kubectl get pods -n <ns> -o wide | grep <node-name>'],
     BadDeploy:['kubectl rollout history deployment/<name> -n <ns>','kubectl rollout undo deployment/<name> -n <ns>','kubectl logs deployment/<name> -n <ns> --previous'],
     OOM:['kubectl top pod -n <ns>','kubectl describe pod <pod-name> -n <ns>','kubectl get limitrange -n <ns>'],
-    ResourceSaturation:['kubectl top pod -n <ns>','kubectl describe hpa -n <ns>','kubectl get resourcequota -n <ns>'],
     Registry:['kubectl describe pod <pod-name> -n <ns>','kubectl get secret -n <ns> | grep docker','kubectl create secret docker-registry regcred ...'],
     CrashLoop:['kubectl logs <pod-name> -n <ns> --previous','kubectl describe pod <pod-name> -n <ns>','kubectl get events -n <ns> --field-selector involvedObject.name=<pod>'],
     GracePeriodViolation:['kubectl describe pod <pod-name> -n <ns>','kubectl get pod <pod-name> -n <ns> -o yaml | grep terminationGracePeriod'],
@@ -356,6 +375,76 @@ input::placeholder{color:var(--dim)}
       '</span>';
   }
 
+  function detectBrowserTimeZone(){
+    try{
+      return Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC';
+    }catch(e){
+      return 'UTC';
+    }
+  }
+
+  function buildTimeZoneOptions(){
+    var zones=[];
+    try{
+      if(Intl.supportedValuesOf) zones=Intl.supportedValuesOf('timeZone')||[];
+    }catch(e){}
+    if(!zones.length){
+      zones=['UTC',browserTimeZone,'America/Los_Angeles','America/Denver','America/Chicago','America/New_York','Europe/London','Europe/Berlin','Asia/Kolkata','Asia/Singapore','Asia/Tokyo','Australia/Sydney'];
+    }
+    var uniq={};
+    var list=['Local'];
+    zones.forEach(function(zone){
+      if(!zone||uniq[zone]) return;
+      uniq[zone]=true;
+      list.push(zone);
+    });
+    if(!uniq.UTC) list.splice(1,0,'UTC');
+    return list;
+  }
+
+  function loadSavedTimeZone(){
+    var fallback='UTC';
+    try{
+      var saved=localStorage.getItem(tzStorageKey);
+      if(saved&&timezoneOptions.indexOf(saved)!==-1) return saved;
+    }catch(e){}
+    return fallback;
+  }
+
+  function getActiveTimeZone(){
+    return selectedTimeZone==='Local'?browserTimeZone:selectedTimeZone;
+  }
+
+  function timeZoneLabel(){
+    if(selectedTimeZone==='Local') return 'LOCAL';
+    return selectedTimeZone;
+  }
+
+  function formatClockTime(date,timeZone){
+    try{
+      var parts=new Intl.DateTimeFormat('en-GB',{
+        hour:'2-digit',minute:'2-digit',second:'2-digit',
+        hour12:false,timeZone:timeZone
+      }).formatToParts(date);
+      var map={};
+      parts.forEach(function(part){map[part.type]=part.value});
+      if(map.hour&&map.minute&&map.second) return map.hour+':'+map.minute+':'+map.second;
+    }catch(e){}
+    return date.toISOString().slice(11,19);
+  }
+
+  function formatZoneSuffix(date,timeZone){
+    try{
+      var parts=new Intl.DateTimeFormat('en-US',{
+        timeZone:timeZone,timeZoneName:'short'
+      }).formatToParts(date);
+      for(var i=0;i<parts.length;i++){
+        if(parts[i].type==='timeZoneName') return parts[i].value;
+      }
+    }catch(e){}
+    return timeZone==='UTC'?'UTC':timeZone;
+  }
+
   function relTime(iso){
     if(!iso) return '';
     var diff=Math.floor((Date.now()-new Date(iso).getTime())/1000);
@@ -366,7 +455,12 @@ input::placeholder{color:var(--dim)}
   }
   function absTime(iso){
     if(!iso) return '';
-    try{var d=new Date(iso);if(isNaN(d.getTime()))return '';return d.toISOString().slice(11,19)+' UTC'}catch(e){return ''}
+    try{
+      var d=new Date(iso);
+      if(isNaN(d.getTime())) return '';
+      var zone=getActiveTimeZone();
+      return formatClockTime(d,zone)+' '+formatZoneSuffix(d,zone);
+    }catch(e){return ''}
   }
   function liveDur(iso){
     if(!iso) return '';
@@ -385,7 +479,24 @@ input::placeholder{color:var(--dim)}
     return m+'m '+sec+'s';
   }
   function incKey(inc){return inc.name+'/'+inc.namespace}
-  function dname(inc){return inc.podName||inc.name}
+  function incidentStartTime(inc){return inc.firstObservedAt||inc.startTime||''}
+  function incidentResolvedTime(inc){return inc.resolvedAt||inc.resolvedTime||''}
+  function findAffectedResource(inc,kind){
+    var res=inc.affectedResources||[];
+    for(var i=0;i<res.length;i++){ if(res[i].kind===kind) return res[i]; }
+    return null;
+  }
+  function primaryRef(inc){
+    if(inc.scope&&inc.scope.resourceRef&&inc.scope.resourceRef.name) return inc.scope.resourceRef;
+    if(inc.scope&&inc.scope.workloadRef&&inc.scope.workloadRef.name) return inc.scope.workloadRef;
+    return findAffectedResource(inc,'Node')||findAffectedResource(inc,'Deployment')||findAffectedResource(inc,'StatefulSet')||
+      findAffectedResource(inc,'DaemonSet')||findAffectedResource(inc,'Job')||findAffectedResource(inc,'CronJob')||
+      findAffectedResource(inc,'ReplicaSet')||findAffectedResource(inc,'Pod');
+  }
+  function dname(inc){
+    var ref=primaryRef(inc);
+    return (ref&&ref.name)||inc.podName||inc.name;
+  }
   function pad2(n){return n<10?'0'+n:''+n}
 
   function copyToClip(text,btnEl){
@@ -428,7 +539,7 @@ input::placeholder{color:var(--dim)}
     return list.slice().sort(function(a,b){
       var d=(rank[b.severity]||0)-(rank[a.severity]||0);
       if(d!==0) return d;
-      return (b.startTime||'').localeCompare(a.startTime||'');
+      return incidentStartTime(b).localeCompare(incidentStartTime(a));
     });
   }
 
@@ -445,6 +556,12 @@ input::placeholder{color:var(--dim)}
     var html='';
     if(p1>0) html+='<span class="pill-p1">'+pulse('#FCA5A5',5)+' '+p1+' P1</span>';
     html+='<span class="pill-active">'+pulse('#FCA5A5',4)+' '+active+' active</span>';
+    html+='<label class="timezone-wrap"><span class="timezone-label">TZ</span><select class="timezone-select" id="timezone-select" onchange="window._setTimeZone(this.value)">';
+    timezoneOptions.forEach(function(zone){
+      var label=zone==='Local'?'Local ('+browserTimeZone+')':zone;
+      html+='<option value="'+esc(zone)+'"'+(selectedTimeZone===zone?' selected':'')+'>'+esc(label)+'</option>';
+    });
+    html+='</select></label>';
     html+='<span class="pill-clock" id="utc-clock"></span>';
     el.innerHTML=html;
   }
@@ -571,8 +688,8 @@ input::placeholder{color:var(--dim)}
         if(PH[inc.phase]&&PH[inc.phase].pulse) html+=pulse(PH[inc.phase].c,5);
         html+=esc(inc.phase)+'</span>';
         if(!hasSel){
-          html+='<div class="inc-time"><div class="inc-time-rel">'+relTime(inc.startTime)+'</div>';
-          html+='<div class="inc-time-abs">'+absTime(inc.startTime)+'</div></div>';
+          html+='<div class="inc-time"><div class="inc-time-rel">'+relTime(incidentStartTime(inc))+'</div>';
+          html+='<div class="inc-time-abs">'+absTime(incidentStartTime(inc))+'</div></div>';
         }
         html+='</div>';
       });
@@ -588,8 +705,10 @@ input::placeholder{color:var(--dim)}
     panel.style.display='';
 
     var sev=inc.severity||'P4';var sevCfg=SEV[sev]||SEV.P4;
-    var name=dname(inc);var podRes=null;
-    (inc.affectedResources||[]).forEach(function(r){if(r.kind==='Pod'&&!podRes) podRes=r});
+    var name=dname(inc);
+    var podRes=findAffectedResource(inc,'Pod');
+    var nodeRes=findAffectedResource(inc,'Node');
+    var resourceRef=primaryRef(inc);
 
     var html='';
     /* Header */
@@ -605,12 +724,12 @@ input::placeholder{color:var(--dim)}
     else html+='<span class="tag tag-purple">pending</span>';
     html+='</div>';
     html+='<div class="detail-title">'+esc(name)+'</div>';
-    html+='<div class="detail-meta"><span>'+esc(inc.namespace)+'</span><span class="dim"> \u00b7 </span><span>'+esc(inc.agentRef)+'</span><span class="dim"> \u00b7 started </span><span>'+absTime(inc.startTime)+'</span>';
-    if(inc.resolvedTime) html+=' \u2192 <span class="grn">'+absTime(inc.resolvedTime)+'</span>';
+    html+='<div class="detail-meta"><span>'+esc(inc.namespace)+'</span><span class="dim"> \u00b7 </span><span>'+esc(inc.agentRef)+'</span><span class="dim"> \u00b7 started </span><span>'+absTime(incidentStartTime(inc))+'</span>';
+    if(incidentResolvedTime(inc)) html+=' \u2192 <span class="grn">'+absTime(incidentResolvedTime(inc))+'</span>';
     html+='</div>';
     html+='<div class="detail-dur"><span class="detail-dur-label">DURATION</span><span class="detail-dur-val" id="live-dur">';
-    if(inc.phase==='Resolved') html+='<span style="color:var(--sub)">'+finDur(inc.startTime,inc.resolvedTime)+'</span>';
-    else html+='<span style="color:'+(inc.phase==='Active'?'var(--amber)':'var(--purple)')+'">'+liveDur(inc.startTime)+'</span>';
+    if(inc.phase==='Resolved') html+='<span style="color:var(--sub)">'+finDur(incidentStartTime(inc),incidentResolvedTime(inc))+'</span>';
+    else html+='<span style="color:'+(inc.phase==='Active'?'var(--amber)':'var(--purple)')+'">'+liveDur(incidentStartTime(inc))+'</span>';
     html+='</span></div>';
     html+='</div>';
     html+='<button class="detail-close" onclick="window._close()">\u00d7</button>';
@@ -698,7 +817,12 @@ input::placeholder{color:var(--dim)}
     addCmd('events','kubectl get events -n '+inc.namespace+' --sort-by=\'.lastTimestamp\' | head -30');
     var pb=PLAYBOOK[inc.incidentType]||[];
     pb.forEach(function(cmd){
-      var filled=cmd.replace(/<ns>/g,inc.namespace).replace(/<name>/g,name).replace(/<pod-name>/g,podRes?podRes.name:name).replace(/<pod>/g,podRes?podRes.name:name).replace(/<node-name>/g,name);
+      var filled=cmd
+        .replace(/<ns>/g,inc.namespace)
+        .replace(/<name>/g,(resourceRef&&resourceRef.name)||name)
+        .replace(/<pod-name>/g,podRes?podRes.name:name)
+        .replace(/<pod>/g,podRes?podRes.name:name)
+        .replace(/<node-name>/g,nodeRes?nodeRes.name:name);
       addCmd('action',filled);
     });
 
@@ -724,17 +848,27 @@ input::placeholder{color:var(--dim)}
     });
     html+='</div></div>';
 
-    /* 6. Root cause analysis */
-    html+='<div><div class="sec-hdr">root cause analysis</div>';
-    if(inc.rootCause){
-      html+='<div style="font-family:var(--mono);font-size:10px;color:var(--txt);line-height:1.7">'+esc(inc.rootCause)+'</div>';
+    /* 6. Phase 1 evidence summary */
+    html+='<div><div class="sec-hdr">phase 1 evidence summary</div>';
+    html+='<div class="rca-stub"><div class="rca-label"><span class="rca-label-dot"></span>';
+    html+='<span class="rca-label-text">RULE-BASED INCIDENT VIEW</span></div>';
+    if(inc.summary){
+      html+='<div class="rca-body">'+esc(inc.summary)+'</div>';
+    } else if(inc.message){
+      html+='<div class="rca-body">'+esc(inc.message)+'</div>';
+    } else if(inc.correlatedSignals&&inc.correlatedSignals.length){
+      html+='<div class="rca-body">'+esc(inc.correlatedSignals[0])+'</div>';
     } else {
-      html+='<div class="rca-stub"><div class="rca-label"><span class="rca-label-dot"></span>';
-      html+='<span class="rca-label-text">AI ENGINE \u00b7 PHASE 2</span></div>';
-      html+='<div class="rca-body">LLM-powered root cause will appear here once the RCA engine is enabled. The AI analyzer will correlate evidence from logs, metrics, and the full event timeline to generate a diagnosis with confidence scoring.</div>';
-      if(inc.phase==='Resolved') html+='<div class="rca-postmortem">AUTO POST-MORTEM \u00b7 PHASE 4</div>';
+      html+='<div class="rca-body">Phase 1 records the signals, affected resources, and timeline needed for operators to investigate quickly. No automated root-cause narrative is generated in this phase.</div>';
+    }
+    if(inc.correlatedSignals&&inc.correlatedSignals.length){
+      html+='<div style="margin-top:8px;display:flex;flex-direction:column;gap:5px">';
+      inc.correlatedSignals.slice(0,4).forEach(function(sig){
+        html+='<div class="cmd-row"><span class="play-num">\u2022</span><code class="cmd-code muted">'+esc(sig)+'</code></div>';
+      });
       html+='</div>';
     }
+    html+='</div>';
     html+='</div>';
 
     /* 7. status.conditions */
@@ -810,11 +944,29 @@ input::placeholder{color:var(--dim)}
     if(!el||!selectedKey) return;
     var inc=incidents.find(function(i){return incKey(i)===selectedKey});
     if(!inc||inc.phase==='Resolved') return;
-    el.innerHTML='<span style="color:'+(inc.phase==='Active'?'var(--amber)':'var(--purple)')+'">'+liveDur(inc.startTime)+'</span>';
+    el.innerHTML='<span style="color:'+(inc.phase==='Active'?'var(--amber)':'var(--purple)')+'">'+liveDur(incidentStartTime(inc))+'</span>';
   },1000);
 
   /* ── Clock ─────────────────────────────────── */
-  function tickClock(){var el=document.getElementById('utc-clock');if(el)el.textContent=new Date().toISOString().slice(11,19)+' UTC'}
+  function setTimeZone(next){
+    if(timezoneOptions.indexOf(next)===-1) return;
+    selectedTimeZone=next;
+    try{localStorage.setItem(tzStorageKey,next)}catch(e){}
+    renderIncidents();
+    renderDetail();
+    tickClock();
+  }
+
+  function tickClock(){
+    var el=document.getElementById('utc-clock');
+    if(!el) return;
+    var now=new Date();
+    var zone=getActiveTimeZone();
+    el.textContent=formatClockTime(now,zone)+' '+formatZoneSuffix(now,zone);
+    el.title='Display timezone: '+timeZoneLabel();
+  }
+
+  window._setTimeZone=setTimeZone;
 
   /* ── Init ──────────────────────────────────── */
   document.getElementById('conn-pulse').innerHTML=pulse('#4ADE80',8);

@@ -4,17 +4,7 @@ Get your first `RCAAgent` running in under five minutes.
 
 ---
 
-## 1. Create the required Secret
-
-The operator validates that this Secret exists before marking the agent `Available=True`.
-
-```bash
-kubectl create secret generic rca-agent-openai-secret \
-  --from-literal=apiKey=<YOUR_OPENAI_KEY> \
-  -n default
-```
-
-## 2. Apply the minimal RCAAgent
+## 1. Apply the minimal RCAAgent
 
 ```yaml
 # rca-agent.yaml
@@ -27,10 +17,6 @@ spec:
   watchNamespaces:
     - production
     - staging
-  aiProviderConfig:
-    type: openai
-    model: gpt-4o
-    secretRef: rca-agent-openai-secret
   incidentRetention: 30d
 ```
 
@@ -38,7 +24,7 @@ spec:
 kubectl apply -f rca-agent.yaml
 ```
 
-## 3. Verify the agent is ready
+## 2. Verify the agent is ready
 
 ```bash
 # STATUS column should show True
@@ -48,7 +34,7 @@ kubectl get rcaagent -n default
 kubectl describe rcaagent sre-agent -n default
 ```
 
-## 4. Trigger a test incident
+## 3. Trigger a test incident
 
 ```bash
 # Apply one of the pre-built fixture pods
@@ -62,7 +48,7 @@ See [test/fixtures/README.md](../../test/fixtures/README.md) for all available t
 
 ---
 
-## Add Notifications (optional)
+## 4. Add Notifications (optional)
 
 ```bash
 # Slack

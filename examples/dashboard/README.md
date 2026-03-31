@@ -7,7 +7,6 @@ This directory contains example Helm values configurations for different dashboa
 - `values-internal.yaml` - Internal corporate access with LoadBalancer
 - `values-external.yaml` - External access with Ingress and HTTPS
 - `values-development.yaml` - Development/testing with NodePort
-- `values-auth.yaml` - Production with authentication via ingress
 - `values-minimal.yaml` - Minimal dashboard setup for quick testing
 
 ## Quick Start

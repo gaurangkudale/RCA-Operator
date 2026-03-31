@@ -72,20 +72,53 @@ type CorrelationResult struct {
 	Rule         string // name of the rule that fired, for logging
 	// Resource overrides the event's pod/resource name for incident dedup and
 	// creation. Set by rules that correlate across different resources (e.g.
-	// Rule 2 uses deployment name, Rules 3 & 5 use node name) so that the
+	// rollout correlation uses deployment name and node-failure correlation uses
+	// node name) so that the
 	// resulting incident groups under the correct canonical resource identifier.
 	Resource string
 }
 
-// Correlator maintains a sliding-window buffer of recent events and evaluates
-// the five correlation rules on each new event.
-type Correlator struct {
-	buf *Buffer
+// RuleEngine evaluates collected events and may override the default
+// single-signal classification with a correlated incident result.
+type RuleEngine interface {
+	Add(event watcher.CorrelatorEvent)
+	Evaluate(event watcher.CorrelatorEvent) CorrelationResult
 }
 
-// NewCorrelator returns a Correlator with the given correlation time window.
-func NewCorrelator(window time.Duration) *Correlator {
-	return &Correlator{buf: newBuffer(window)}
+// Rule is a registered correlation rule evaluated by the rule engine.
+type Rule interface {
+	Name() string
+	Priority() int
+	Evaluate(event watcher.CorrelatorEvent, entries []entry) CorrelationResult
+}
+
+type CorrelatorOption func(*Correlator)
+
+// WithRules overrides the rule set used by the correlator.
+func WithRules(rules []Rule) CorrelatorOption {
+	return func(c *Correlator) {
+		c.rules = append([]Rule(nil), rules...)
+	}
+}
+
+// Correlator maintains a sliding-window buffer of recent events and evaluates
+// registered correlation rules on each new event.
+type Correlator struct {
+	buf   *Buffer
+	rules []Rule
+}
+
+// NewCorrelator returns a Correlator with the given correlation time window
+// and the currently registered rule set.
+func NewCorrelator(window time.Duration, opts ...CorrelatorOption) *Correlator {
+	c := &Correlator{
+		buf:   newBuffer(window),
+		rules: RegisteredRules(),
+	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // Add records event e in the buffer so future calls to Evaluate can correlate
@@ -94,13 +127,13 @@ func (c *Correlator) Add(e watcher.CorrelatorEvent) {
 	c.buf.Add(e)
 }
 
-// Evaluate runs all correlation rules against the current buffer contents and
+// Evaluate runs all registered rules against the current buffer contents and
 // the incoming event. The first rule that fires is returned; if no rule fires,
 // a zero CorrelationResult (Fired=false) is returned.
 func (c *Correlator) Evaluate(event watcher.CorrelatorEvent) CorrelationResult {
 	entries := c.buf.snapshot()
-	for _, rule := range allRules {
-		if result := rule(event, entries); result.Fired {
+	for _, rule := range c.rules {
+		if result := rule.Evaluate(event, entries); result.Fired {
 			return result
 		}
 	}
@@ -110,11 +143,11 @@ func (c *Correlator) Evaluate(event watcher.CorrelatorEvent) CorrelationResult {
 // Option is a functional option for Consumer.
 type Option func(*Consumer)
 
-// WithCorrelator attaches a Correlator to the Consumer so that multi-event
+// WithRuleEngine attaches a rule engine to the consumer so that multi-signal
 // correlation rules are evaluated on every incoming event.
-func WithCorrelator(c *Correlator) Option {
+func WithRuleEngine(engine RuleEngine) Option {
 	return func(consumer *Consumer) {
-		consumer.correlator = c
+		consumer.ruleEngine = engine
 	}
 }
 

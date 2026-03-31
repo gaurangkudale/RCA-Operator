@@ -32,16 +32,16 @@ spec:
       name: Phase
       type: string
     - description: Incident type
-      jsonPath: .status.incidentType
+      jsonPath: .spec.incidentType
       name: Type
       type: string
     - description: Notifications sent
       jsonPath: .status.notified
       name: Notified
       type: boolean
-    - description: When detected
-      jsonPath: .status.startTime
-      name: Start
+    - description: When first observed
+      jsonPath: .status.firstObservedAt
+      name: FirstSeen
       type: date
     - jsonPath: .metadata.creationTimestamp
       name: Age
@@ -76,12 +76,92 @@ spec:
                   report.
                 minLength: 1
                 type: string
+              fingerprint:
+                description: |-
+                  fingerprint is the canonical identity for an incident.
+                  It is stable across repeated signals for the same underlying issue.
+                minLength: 1
+                type: string
+              incidentType:
+                description: incidentType is the durable incident category.
+                minLength: 1
+                type: string
+              scope:
+                description: scope describes the primary object or workload the incident
+                  belongs to.
+                properties:
+                  level:
+                    description: level is one of Cluster, Namespace, Workload, or
+                      Pod.
+                    enum:
+                    - Cluster
+                    - Namespace
+                    - Workload
+                    - Pod
+                    type: string
+                  namespace:
+                    description: namespace is populated for namespace-, workload-,
+                      and pod-scoped incidents.
+                    type: string
+                  resourceRef:
+                    description: resourceRef points at the primary affected object.
+                    properties:
+                      apiVersion:
+                        description: apiVersion is the resource API version.
+                        type: string
+                      kind:
+                        description: kind is the Kubernetes kind.
+                        type: string
+                      name:
+                        description: name is the Kubernetes object name.
+                        type: string
+                      namespace:
+                        description: namespace is empty for cluster-scoped resources.
+                        type: string
+                      uid:
+                        description: uid is the Kubernetes UID when known.
+                        type: string
+                    required:
+                    - kind
+                    - name
+                    type: object
+                  workloadRef:
+                    description: workloadRef points at the top-level workload when
+                      the issue belongs to one.
+                    properties:
+                      apiVersion:
+                        description: apiVersion is the resource API version.
+                        type: string
+                      kind:
+                        description: kind is the Kubernetes kind.
+                        type: string
+                      name:
+                        description: name is the Kubernetes object name.
+                        type: string
+                      namespace:
+                        description: namespace is empty for cluster-scoped resources.
+                        type: string
+                      uid:
+                        description: uid is the Kubernetes UID when known.
+                        type: string
+                    required:
+                    - kind
+                    - name
+                    type: object
+                type: object
             required:
             - agentRef
+            - fingerprint
+            - incidentType
             type: object
           status:
             description: status defines the observed state of IncidentReport
             properties:
+              activeAt:
+                description: activeAt is when the incident crossed the stabilization
+                  window and became Active.
+                format: date-time
+                type: string
               affectedResources:
                 description: affectedResources lists the Kubernetes resources involved
                   in this incident.
@@ -89,6 +169,9 @@ spec:
                   description: AffectedResource identifies a Kubernetes resource involved
                     in an incident.
                   properties:
+                    apiVersion:
+                      description: apiVersion is the resource API version when known.
+                      type: string
                     kind:
                       description: kind is the resource kind (e.g. Deployment, Pod,
                         Node).
@@ -99,6 +182,9 @@ spec:
                     namespace:
                       description: namespace is the resource namespace. Empty for
                         cluster-scoped resources.
+                      type: string
+                    uid:
+                      description: uid is the Kubernetes UID when known.
                       type: string
                   required:
                   - kind
@@ -175,6 +261,11 @@ spec:
                   type: string
                 type: array
                 x-kubernetes-list-type: atomic
+              firstObservedAt:
+                description: firstObservedAt is when the incident fingerprint was
+                  first seen in the current lifecycle.
+                format: date-time
+                type: string
               incidentType:
                 description: incidentType is the category of incident detected by
                   the correlator.
@@ -186,7 +277,14 @@ spec:
                 - Registry
                 - GracePeriodViolation
                 - ProbeFailure
-                - ResourceSaturation
+                type: string
+              lastObservedAt:
+                description: lastObservedAt is when the most recent confirming signal
+                  was received.
+                format: date-time
+                type: string
+              message:
+                description: message is the detailed message for the most recent signal.
                 type: string
               notified:
                 description: |-
@@ -200,15 +298,19 @@ spec:
                 - Active
                 - Resolved
                 type: string
-              resolvedTime:
-                description: resolvedTime is when the incident was resolved. Empty
-                  while still active.
+              reason:
+                description: reason is the machine-oriented Kubernetes reason when
+                  available.
+                type: string
+              resolvedAt:
+                description: resolvedAt is when the incident was resolved.
                 format: date-time
                 type: string
-              rootCause:
+              resolvedTime:
                 description: |-
-                  rootCause is a human-readable summary of the root cause.
-                  Stub in Phase 1 — populated by the RCA engine in Phase 2.
+                  resolvedTime is when the incident was resolved. Empty while still active.
+                  Deprecated: use resolvedAt. Retained only for compatibility with older clients.
+                format: date-time
                 type: string
               severity:
                 description: severity is the incident severity level assigned by the
@@ -219,9 +321,25 @@ spec:
                 - P3
                 - P4
                 type: string
+              signalCount:
+                description: signalCount is the number of confirming signals recorded
+                  in the current lifecycle.
+                format: int64
+                type: integer
+              stabilizationWindowSeconds:
+                description: stabilizationWindowSeconds is the required continuous
+                  observation window before Active.
+                format: int64
+                type: integer
               startTime:
-                description: startTime is when the incident was first detected.
+                description: |-
+                  startTime is when the incident was first detected.
+                  Deprecated: use firstObservedAt. Retained only for compatibility with older clients.
                 format: date-time
+                type: string
+              summary:
+                description: summary is the short dashboard-friendly summary for the
+                  current incident state.
                 type: string
               timeline:
                 description: timeline is the ordered sequence of events that make
@@ -280,14 +398,6 @@ spec:
       jsonPath: .status.conditions[?(@.type=='Available')].status
       name: Status
       type: string
-    - description: AI provider type
-      jsonPath: .spec.aiProviderConfig.type
-      name: Provider
-      type: string
-    - description: AI model in use
-      jsonPath: .spec.aiProviderConfig.model
-      name: Model
-      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -316,35 +426,6 @@ spec:
           spec:
             description: spec defines the desired state of RCAAgent
             properties:
-              aiProviderConfig:
-                description: 'AIProviderConfig holds the configuration for the LLM
-                  backend. Phase 1: stored only — not used by the operator yet.'
-                properties:
-                  model:
-                    default: gpt-4o
-                    description: Model is the model identifier to use (e.g. gpt-4o,
-                      claude-3-opus).
-                    example: gpt-4o
-                    type: string
-                  secretRef:
-                    description: |-
-                      SecretRef is the name of the Kubernetes Secret containing the API key.
-                      The secret must have a key named "apiKey".
-                    example: rca-agent-openai-secret
-                    minLength: 1
-                    type: string
-                  type:
-                    default: openai
-                    description: Type is the LLM provider to use.
-                    enum:
-                    - openai
-                    example: openai
-                    type: string
-                required:
-                - model
-                - secretRef
-                - type
-                type: object
               incidentRetention:
                 default: 30d
                 description: |-
@@ -424,7 +505,6 @@ spec:
                   type: string
                 type: array
             required:
-            - aiProviderConfig
             - watchNamespaces
             type: object
           status:
@@ -648,6 +728,14 @@ rules:
   - nodes
   - pods
   - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
   verbs:
   - get
   - list

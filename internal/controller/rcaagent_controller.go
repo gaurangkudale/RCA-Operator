@@ -41,8 +41,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
+	"github.com/gaurangkudale/rca-operator/internal/collectors"
+	"github.com/gaurangkudale/rca-operator/internal/incidentstatus"
 	"github.com/gaurangkudale/rca-operator/internal/retention"
-	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
 const rcaAgentFinalizer = "rca.rca-operator.tech/finalizer"
@@ -55,13 +56,8 @@ const (
 	phaseResolved          = "Resolved"
 
 	// annotationLastSeen mirrors the key written by consumer.go so the controller
-	// can read the timestamp and auto-resolve stale ResourceSaturation incidents.
+	// can read the timestamp during retention and lifecycle cleanup paths.
 	annotationLastSeen = "rca.rca-operator.tech/last-seen"
-
-	// defaultThrottlingTTL is how long a ResourceSaturation incident may remain
-	// Active without receiving a new CPUThrottlingHigh signal before the controller
-	// automatically marks it Resolved.
-	defaultThrottlingTTL = 10 * time.Minute
 )
 
 // Condition type constants — used in status.conditions
@@ -75,35 +71,35 @@ type RCAAgentReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 
-	Cache            ctrlcache.Cache
-	WatcherEmitter   watcher.EventEmitter
-	ManagerContext   context.Context
-	newPodWatcher    func(ctrlcache.Cache, watcher.EventEmitter, logr.Logger, watcher.PodWatcherConfig) podWatcher
-	newEventWatcher  func(ctrlcache.Cache, watcher.EventEmitter, logr.Logger, watcher.EventWatcherConfig) eventWatcher
-	newDeployWatcher func(ctrlcache.Cache, watcher.EventEmitter, logr.Logger, watcher.DeploymentWatcherConfig) deploymentWatcher
-	newNodeWatcher   func(ctrlcache.Cache, watcher.EventEmitter, logr.Logger, watcher.NodeWatcherConfig) nodeWatcher
-	watcherRegistry  map[types.NamespacedName]watcherEntry
-	watcherRegistryM sync.Mutex
-	nowFn            func() time.Time
+	Cache                ctrlcache.Cache
+	SignalEmitter        collectors.SignalEmitter
+	ManagerContext       context.Context
+	newPodCollector      func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.PodCollectorConfig) podCollector
+	newEventCollector    func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.EventCollectorConfig) eventCollector
+	newWorkloadCollector func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.WorkloadCollectorConfig) workloadCollector
+	newNodeCollector     func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.NodeCollectorConfig) nodeCollector
+	collectorRegistry    map[types.NamespacedName]collectorEntry
+	collectorRegistryM   sync.Mutex
+	nowFn                func() time.Time
 }
 
-type podWatcher interface {
+type podCollector interface {
 	Start(ctx context.Context) error
 }
 
-type eventWatcher interface {
+type eventCollector interface {
 	Start(ctx context.Context) error
 }
 
-type deploymentWatcher interface {
+type workloadCollector interface {
 	Start(ctx context.Context) error
 }
 
-type nodeWatcher interface {
+type nodeCollector interface {
 	Start(ctx context.Context) error
 }
 
-type watcherEntry struct {
+type collectorEntry struct {
 	cancel          context.CancelFunc
 	watchNamespaces []string
 }
@@ -141,10 +137,9 @@ func (r *RCAAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if !agent.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(agent, rcaAgentFinalizer) {
 			log.Info("Running cleanup for deleted RCAAgent", "name", agent.Name)
-			r.stopWatcher(req.NamespacedName)
+			r.stopCollectors(req.NamespacedName)
 
-			// Phase 1: nothing external to clean up yet.
-			// Phase 2+: stop watchers, cancel goroutines, etc.
+			// Stop all collector pipelines before removing the finalizer.
 
 			controllerutil.RemoveFinalizer(agent, rcaAgentFinalizer)
 			if err := r.Update(ctx, agent); err != nil {
@@ -166,11 +161,11 @@ func (r *RCAAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// ── 4. VALIDATE SPEC ──────────────────────────────────────────────────────
-	// Validate that the referenced secret actually exists.
-	if err := r.validateSecret(ctx, agent); err != nil {
-		log.Error(err, "Secret validation failed", "secretRef", agent.Spec.AIProviderConfig.SecretRef)
+	// Validate that notification secrets actually exist.
+	if err := r.validateReferencedSecrets(ctx, agent); err != nil {
+		log.Error(err, "Secret validation failed")
 
-		msg := fmt.Sprintf("Secret %q not found in namespace %q", agent.Spec.AIProviderConfig.SecretRef, agent.Namespace)
+		msg := err.Error()
 
 		// Mark Available=False so the STATUS column reflects the problem
 		if statusErr := r.setCondition(ctx, agent, ConditionTypeAvailable, metav1.ConditionFalse,
@@ -193,15 +188,11 @@ func (r *RCAAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// Validate that watchNamespaces exist (warn only — don't block)
 	r.validateNamespaces(ctx, agent)
 
-	if err := r.ensureWatcherRunning(ctx, agent); err != nil {
+	if err := r.ensureCollectorsRunning(ctx, agent); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	if err := r.resolveOrphanedIncidents(ctx, agent); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if err := r.resolveStaleThrottlingIncidents(ctx, agent); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -231,16 +222,18 @@ func (r *RCAAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 
-// validateSecret checks that the Secret named in spec.aiProviderConfig.secretRef
-// exists in the same namespace as the RCAAgent.
-func (r *RCAAgentReconciler) validateSecret(ctx context.Context, agent *rcav1alpha1.RCAAgent) error {
-	secret := &corev1.Secret{}
-	key := types.NamespacedName{
-		Name:      agent.Spec.AIProviderConfig.SecretRef,
-		Namespace: agent.Namespace,
-	}
-	if err := r.Get(ctx, key, secret); err != nil {
-		return fmt.Errorf("secret %q not found: %w", key.Name, err)
+// validateReferencedSecrets checks that notification secrets referenced by the
+// RCAAgent exist in the same namespace as the RCAAgent.
+func (r *RCAAgentReconciler) validateReferencedSecrets(ctx context.Context, agent *rcav1alpha1.RCAAgent) error {
+	for _, ref := range referencedSecretRefs(agent) {
+		secret := &corev1.Secret{}
+		key := types.NamespacedName{
+			Name:      ref.name,
+			Namespace: agent.Namespace,
+		}
+		if err := r.Get(ctx, key, secret); err != nil {
+			return fmt.Errorf("%s secret %q not found in namespace %q: %w", ref.usage, ref.name, agent.Namespace, err)
+		}
 	}
 	return nil
 }
@@ -298,7 +291,7 @@ func (r *RCAAgentReconciler) setCondition(
 }
 
 // findRCAAgentsForSecret maps a Secret event to the RCAAgents that reference it,
-// so that deleting/updating a Secret immediately triggers reconciliation.
+// so deleting or updating a notification Secret immediately triggers reconciliation.
 func (r *RCAAgentReconciler) findRCAAgentsForSecret(ctx context.Context, obj client.Object) []reconcile.Request {
 	log := logf.FromContext(ctx)
 
@@ -310,7 +303,7 @@ func (r *RCAAgentReconciler) findRCAAgentsForSecret(ctx context.Context, obj cli
 
 	var requests []reconcile.Request
 	for _, agent := range agentList.Items {
-		if agent.Spec.AIProviderConfig != nil && agent.Spec.AIProviderConfig.SecretRef == obj.GetName() {
+		if referencesSecret(&agent, obj.GetName()) {
 			requests = append(requests, reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      agent.Name,
@@ -323,15 +316,15 @@ func (r *RCAAgentReconciler) findRCAAgentsForSecret(ctx context.Context, obj cli
 }
 
 func (r *RCAAgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	r.initWatcherRegistry()
+	r.initCollectorRegistry()
 	if r.ManagerContext == nil {
 		r.ManagerContext = context.Background()
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&rcav1alpha1.RCAAgent{}).
-		// Watch Secrets — when a Secret is created/updated/deleted, reconcile any
-		// RCAAgent that references it via spec.aiProviderConfig.secretRef.
+		// Watch notification Secrets so the agent is re-validated immediately when
+		// Slack or PagerDuty credentials change.
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.findRCAAgentsForSecret),
@@ -340,48 +333,48 @@ func (r *RCAAgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *RCAAgentReconciler) initWatcherRegistry() {
-	r.watcherRegistryM.Lock()
-	defer r.watcherRegistryM.Unlock()
-	if r.watcherRegistry == nil {
-		r.watcherRegistry = make(map[types.NamespacedName]watcherEntry)
+func (r *RCAAgentReconciler) initCollectorRegistry() {
+	r.collectorRegistryM.Lock()
+	defer r.collectorRegistryM.Unlock()
+	if r.collectorRegistry == nil {
+		r.collectorRegistry = make(map[types.NamespacedName]collectorEntry)
 	}
 }
 
-func (r *RCAAgentReconciler) ensureWatcherRunning(ctx context.Context, agent *rcav1alpha1.RCAAgent) error {
-	if r.WatcherEmitter == nil {
+func (r *RCAAgentReconciler) ensureCollectorsRunning(ctx context.Context, agent *rcav1alpha1.RCAAgent) error {
+	if r.SignalEmitter == nil {
 		return nil
 	}
 
 	key := types.NamespacedName{Name: agent.Name, Namespace: agent.Namespace}
 	desiredNamespaces := normalizeNamespaces(agent.Spec.WatchNamespaces)
 
-	podFactory := r.newPodWatcher
+	podFactory := r.newPodCollector
 	if podFactory == nil {
 		if r.Cache == nil {
 			return nil
 		}
-		podFactory = func(cache ctrlcache.Cache, emitter watcher.EventEmitter, logger logr.Logger, cfg watcher.PodWatcherConfig) podWatcher {
-			return watcher.NewPodWatcher(cache, emitter, logger, cfg)
+		podFactory = func(cache ctrlcache.Cache, emitter collectors.SignalEmitter, logger logr.Logger, cfg collectors.PodCollectorConfig) podCollector {
+			return collectors.NewPodCollector(cache, emitter, logger, cfg)
 		}
 	}
-	eventFactory := r.newEventWatcher
+	eventFactory := r.newEventCollector
 	if eventFactory == nil {
-		eventFactory = func(cache ctrlcache.Cache, emitter watcher.EventEmitter, logger logr.Logger, cfg watcher.EventWatcherConfig) eventWatcher {
-			return watcher.NewEventWatcher(cache, emitter, logger, cfg)
+		eventFactory = func(cache ctrlcache.Cache, emitter collectors.SignalEmitter, logger logr.Logger, cfg collectors.EventCollectorConfig) eventCollector {
+			return collectors.NewEventCollector(cache, emitter, logger, cfg)
 		}
 	}
 
-	r.watcherRegistryM.Lock()
-	entry, exists := r.watcherRegistry[key]
+	r.collectorRegistryM.Lock()
+	entry, exists := r.collectorRegistry[key]
 	if exists && reflect.DeepEqual(entry.watchNamespaces, desiredNamespaces) {
-		r.watcherRegistryM.Unlock()
+		r.collectorRegistryM.Unlock()
 		return nil
 	}
 	if exists {
-		delete(r.watcherRegistry, key)
+		delete(r.collectorRegistry, key)
 	}
-	r.watcherRegistryM.Unlock()
+	r.collectorRegistryM.Unlock()
 	if exists {
 		entry.cancel()
 	}
@@ -390,81 +383,81 @@ func (r *RCAAgentReconciler) ensureWatcherRunning(ctx context.Context, agent *rc
 	if baseCtx == nil {
 		baseCtx = context.Background()
 	}
-	watcherCtx, cancel := context.WithCancel(baseCtx)
+	collectorCtx, cancel := context.WithCancel(baseCtx)
 
 	log := logf.FromContext(ctx)
-	pw := podFactory(r.Cache, r.WatcherEmitter, log,
-		watcher.PodWatcherConfig{
+	pc := podFactory(r.Cache, r.SignalEmitter, log,
+		collectors.PodCollectorConfig{
 			AgentName:       agent.Name,
 			WatchNamespaces: desiredNamespaces,
 		},
 	)
-	if err := pw.Start(watcherCtx); err != nil {
+	if err := pc.Start(collectorCtx); err != nil {
 		cancel()
-		return fmt.Errorf("failed to start pod watcher for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
+		return fmt.Errorf("failed to start pod collector for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
 	}
 
-	ew := eventFactory(r.Cache, r.WatcherEmitter, log,
-		watcher.EventWatcherConfig{
+	ec := eventFactory(r.Cache, r.SignalEmitter, log,
+		collectors.EventCollectorConfig{
 			AgentName:       agent.Name,
 			WatchNamespaces: desiredNamespaces,
 		},
 	)
-	if err := ew.Start(watcherCtx); err != nil {
+	if err := ec.Start(collectorCtx); err != nil {
 		cancel()
-		return fmt.Errorf("failed to start event watcher for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
+		return fmt.Errorf("failed to start event collector for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
 	}
 
-	// DeploymentWatcher is started when either an injected factory is provided
-	// or a real cache is available.  When neither is true (e.g. unit tests that
-	// inject pod/event fakes but have no cache) the watcher is simply skipped so
+	// Workload collection is started when either an injected factory is provided
+	// or a real cache is available. When neither is true (e.g. unit tests that
+	// inject pod/event fakes but have no cache) the collector is simply skipped so
 	// test compatibility is preserved without requiring changes to existing tests.
-	deployFactory := r.newDeployWatcher
-	if deployFactory == nil && r.Cache != nil {
-		deployFactory = func(cache ctrlcache.Cache, emitter watcher.EventEmitter, logger logr.Logger, cfg watcher.DeploymentWatcherConfig) deploymentWatcher {
-			return watcher.NewDeploymentWatcher(cache, emitter, logger, cfg)
+	workloadFactory := r.newWorkloadCollector
+	if workloadFactory == nil && r.Cache != nil {
+		workloadFactory = func(cache ctrlcache.Cache, emitter collectors.SignalEmitter, logger logr.Logger, cfg collectors.WorkloadCollectorConfig) workloadCollector {
+			return collectors.NewWorkloadCollector(cache, emitter, logger, cfg)
 		}
 	}
-	if deployFactory != nil {
-		dw := deployFactory(r.Cache, r.WatcherEmitter, log,
-			watcher.DeploymentWatcherConfig{
+	if workloadFactory != nil {
+		wc := workloadFactory(r.Cache, r.SignalEmitter, log,
+			collectors.WorkloadCollectorConfig{
 				AgentName:       agent.Name,
 				WatchNamespaces: desiredNamespaces,
 			},
 		)
-		if err := dw.Start(watcherCtx); err != nil {
+		if err := wc.Start(collectorCtx); err != nil {
 			cancel()
-			return fmt.Errorf("failed to start deployment watcher for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
+			return fmt.Errorf("failed to start workload collector for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
 		}
 	}
 
-	// NodeWatcher monitors corev1.Node objects for NotReady/Pressure conditions.
-	// Same graceful-skip pattern as DeploymentWatcher: silently skipped when
+	// Node collection monitors corev1.Node objects for NotReady/Pressure conditions.
+	// Same graceful-skip pattern as workload collection: silently skipped when
 	// there is neither an injected factory nor a real cache (unit-test paths).
-	nodeFactory := r.newNodeWatcher
+	nodeFactory := r.newNodeCollector
 	if nodeFactory == nil && r.Cache != nil {
-		nodeFactory = func(cache ctrlcache.Cache, emitter watcher.EventEmitter, logger logr.Logger, cfg watcher.NodeWatcherConfig) nodeWatcher {
-			return watcher.NewNodeWatcher(cache, emitter, logger, cfg)
+		nodeFactory = func(cache ctrlcache.Cache, emitter collectors.SignalEmitter, logger logr.Logger, cfg collectors.NodeCollectorConfig) nodeCollector {
+			return collectors.NewNodeCollector(cache, emitter, logger, cfg)
 		}
 	}
 	if nodeFactory != nil {
-		nw := nodeFactory(r.Cache, r.WatcherEmitter, log,
-			watcher.NodeWatcherConfig{
+		nc := nodeFactory(r.Cache, r.SignalEmitter, log,
+			collectors.NodeCollectorConfig{
 				AgentName:         agent.Name,
 				IncidentNamespace: agent.Namespace,
 			},
 		)
-		if err := nw.Start(watcherCtx); err != nil {
+		if err := nc.Start(collectorCtx); err != nil {
 			cancel()
-			return fmt.Errorf("failed to start node watcher for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
+			return fmt.Errorf("failed to start node collector for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
 		}
 	}
 
-	r.watcherRegistryM.Lock()
-	defer r.watcherRegistryM.Unlock()
-	r.watcherRegistry[key] = watcherEntry{cancel: cancel, watchNamespaces: desiredNamespaces}
+	r.collectorRegistryM.Lock()
+	defer r.collectorRegistryM.Unlock()
+	r.collectorRegistry[key] = collectorEntry{cancel: cancel, watchNamespaces: desiredNamespaces}
 
-	log.Info("Started watchers for RCAAgent",
+	log.Info("Started collectors for RCAAgent",
 		"name", agent.Name,
 		"namespace", agent.Namespace,
 		"watchNamespaces", desiredNamespaces,
@@ -473,13 +466,13 @@ func (r *RCAAgentReconciler) ensureWatcherRunning(ctx context.Context, agent *rc
 	return nil
 }
 
-func (r *RCAAgentReconciler) stopWatcher(key types.NamespacedName) {
-	r.watcherRegistryM.Lock()
-	entry, ok := r.watcherRegistry[key]
+func (r *RCAAgentReconciler) stopCollectors(key types.NamespacedName) {
+	r.collectorRegistryM.Lock()
+	entry, ok := r.collectorRegistry[key]
 	if ok {
-		delete(r.watcherRegistry, key)
+		delete(r.collectorRegistry, key)
 	}
-	r.watcherRegistryM.Unlock()
+	r.collectorRegistryM.Unlock()
 
 	if ok {
 		entry.cancel()
@@ -508,6 +501,41 @@ func normalizeNamespaces(namespaces []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+type secretRefUsage struct {
+	name  string
+	usage string
+}
+
+func referencedSecretRefs(agent *rcav1alpha1.RCAAgent) []secretRefUsage {
+	if agent == nil || agent.Spec.Notifications == nil {
+		return nil
+	}
+
+	refs := make([]secretRefUsage, 0, 2)
+	if slack := agent.Spec.Notifications.Slack; slack != nil && strings.TrimSpace(slack.WebhookSecretRef) != "" {
+		refs = append(refs, secretRefUsage{
+			name:  strings.TrimSpace(slack.WebhookSecretRef),
+			usage: "Slack webhook",
+		})
+	}
+	if pagerDuty := agent.Spec.Notifications.PagerDuty; pagerDuty != nil && strings.TrimSpace(pagerDuty.SecretRef) != "" {
+		refs = append(refs, secretRefUsage{
+			name:  strings.TrimSpace(pagerDuty.SecretRef),
+			usage: "PagerDuty routing key",
+		})
+	}
+	return refs
+}
+
+func referencesSecret(agent *rcav1alpha1.RCAAgent, secretName string) bool {
+	for _, ref := range referencedSecretRefs(agent) {
+		if ref.name == secretName {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *RCAAgentReconciler) cleanupResolvedIncidents(ctx context.Context, agent *rcav1alpha1.RCAAgent) error {
@@ -633,15 +661,7 @@ func (r *RCAAgentReconciler) resolveOrphanedIncidents(ctx context.Context, agent
 			}
 
 			base := report.DeepCopy()
-			report.Status.Phase = phaseResolved
-			report.Status.ResolvedTime = &now
-			report.Status.Timeline = append(report.Status.Timeline, rcav1alpha1.TimelineEvent{
-				Time:  now,
-				Event: "Pod no longer exists in cluster; incident auto-resolved",
-			})
-			if len(report.Status.Timeline) > 50 {
-				report.Status.Timeline = report.Status.Timeline[len(report.Status.Timeline)-50:]
-			}
+			incidentstatus.MarkResolved(report, now, "Pod no longer exists in cluster; incident auto-resolved")
 
 			if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
 				if errors.IsNotFound(err) {
@@ -663,83 +683,6 @@ func (r *RCAAgentReconciler) resolveOrphanedIncidents(ctx context.Context, agent
 	return nil
 }
 
-// resolveStaleThrottlingIncidents auto-resolves Active ResourceSaturation incidents
-// that have not received a new CPUThrottlingHigh signal within defaultThrottlingTTL.
-// The last-signal time is read from the rca.rca-operator.tech/last-seen annotation,
-// which the correlator consumer keeps up-to-date on every signal update.
-func (r *RCAAgentReconciler) resolveStaleThrottlingIncidents(ctx context.Context, agent *rcav1alpha1.RCAAgent) error {
-	namespaces, err := r.retentionNamespaces(ctx, agent)
-	if err != nil {
-		return err
-	}
-
-	now := r.now()
-	resolvedCount := 0
-	for _, namespace := range namespaces {
-		list := &rcav1alpha1.IncidentReportList{}
-		if err := r.List(ctx, list, client.InNamespace(namespace)); err != nil {
-			return fmt.Errorf("failed to list IncidentReports for throttling TTL check in %q: %w", namespace, err)
-		}
-
-		for i := range list.Items {
-			report := &list.Items[i]
-			if report.Status.Phase == phaseResolved {
-				continue
-			}
-			if report.Status.IncidentType != "ResourceSaturation" {
-				continue
-			}
-			if !belongsToAgent(report, agent.Name) {
-				continue
-			}
-
-			// Read the last-signal timestamp from annotations.
-			lastSeenStr, ok := report.Annotations[annotationLastSeen]
-			if !ok || lastSeenStr == "" {
-				continue
-			}
-			lastSeen, parseErr := time.Parse(time.RFC3339, lastSeenStr)
-			if parseErr != nil {
-				continue
-			}
-			if now.Sub(lastSeen) < defaultThrottlingTTL {
-				continue
-			}
-
-			// TTL exceeded — auto-resolve.
-			nowMeta := metav1.NewTime(now)
-			base := report.DeepCopy()
-			report.Status.Phase = phaseResolved
-			report.Status.ResolvedTime = &nowMeta
-			report.Status.Timeline = append(report.Status.Timeline, rcav1alpha1.TimelineEvent{
-				Time:  nowMeta,
-				Event: fmt.Sprintf("No CPUThrottling signals for %.0f minutes; incident auto-resolved", defaultThrottlingTTL.Minutes()),
-			})
-			if len(report.Status.Timeline) > 50 {
-				report.Status.Timeline = report.Status.Timeline[len(report.Status.Timeline)-50:]
-			}
-
-			if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
-				if errors.IsNotFound(err) {
-					continue
-				}
-				return fmt.Errorf("failed to resolve stale ResourceSaturation incident %s/%s: %w", report.Namespace, report.Name, err)
-			}
-			resolvedCount++
-		}
-	}
-
-	if resolvedCount > 0 {
-		logf.FromContext(ctx).Info("Auto-resolved stale ResourceSaturation incidents (TTL exceeded)",
-			"agent", agent.Name,
-			"resolvedCount", resolvedCount,
-			"ttl", defaultThrottlingTTL.String(),
-		)
-	}
-
-	return nil
-}
-
 func belongsToAgent(report *rcav1alpha1.IncidentReport, agentName string) bool {
 	if report.Spec.AgentRef == agentName {
 		return true
@@ -753,10 +696,11 @@ func belongsToAgent(report *rcav1alpha1.IncidentReport, agentName string) bool {
 func shouldPruneIncidentReport(report *rcav1alpha1.IncidentReport, now time.Time, retentionDuration time.Duration) bool {
 	// Prune Resolved incidents older than the retention window.
 	if report.Status.Phase == phaseResolved {
-		if report.Status.ResolvedTime == nil || report.Status.ResolvedTime.IsZero() {
+		resolvedAt := incidentstatus.EffectiveResolvedTime(report.Status)
+		if resolvedAt == nil || resolvedAt.IsZero() {
 			return false
 		}
-		return now.Sub(report.Status.ResolvedTime.Time) > retentionDuration
+		return now.Sub(resolvedAt.Time) > retentionDuration
 	}
 
 	// Prune uninitialized incidents (status.phase == "") — these are zombie CRs

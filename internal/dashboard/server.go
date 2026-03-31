@@ -7,12 +7,16 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
+	"github.com/gaurangkudale/rca-operator/internal/incidentstatus"
 	"github.com/gaurangkudale/rca-operator/internal/reporter"
 )
 
@@ -52,6 +56,9 @@ func (s *Server) Start(ctx context.Context) error {
 		Addr:              s.addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
 		BaseContext:       func(_ net.Listener) context.Context { return ctx },
 	}
 
@@ -75,20 +82,26 @@ func (s *Server) Start(ctx context.Context) error {
 type incidentResponse struct {
 	Name              string                         `json:"name"`
 	Namespace         string                         `json:"namespace"`
+	Fingerprint       string                         `json:"fingerprint"`
 	PodName           string                         `json:"podName"`
 	Severity          string                         `json:"severity"`
 	Phase             string                         `json:"phase"`
 	IncidentType      string                         `json:"incidentType"`
+	Summary           string                         `json:"summary"`
+	Reason            string                         `json:"reason"`
+	Message           string                         `json:"message"`
 	Notified          bool                           `json:"notified"`
-	StartTime         *time.Time                     `json:"startTime"`
-	ResolvedTime      *time.Time                     `json:"resolvedTime"`
+	FirstObservedAt   *time.Time                     `json:"firstObservedAt"`
+	ActiveAt          *time.Time                     `json:"activeAt"`
+	LastObservedAt    *time.Time                     `json:"lastObservedAt"`
+	ResolvedAt        *time.Time                     `json:"resolvedAt"`
+	SignalCount       int64                          `json:"signalCount"`
+	Scope             rcav1alpha1.IncidentScope      `json:"scope"`
 	AffectedResources []rcav1alpha1.AffectedResource `json:"affectedResources"`
 	CorrelatedSignals []string                       `json:"correlatedSignals"`
 	Timeline          []timelineEntry                `json:"timeline"`
 	AgentRef          string                         `json:"agentRef"`
 	LastSeen          string                         `json:"lastSeen"`
-	SignalCount       string                         `json:"signalCount"`
-	RootCause         string                         `json:"rootCause,omitempty"`
 }
 
 type timelineEntry struct {
@@ -140,8 +153,16 @@ func (s *Server) handleIncidents(w http.ResponseWriter, r *http.Request) {
 	// Optional phase and severity filters (applied in-memory).
 	phaseFilter := r.URL.Query().Get("phase")
 	sevFilter := r.URL.Query().Get("severity")
+	typeFilter := r.URL.Query().Get("type")
+	query := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("query")))
+	limit := parsePositiveInt(r.URL.Query().Get("limit"), 500)
+	offset := parsePositiveInt(r.URL.Query().Get("offset"), 0)
+	sortBy := r.URL.Query().Get("sort")
+	if sortBy == "" {
+		sortBy = "newest"
+	}
 
-	var result []incidentResponse
+	result := make([]incidentResponse, 0, len(list.Items))
 	for i := range list.Items {
 		item := &list.Items[i]
 		if phaseFilter != "" && item.Status.Phase != phaseFilter {
@@ -150,14 +171,26 @@ func (s *Server) handleIncidents(w http.ResponseWriter, r *http.Request) {
 		if sevFilter != "" && item.Status.Severity != sevFilter {
 			continue
 		}
+		if typeFilter != "" && item.Spec.IncidentType != typeFilter {
+			continue
+		}
+		if query != "" && !matchesIncidentQuery(item, query) {
+			continue
+		}
 		result = append(result, toIncidentResponse(item))
 	}
 
-	if result == nil {
-		result = []incidentResponse{}
+	sortIncidentResponses(result, sortBy)
+
+	if offset > len(result) {
+		offset = len(result)
+	}
+	end := len(result)
+	if limit > 0 && offset+limit < end {
+		end = offset + limit
 	}
 
-	writeJSON(w, result)
+	writeJSON(w, result[offset:end])
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
@@ -260,25 +293,41 @@ func toIncidentResponse(item *rcav1alpha1.IncidentReport) incidentResponse {
 	resp := incidentResponse{
 		Name:              item.Name,
 		Namespace:         item.Namespace,
+		Fingerprint:       item.Spec.Fingerprint,
 		PodName:           item.Labels[reporter.LabelPodName],
 		Severity:          item.Status.Severity,
 		Phase:             item.Status.Phase,
-		IncidentType:      item.Status.IncidentType,
+		IncidentType:      item.Spec.IncidentType,
+		Summary:           item.Status.Summary,
+		Reason:            item.Status.Reason,
+		Message:           item.Status.Message,
 		Notified:          item.Status.Notified,
+		Scope:             item.Spec.Scope,
 		AffectedResources: item.Status.AffectedResources,
 		CorrelatedSignals: item.Status.CorrelatedSignals,
 		AgentRef:          item.Spec.AgentRef,
 		LastSeen:          item.Annotations[reporter.AnnotationLastSeen],
-		SignalCount:       item.Annotations[reporter.AnnotationSignalSeen],
-		RootCause:         item.Status.RootCause,
+		SignalCount:       item.Status.SignalCount,
 	}
-	if item.Status.StartTime != nil {
-		t := item.Status.StartTime.Time
-		resp.StartTime = &t
+	if item.Status.FirstObservedAt != nil {
+		t := item.Status.FirstObservedAt.Time
+		resp.FirstObservedAt = &t
 	}
-	if item.Status.ResolvedTime != nil {
-		t := item.Status.ResolvedTime.Time
-		resp.ResolvedTime = &t
+	if item.Status.ActiveAt != nil {
+		t := item.Status.ActiveAt.Time
+		resp.ActiveAt = &t
+	}
+	if item.Status.LastObservedAt != nil {
+		t := item.Status.LastObservedAt.Time
+		resp.LastObservedAt = &t
+	}
+	if startAt := incidentstatus.EffectiveStartTime(item.Status); startAt != nil {
+		t := startAt.Time
+		resp.FirstObservedAt = &t
+	}
+	if resolvedAt := incidentstatus.EffectiveResolvedTime(item.Status); resolvedAt != nil {
+		t := resolvedAt.Time
+		resp.ResolvedAt = &t
 	}
 	if resp.AffectedResources == nil {
 		resp.AffectedResources = []rcav1alpha1.AffectedResource{}
@@ -299,5 +348,81 @@ func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		http.Error(w, "json encode failed", http.StatusInternalServerError)
+	}
+}
+
+func parsePositiveInt(raw string, fallback int) int {
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return fallback
+	}
+	return n
+}
+
+func matchesIncidentQuery(item *rcav1alpha1.IncidentReport, query string) bool {
+	fields := make([]string, 0, 7+len(item.Status.AffectedResources)*3)
+	fields = append(fields,
+		item.Name,
+		item.Namespace,
+		item.Spec.AgentRef,
+		item.Spec.IncidentType,
+		item.Status.Summary,
+		item.Status.Message,
+		item.Status.Reason,
+	)
+	for _, res := range item.Status.AffectedResources {
+		fields = append(fields, res.Kind, res.Name, res.Namespace)
+	}
+	for _, field := range fields {
+		if strings.Contains(strings.ToLower(field), query) {
+			return true
+		}
+	}
+	return false
+}
+
+func sortIncidentResponses(items []incidentResponse, sortBy string) {
+	sort.SliceStable(items, func(i, j int) bool {
+		left := incidentTimestamp(items[i])
+		right := incidentTimestamp(items[j])
+		switch sortBy {
+		case "oldest":
+			return left.Before(right)
+		case "severity":
+			lv := severityRank(items[i].Severity)
+			rv := severityRank(items[j].Severity)
+			if lv == rv {
+				return right.Before(left)
+			}
+			return lv > rv
+		default:
+			return right.Before(left)
+		}
+	})
+}
+
+func incidentTimestamp(item incidentResponse) time.Time {
+	if item.FirstObservedAt != nil {
+		return *item.FirstObservedAt
+	}
+	if item.ResolvedAt != nil {
+		return *item.ResolvedAt
+	}
+	return time.Time{}
+}
+
+func severityRank(severity string) int {
+	switch severity {
+	case "P1":
+		return 4
+	case "P2":
+		return 3
+	case "P3":
+		return 2
+	default:
+		return 1
 	}
 }

@@ -52,7 +52,9 @@ var _ = Describe("IncidentReport Controller", func() {
 						Namespace: "default",
 					},
 					Spec: rcav1alpha1.IncidentReportSpec{
-						AgentRef: "test-agent",
+						AgentRef:     "test-agent",
+						Fingerprint:  "test|incident|resource",
+						IncidentType: "CrashLoop",
 					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())

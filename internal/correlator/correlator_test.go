@@ -267,88 +267,6 @@ func TestRule2_CrashLoopPlusBadDeploy(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Rule 3: Multiple pods failing on same node → NodeFailure, P2
-// ─────────────────────────────────────────────────────────────────────────────
-
-func TestRule3_MultiPodNodeFailure(t *testing.T) {
-	cases := []struct {
-		name     string
-		history  []watcher.CorrelatorEvent
-		trigger  watcher.CorrelatorEvent
-		wantFire bool
-	}{
-		{
-			name: "2 distinct pods CrashLoop same node — fires",
-			history: []watcher.CorrelatorEvent{
-				crashLoop("ns", "pod-a", "node-1", "app", 3),
-			},
-			trigger:  crashLoop("ns", "pod-b", "node-1", "app", 3),
-			wantFire: true,
-		},
-		{
-			name: "OOM + eviction on same node — fires",
-			history: []watcher.CorrelatorEvent{
-				oomKilled("ns", "pod-a", "node-1", "app"),
-			},
-			trigger:  podEvicted("ns", "pod-b", "node-1"),
-			wantFire: true,
-		},
-		{
-			name: "Same pod appearing twice — only 1 distinct pod, no fire",
-			history: []watcher.CorrelatorEvent{
-				crashLoop("ns", "pod-a", "node-1", "app", 3),
-			},
-			trigger:  crashLoop("ns", "pod-a", "node-1", "app", 4),
-			wantFire: false,
-		},
-		{
-			name: "Pods on different nodes — no fire",
-			history: []watcher.CorrelatorEvent{
-				crashLoop("ns", "pod-a", "node-1", "app", 3),
-			},
-			trigger:  crashLoop("ns", "pod-b", "node-2", "app", 3),
-			wantFire: false,
-		},
-		{
-			name:     "Only one failure event — no fire",
-			history:  []watcher.CorrelatorEvent{},
-			trigger:  crashLoop("ns", "pod-a", "node-1", "app", 3),
-			wantFire: false,
-		},
-		{
-			name:     "Event with no NodeName — no fire",
-			history:  []watcher.CorrelatorEvent{imagePull("ns", "pod-a", "app", "ErrImagePull")},
-			trigger:  imagePull("ns", "pod-b", "app", "ErrImagePull"),
-			wantFire: false,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Rule 3 counts all failing pods in entries (including the trigger, since
-			// Correlator.Add is always called before Evaluate in the real flow).
-			entries := make([]entry, 0, len(tc.history)+1)
-			for _, e := range tc.history {
-				entries = append(entries, entry{event: e, addedAt: testNow})
-			}
-			entries = append(entries, entry{event: tc.trigger, addedAt: testNow})
-			result := ruleMultiPodNodeFailure(tc.trigger, entries)
-			if result.Fired != tc.wantFire {
-				t.Fatalf("Fired=%v want %v", result.Fired, tc.wantFire)
-			}
-			if tc.wantFire {
-				if result.IncidentType != "NodeFailure" {
-					t.Errorf("IncidentType=%q want NodeFailure", result.IncidentType)
-				}
-				if result.Severity != "P2" {
-					t.Errorf("Severity=%q want P2", result.Severity)
-				}
-			}
-		})
-	}
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Rule 4: ImagePullBackOff + no prior PodHealthy → Registry P2
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -493,7 +411,7 @@ func TestRule5_NodeNotReadyPlusEviction(t *testing.T) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // TestCorrelator_Rule5TakesPrecedence verifies that the P1 NodeNotReady+Eviction
-// rule fires before any P2 rule when both could match (node failure events).
+// rule still fires correctly from genuine node-level signals.
 func TestCorrelator_Rule5TakesPrecedence(t *testing.T) {
 	corr := NewCorrelator(5 * time.Minute)
 	corr.buf.nowFn = func() time.Time { return testNow }
@@ -501,11 +419,8 @@ func TestCorrelator_Rule5TakesPrecedence(t *testing.T) {
 	// Seed: evicted pod on node-1 (triggers rule 5 when NodeNotReady arrives).
 	corr.Add(podEvicted("ns", "pod-a", "node-1"))
 
-	// Also seed: another evicted pod so rule 3 (MultiPodNodeFailure) could fire too.
-	corr.Add(podEvicted("ns", "pod-b", "node-1"))
-
 	// Trigger: NodeNotReady for node-1.
-	// Rule 5 (P1) is evaluated first and must fire.
+	// Rule 5 (P1) must fire.
 	result := corr.Evaluate(nodeNotReady("ns", "node-1", "DiskPressure"))
 	if !result.Fired {
 		t.Fatal("expected a rule to fire")
@@ -515,6 +430,22 @@ func TestCorrelator_Rule5TakesPrecedence(t *testing.T) {
 	}
 	if result.Severity != "P1" {
 		t.Errorf("expected P1 severity, got %q", result.Severity)
+	}
+}
+
+// TestCorrelator_DoesNotRaiseNodeFailureFromPodCoFailure verifies that
+// multiple pod failures on the same node no longer synthesize a NodeFailure
+// incident without an actual node signal such as NodeNotReady.
+func TestCorrelator_DoesNotRaiseNodeFailureFromPodCoFailure(t *testing.T) {
+	corr := NewCorrelator(5 * time.Minute)
+	corr.buf.nowFn = func() time.Time { return testNow }
+
+	corr.Add(crashLoop("ns", "pod-a", "node-1", "app", 3))
+	corr.Add(oomKilled("ns", "pod-b", "node-1", "app"))
+
+	result := corr.Evaluate(crashLoop("ns", "pod-c", "node-1", "app", 3))
+	if result.Fired && result.IncidentType == testIncidentTypeNodeFailure {
+		t.Fatalf("unexpected NodeFailure from pod co-failure: %+v", result)
 	}
 }
 

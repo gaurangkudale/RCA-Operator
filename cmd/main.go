@@ -20,7 +20,6 @@ import (
 	"crypto/tls"
 	"flag"
 	"os"
-	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -37,10 +36,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
+	"github.com/gaurangkudale/rca-operator/internal/collectors"
 	"github.com/gaurangkudale/rca-operator/internal/controller"
-	"github.com/gaurangkudale/rca-operator/internal/correlator"
 	"github.com/gaurangkudale/rca-operator/internal/dashboard"
-	"github.com/gaurangkudale/rca-operator/internal/watcher"
+	"github.com/gaurangkudale/rca-operator/internal/engine"
+	"github.com/gaurangkudale/rca-operator/internal/notify"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -86,7 +86,7 @@ func main() {
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	opts := zap.Options{
-		Development: true,
+		Development: false,
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -115,7 +115,7 @@ func main() {
 	}
 
 	if len(webhookCertPath) > 0 {
-		setupLog.Info("Initializing webhook certificate watcher using provided certificates",
+		setupLog.Info("Initializing webhook certificate loader using provided certificates",
 			"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key", webhookCertKey)
 
 		webhookServerOptions.CertDir = webhookCertPath
@@ -146,13 +146,8 @@ func main() {
 	// If the certificate is not specified, controller-runtime will automatically
 	// generate self-signed certificates for the metrics server. While convenient for development and testing,
 	// this setup is not recommended for production.
-	//
-	// TODO(user): If you enable certManager, uncomment the following lines:
-	// - [METRICS-WITH-CERTS] at config/default/kustomization.yaml to generate and use certificates
-	// managed by cert-manager for the metrics server.
-	// - [PROMETHEUS-WITH-CERTS] at config/prometheus/kustomization.yaml for TLS certification.
 	if len(metricsCertPath) > 0 {
-		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
+		setupLog.Info("Initializing metrics certificate loader using provided certificates",
 			"metrics-cert-path", metricsCertPath, "metrics-cert-name", metricsCertName, "metrics-cert-key", metricsCertKey)
 
 		metricsServerOptions.CertDir = metricsCertPath
@@ -185,18 +180,19 @@ func main() {
 	}
 
 	managerCtx := ctrl.SetupSignalHandler()
-	watchEvents := make(chan watcher.CorrelatorEvent, 1024)
-	watcherEmitter := watcher.NewChannelEventEmitter(watchEvents, ctrl.Log)
-	corr := correlator.NewCorrelator(5 * time.Minute)
-	correlatorConsumer := correlator.NewConsumer(
+	signals := make(chan collectors.Signal, 1024)
+	signalEmitter := collectors.NewChannelSignalEmitter(signals, ctrl.Log)
+	incidentEngine, err := engine.NewIncidentEngine(
 		mgr.GetClient(),
-		watchEvents,
+		signals,
 		ctrl.Log,
-		correlator.WithCorrelator(corr),
-		//nolint:staticcheck // TODO: Migrate to events.EventRecorder API
-		correlator.WithEventRecorder(mgr.GetEventRecorderFor("rca-correlator-consumer")),
+		engine.WithEventRecorder(mgr.GetEventRecorderFor("rca-incident-engine")),
 	)
-	go correlatorConsumer.Run(managerCtx)
+	if err != nil {
+		setupLog.Error(err, "Failed to create incident engine")
+		os.Exit(1)
+	}
+	go incidentEngine.Run(managerCtx)
 
 	dashboardServer := dashboard.NewServer(mgr.GetClient(), dashboardAddr, ctrl.Log)
 	if err := mgr.Add(dashboardServer); err != nil {
@@ -208,7 +204,7 @@ func main() {
 		Client:         mgr.GetClient(),
 		Scheme:         mgr.GetScheme(),
 		Cache:          mgr.GetCache(),
-		WatcherEmitter: watcherEmitter,
+		SignalEmitter:  signalEmitter,
 		ManagerContext: managerCtx,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "RCAAgent")
@@ -219,6 +215,7 @@ func main() {
 		Scheme: mgr.GetScheme(),
 		//nolint:staticcheck // TODO: Migrate to events.EventRecorder API
 		Recorder: mgr.GetEventRecorderFor("incidentreport-controller"),
+		Notifier: notify.NewDispatcher(mgr.GetClient(), ctrl.Log),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "IncidentReport")
 		os.Exit(1)

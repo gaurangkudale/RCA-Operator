@@ -36,10 +36,6 @@ type RCAAgentSpec struct {
 	// +kubebuilder:example={"production","staging"}
 	WatchNamespaces []string `json:"watchNamespaces,omitempty"`
 
-	// AIProviderConfig holds the configuration for the LLM backend. Phase 1: stored only — not used by the operator yet.
-	// +kubebuilder:validation:Required
-	AIProviderConfig *AIProviderConfig `json:"aiProviderConfig,omitempty"`
-
 	// Notifications holds the configuration for sending incident notifications.
 	// +optional
 	Notifications *NotificationsConfig `json:"notifications,omitempty"`
@@ -57,33 +53,6 @@ type RCAAgentSpec struct {
 	// +kubebuilder:default=30
 	// +optional
 	IncidentRetentionDays int `json:"incidentRetentionDays,omitempty"`
-}
-
-// AIProviderConfig holds the LLM backend configuration.
-// Phase 1: stored only — not used by the operator yet.
-type AIProviderConfig struct {
-
-	// Type is the LLM provider to use.
-	// TODO: add more providers as they are supported (e.g. anthropic, gemini, ollama, etc.)
-	// +kubebuilder:validation:Enum=openai
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=openai
-	// +kubebuilder:default=openai
-	// +kubebuilder:example=openai
-	Type string `json:"type"`
-
-	// Model is the model identifier to use (e.g. gpt-4o, claude-3-opus).
-	// +kubebuilder:validation:Required
-	// +kubebuilder:default=gpt-4o
-	// +kubebuilder:example=gpt-4o
-	Model string `json:"model,omitempty"`
-
-	// SecretRef is the name of the Kubernetes Secret containing the API key.
-	// The secret must have a key named "apiKey".
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:example=rca-agent-openai-secret
-	SecretRef string `json:"secretRef,omitempty"`
 }
 
 // NotificationsConfig defines where to send RCAAgent notifications.
@@ -160,8 +129,6 @@ type RCAAgentStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=".status.conditions[?(@.type=='Available')].status",description="Overall status based on conditions"
-// +kubebuilder:printcolumn:name="Provider",type=string,JSONPath=".spec.aiProviderConfig.type",description="AI provider type"
-// +kubebuilder:printcolumn:name="Model",type=string,JSONPath=".spec.aiProviderConfig.model",description="AI model in use"
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=".metadata.creationTimestamp"
 
 // RCAAgent is the Schema for the rcaagents API

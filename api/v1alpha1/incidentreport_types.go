@@ -30,10 +30,29 @@ type IncidentReportSpec struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	AgentRef string `json:"agentRef"`
+
+	// fingerprint is the canonical identity for an incident.
+	// It is stable across repeated signals for the same underlying issue.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Fingerprint string `json:"fingerprint"`
+
+	// incidentType is the durable incident category.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	IncidentType string `json:"incidentType"`
+
+	// scope describes the primary object or workload the incident belongs to.
+	// +optional
+	Scope IncidentScope `json:"scope,omitempty"`
 }
 
 // AffectedResource identifies a Kubernetes resource involved in an incident.
 type AffectedResource struct {
+	// apiVersion is the resource API version when known.
+	// +optional
+	APIVersion string `json:"apiVersion,omitempty"`
+
 	// kind is the resource kind (e.g. Deployment, Pod, Node).
 	// +kubebuilder:validation:Required
 	Kind string `json:"kind"`
@@ -45,6 +64,53 @@ type AffectedResource struct {
 	// namespace is the resource namespace. Empty for cluster-scoped resources.
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
+
+	// uid is the Kubernetes UID when known.
+	// +optional
+	UID string `json:"uid,omitempty"`
+}
+
+// IncidentObjectRef is a normalized reference to a Kubernetes resource.
+type IncidentObjectRef struct {
+	// apiVersion is the resource API version.
+	// +optional
+	APIVersion string `json:"apiVersion,omitempty"`
+
+	// kind is the Kubernetes kind.
+	// +kubebuilder:validation:Required
+	Kind string `json:"kind"`
+
+	// namespace is empty for cluster-scoped resources.
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+
+	// name is the Kubernetes object name.
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// uid is the Kubernetes UID when known.
+	// +optional
+	UID string `json:"uid,omitempty"`
+}
+
+// IncidentScope identifies the primary scope for an incident.
+type IncidentScope struct {
+	// level is one of Cluster, Namespace, Workload, or Pod.
+	// +kubebuilder:validation:Enum=Cluster;Namespace;Workload;Pod
+	// +optional
+	Level string `json:"level,omitempty"`
+
+	// namespace is populated for namespace-, workload-, and pod-scoped incidents.
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+
+	// workloadRef points at the top-level workload when the issue belongs to one.
+	// +optional
+	WorkloadRef *IncidentObjectRef `json:"workloadRef,omitempty"`
+
+	// resourceRef points at the primary affected object.
+	// +optional
+	ResourceRef *IncidentObjectRef `json:"resourceRef,omitempty"`
 }
 
 // TimelineEvent is a single timestamped entry in the incident timeline.
@@ -60,7 +126,7 @@ type TimelineEvent struct {
 
 // IncidentReportStatus defines the observed state of IncidentReport.
 type IncidentReportStatus struct {
-	// severity is the incident severity level assigned by the correlator.
+	// severity is the incident severity level assigned by the incident engine.
 	// +kubebuilder:validation:Enum=P1;P2;P3;P4
 	// +required
 	Severity string `json:"severity,omitempty"`
@@ -70,18 +136,56 @@ type IncidentReportStatus struct {
 	// +required
 	Phase string `json:"phase,omitempty"`
 
-	// incidentType is the category of incident detected by the correlator.
-	// +kubebuilder:validation:Enum=CrashLoop;OOM;BadDeploy;NodeFailure;Registry;GracePeriodViolation;ProbeFailure;ResourceSaturation
+	// incidentType is the category of incident detected by the incident engine.
+	// +kubebuilder:validation:Enum=CrashLoop;OOM;BadDeploy;NodeFailure;Registry;GracePeriodViolation;ProbeFailure
 	// +required
 	IncidentType string `json:"incidentType,omitempty"`
 
+	// summary is the short dashboard-friendly summary for the current incident state.
+	// +optional
+	Summary string `json:"summary,omitempty"`
+
+	// reason is the machine-oriented Kubernetes reason when available.
+	// +optional
+	Reason string `json:"reason,omitempty"`
+
+	// message is the detailed message for the most recent signal.
+	// +optional
+	Message string `json:"message,omitempty"`
+
+	// firstObservedAt is when the incident fingerprint was first seen in the current lifecycle.
+	// +optional
+	FirstObservedAt *metav1.Time `json:"firstObservedAt,omitempty"`
+
+	// activeAt is when the incident crossed the stabilization window and became Active.
+	// +optional
+	ActiveAt *metav1.Time `json:"activeAt,omitempty"`
+
+	// lastObservedAt is when the most recent confirming signal was received.
+	// +optional
+	LastObservedAt *metav1.Time `json:"lastObservedAt,omitempty"`
+
 	// startTime is when the incident was first detected.
+	// Deprecated: use firstObservedAt. Retained only for compatibility with older clients.
 	// +required
 	StartTime *metav1.Time `json:"startTime,omitempty"`
 
 	// resolvedTime is when the incident was resolved. Empty while still active.
+	// Deprecated: use resolvedAt. Retained only for compatibility with older clients.
 	// +optional
 	ResolvedTime *metav1.Time `json:"resolvedTime,omitempty"`
+
+	// resolvedAt is when the incident was resolved.
+	// +optional
+	ResolvedAt *metav1.Time `json:"resolvedAt,omitempty"`
+
+	// signalCount is the number of confirming signals recorded in the current lifecycle.
+	// +optional
+	SignalCount int64 `json:"signalCount,omitempty"`
+
+	// stabilizationWindowSeconds is the required continuous observation window before Active.
+	// +optional
+	StabilizationWindowSeconds int64 `json:"stabilizationWindowSeconds,omitempty"`
 
 	// notified indicates whether the notification layer (Slack / PagerDuty) has
 	// already fired for this incident. Used to suppress duplicate alerts.
@@ -104,11 +208,6 @@ type IncidentReportStatus struct {
 	// +listType=atomic
 	Timeline []TimelineEvent `json:"timeline,omitempty"`
 
-	// rootCause is a human-readable summary of the root cause.
-	// Stub in Phase 1 — populated by the RCA engine in Phase 2.
-	// +optional
-	RootCause string `json:"rootCause,omitempty"`
-
 	// conditions represent the current state of the IncidentReport resource.
 	// +listType=map
 	// +listMapKey=type
@@ -120,9 +219,9 @@ type IncidentReportStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Severity",type=string,JSONPath=".status.severity",description="Incident severity"
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=".status.phase",description="Lifecycle phase"
-// +kubebuilder:printcolumn:name="Type",type=string,JSONPath=".status.incidentType",description="Incident type"
+// +kubebuilder:printcolumn:name="Type",type=string,JSONPath=".spec.incidentType",description="Incident type"
 // +kubebuilder:printcolumn:name="Notified",type=boolean,JSONPath=".status.notified",description="Notifications sent"
-// +kubebuilder:printcolumn:name="Start",type=date,JSONPath=".status.startTime",description="When detected"
+// +kubebuilder:printcolumn:name="FirstSeen",type=date,JSONPath=".status.firstObservedAt",description="When first observed"
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=".metadata.creationTimestamp"
 
 // IncidentReport is the Schema for the incidentreports API

@@ -6,10 +6,6 @@ metadata:
 spec:
   watchNamespaces:
     - development
-  aiProviderConfig:
-    type: openai
-    model: gpt-4o
-    secretRef: rca-agent-openai-secret
   notifications:
     slack:
       webhookSecretRef: slack-webhook

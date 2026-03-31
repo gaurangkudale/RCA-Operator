@@ -90,7 +90,7 @@ If you believe any of these properties are violated, that is almost certainly a 
 
 ## Known Limitations (Not Vulnerabilities)
 
-- The in-memory ring buffer does not persist across restarts. If the operator restarts mid-incident, the correlator state is lost. This is a known trade-off, not a security issue.
+- The in-memory incident correlation window does not persist across restarts. If the operator restarts mid-incident, transient engine state is lost. This is a known trade-off, not a security issue.
 - The operator does not currently validate the contents of Slack webhook URLs — it trusts that the secret you provide is correct.
 
 ---

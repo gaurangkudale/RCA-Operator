@@ -31,7 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
-	"github.com/gaurangkudale/rca-operator/internal/watcher"
+	"github.com/gaurangkudale/rca-operator/internal/collectors"
 )
 
 var _ = Describe("RCAAgent Controller", func() {
@@ -57,11 +57,6 @@ var _ = Describe("RCAAgent Controller", func() {
 					},
 					Spec: rcav1alpha1.RCAAgentSpec{
 						WatchNamespaces: []string{"default"},
-						AIProviderConfig: &rcav1alpha1.AIProviderConfig{
-							Type:      "openai",
-							Model:     "gpt-4o",
-							SecretRef: "rca-agent-openai-secret",
-						},
 					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
@@ -96,28 +91,28 @@ var _ = Describe("RCAAgent Controller", func() {
 
 type noopEmitter struct{}
 
-func (n noopEmitter) Emit(_ watcher.CorrelatorEvent) {}
+func (n noopEmitter) Emit(_ collectors.Signal) {}
 
-type fakePodWatcher struct {
+type fakePodCollector struct {
 	mu        sync.Mutex
 	startErr  error
 	startCtxs []context.Context
 }
 
-func (f *fakePodWatcher) Start(ctx context.Context) error {
+func (f *fakePodCollector) Start(ctx context.Context) error {
 	f.mu.Lock()
 	f.startCtxs = append(f.startCtxs, ctx)
 	f.mu.Unlock()
 	return f.startErr
 }
 
-func (f *fakePodWatcher) startCount() int {
+func (f *fakePodCollector) startCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.startCtxs)
 }
 
-func (f *fakePodWatcher) firstCtx() context.Context {
+func (f *fakePodCollector) firstCtx() context.Context {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if len(f.startCtxs) == 0 {
@@ -126,70 +121,76 @@ func (f *fakePodWatcher) firstCtx() context.Context {
 	return f.startCtxs[0]
 }
 
-type fakeEventWatcher struct {
+type fakeEventCollector struct {
 	mu        sync.Mutex
 	startErr  error
 	startCtxs []context.Context
 }
 
-func (f *fakeEventWatcher) Start(ctx context.Context) error {
+func (f *fakeEventCollector) Start(ctx context.Context) error {
 	f.mu.Lock()
 	f.startCtxs = append(f.startCtxs, ctx)
 	f.mu.Unlock()
 	return f.startErr
 }
 
-var _ = Describe("RCAAgent watcher registry", func() {
-	It("starts watcher once and restarts on watch namespace changes", func() {
+var _ = Describe("RCAAgent collector registry", func() {
+	It("starts collectors once and restarts on watch namespace changes", func() {
 		ctx := context.Background()
 		reconciler := &RCAAgentReconciler{
-			WatcherEmitter: noopEmitter{},
+			SignalEmitter:  noopEmitter{},
 			ManagerContext: context.Background(),
 		}
-		reconciler.initWatcherRegistry()
+		reconciler.initCollectorRegistry()
 
-		watchers := make([]*fakePodWatcher, 0, 2)
-		reconciler.newPodWatcher = func(_ ctrlcache.Cache, _ watcher.EventEmitter, _ logr.Logger, _ watcher.PodWatcherConfig) podWatcher {
-			w := &fakePodWatcher{}
-			watchers = append(watchers, w)
-			return w
+		startedCollectors := make([]*fakePodCollector, 0, 2)
+		reconciler.newPodCollector = func(_ ctrlcache.Cache, _ collectors.SignalEmitter, _ logr.Logger, _ collectors.PodCollectorConfig) podCollector {
+			c := &fakePodCollector{}
+			startedCollectors = append(startedCollectors, c)
+			return c
 		}
-		reconciler.newEventWatcher = func(_ ctrlcache.Cache, _ watcher.EventEmitter, _ logr.Logger, _ watcher.EventWatcherConfig) eventWatcher {
-			return &fakeEventWatcher{}
+		reconciler.newEventCollector = func(_ ctrlcache.Cache, _ collectors.SignalEmitter, _ logr.Logger, _ collectors.EventCollectorConfig) eventCollector {
+			return &fakeEventCollector{}
+		}
+		reconciler.newWorkloadCollector = func(_ ctrlcache.Cache, _ collectors.SignalEmitter, _ logr.Logger, _ collectors.WorkloadCollectorConfig) workloadCollector {
+			return &fakeEventCollector{}
+		}
+		reconciler.newNodeCollector = func(_ ctrlcache.Cache, _ collectors.SignalEmitter, _ logr.Logger, _ collectors.NodeCollectorConfig) nodeCollector {
+			return &fakeEventCollector{}
 		}
 
 		agent := &rcav1alpha1.RCAAgent{ObjectMeta: metav1.ObjectMeta{Name: "agent-a", Namespace: "default"}, Spec: rcav1alpha1.RCAAgentSpec{WatchNamespaces: []string{"default"}}}
-		Expect(reconciler.ensureWatcherRunning(ctx, agent)).To(Succeed())
-		Expect(watchers).To(HaveLen(1))
-		Expect(watchers[0].startCount()).To(Equal(1))
+		Expect(reconciler.ensureCollectorsRunning(ctx, agent)).To(Succeed())
+		Expect(startedCollectors).To(HaveLen(1))
+		Expect(startedCollectors[0].startCount()).To(Equal(1))
 
 		// Same namespace set should not trigger restart.
 		agent.Spec.WatchNamespaces = []string{"default", "default"}
-		Expect(reconciler.ensureWatcherRunning(ctx, agent)).To(Succeed())
-		Expect(watchers).To(HaveLen(1))
+		Expect(reconciler.ensureCollectorsRunning(ctx, agent)).To(Succeed())
+		Expect(startedCollectors).To(HaveLen(1))
 
-		firstCtx := watchers[0].firstCtx()
+		firstCtx := startedCollectors[0].firstCtx()
 		Expect(firstCtx).NotTo(BeNil())
 
 		// Different namespace set should trigger restart.
 		agent.Spec.WatchNamespaces = []string{"production"}
-		Expect(reconciler.ensureWatcherRunning(ctx, agent)).To(Succeed())
-		Expect(watchers).To(HaveLen(2))
-		Expect(watchers[1].startCount()).To(Equal(1))
+		Expect(reconciler.ensureCollectorsRunning(ctx, agent)).To(Succeed())
+		Expect(startedCollectors).To(HaveLen(2))
+		Expect(startedCollectors[1].startCount()).To(Equal(1))
 		Eventually(firstCtx.Done()).Should(BeClosed())
 	})
 
-	It("stops watcher and removes registry entry", func() {
+	It("stops collectors and removes registry entry", func() {
 		reconciler := &RCAAgentReconciler{}
-		reconciler.initWatcherRegistry()
+		reconciler.initCollectorRegistry()
 
 		key := types.NamespacedName{Name: "agent-a", Namespace: "default"}
 		ctx, cancel := context.WithCancel(context.Background())
-		reconciler.watcherRegistry[key] = watcherEntry{cancel: cancel, watchNamespaces: []string{"default"}}
+		reconciler.collectorRegistry[key] = collectorEntry{cancel: cancel, watchNamespaces: []string{"default"}}
 
-		reconciler.stopWatcher(key)
+		reconciler.stopCollectors(key)
 
-		_, exists := reconciler.watcherRegistry[key]
+		_, exists := reconciler.collectorRegistry[key]
 		Expect(exists).To(BeFalse())
 		Eventually(ctx.Done()).Should(BeClosed())
 	})
