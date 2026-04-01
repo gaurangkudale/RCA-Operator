@@ -62,20 +62,23 @@ func (b *Buffer) Snapshot() []Entry {
 }
 
 // CorrelationResult is returned by Correlator.Evaluate. When Fired is true the
-// caller should use IncidentType, Severity, and Summary in place of the defaults
-// derived from the single-event classication.
+// caller should use Severity and Summary in place of the defaults derived from
+// the single-event classification. IncidentType is no longer overridden by
+// rules — incident types are self-describing from the raw event type.
 type CorrelationResult struct {
-	Fired        bool
-	IncidentType string
-	Severity     string
-	Summary      string
-	Rule         string // name of the rule that fired, for logging
+	Fired    bool
+	Severity string
+	Summary  string
+	Rule     string // name of the rule that fired, for logging
 	// Resource overrides the event's pod/resource name for incident dedup and
 	// creation. Set by rules that correlate across different resources (e.g.
 	// rollout correlation uses deployment name and node-failure correlation uses
-	// node name) so that the
-	// resulting incident groups under the correct canonical resource identifier.
+	// node name) so that the resulting incident groups under the correct
+	// canonical resource identifier.
 	Resource string
+	// ScopeLevel declares the scope for the Resource override. When set to
+	// "Cluster", Resource is a node name; when "Workload", it is a deployment.
+	ScopeLevel string
 }
 
 // RuleEngine evaluates collected events and may override the default

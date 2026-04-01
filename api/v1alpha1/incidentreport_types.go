@@ -137,7 +137,8 @@ type IncidentReportStatus struct {
 	Phase string `json:"phase,omitempty"`
 
 	// incidentType is the category of incident detected by the incident engine.
-	// +kubebuilder:validation:Enum=CrashLoop;OOM;BadDeploy;NodeFailure;Registry;GracePeriodViolation;ProbeFailure
+	// The value is self-describing from the raw event type (e.g. CrashLoopBackOff,
+	// OOMKilled, ImagePullBackOff, NodeNotReady) rather than a fixed enum.
 	// +required
 	IncidentType string `json:"incidentType,omitempty"`
 

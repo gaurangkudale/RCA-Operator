@@ -35,10 +35,6 @@ const (
 	phaseResolved  = reporter.PhaseResolved
 	valueUnknown   = reporter.ValueUnknown
 
-	incidentTypeNodeFailure = reporter.IncidentTypeNodeFailure
-	incidentTypeRegistry    = reporter.IncidentTypeRegistry
-	incidentTypeBadDeploy   = "BadDeploy"
-
 	maxTimelineEntries = reporter.MaxTimelineEntries
 	maxSignalEntries   = reporter.MaxSignalEntries
 )
@@ -129,13 +125,12 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 	if c.ruleEngine != nil {
 		if result := c.ruleEngine.Evaluate(event); result.Fired {
 			metrics.RecordRuleEvaluation(result.Rule, true)
-			input.IncidentType = result.IncidentType
 			input.Severity = result.Severity
 			input.Summary = result.Summary
 			input.Message = result.Summary
 			if result.Resource != "" {
-				switch input.IncidentType {
-				case incidentTypeNodeFailure:
+				switch result.ScopeLevel {
+				case incident.ScopeLevelCluster:
 					input.Scope.Level = incident.ScopeLevelCluster
 					input.Scope.Namespace = ""
 					input.Scope.WorkloadRef = nil
@@ -162,17 +157,10 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 			}
 			c.log.Info("Rule engine produced incident override",
 				"rule", result.Rule,
-				"incidentType", input.IncidentType,
 				"severity", input.Severity,
 			)
 		}
 	}
-
-	coalesced, err := c.coalesceOverlappingIncident(ctx, input)
-	if err != nil {
-		return err
-	}
-	input = coalesced
 
 	return c.rep.EnsureSignal(ctx, input)
 }
@@ -196,81 +184,6 @@ func mergeAffectedResources(existing, incoming []rcav1alpha1.AffectedResource) [
 		}
 	}
 	return out
-}
-
-func (c *Consumer) coalesceOverlappingIncident(ctx context.Context, input incident.Input) (incident.Input, error) {
-	if input.Scope.Level != incident.ScopeLevelWorkload || input.Scope.WorkloadRef == nil {
-		return input, nil
-	}
-
-	var overlappingType string
-	switch input.IncidentType {
-	case incidentTypeRegistry:
-		overlappingType = incidentTypeBadDeploy
-	case incidentTypeBadDeploy:
-		overlappingType = incidentTypeRegistry
-	default:
-		return input, nil
-	}
-
-	list := &rcav1alpha1.IncidentReportList{}
-	if err := c.client.List(ctx, list, client.InNamespace(input.Namespace)); err != nil {
-		return input, fmt.Errorf("list IncidentReports for overlap check: %w", err)
-	}
-
-	for i := range list.Items {
-		report := &list.Items[i]
-		if report.Status.Phase == phaseResolved {
-			continue
-		}
-		reportType := report.Spec.IncidentType
-		if reportType == "" {
-			reportType = report.Status.IncidentType
-		}
-		if reportType != overlappingType {
-			continue
-		}
-		if !incidentMatchesWorkload(report, input.Scope.WorkloadRef) {
-			continue
-		}
-
-		originalType := input.IncidentType
-		input.IncidentType = overlappingType
-		input.Severity = higherSeverity(input.Severity, report.Status.Severity)
-		c.log.Info("Coalesced overlapping incident into existing workload incident",
-			"fromType", originalType,
-			"toType", overlappingType,
-			"namespace", input.Namespace,
-			"workload", input.Scope.WorkloadRef.Name,
-			"incident", report.Name,
-		)
-		return input, nil
-	}
-
-	return input, nil
-}
-
-func incidentMatchesWorkload(report *rcav1alpha1.IncidentReport, workload *rcav1alpha1.IncidentObjectRef) bool {
-	if report == nil || workload == nil {
-		return false
-	}
-
-	if ref := report.Spec.Scope.WorkloadRef; ref != nil {
-		if ref.Kind == workload.Kind && ref.Namespace == workload.Namespace && ref.Name == workload.Name {
-			return true
-		}
-	}
-	if ref := report.Spec.Scope.ResourceRef; ref != nil && report.Spec.Scope.Level == incident.ScopeLevelWorkload {
-		if ref.Kind == workload.Kind && ref.Namespace == workload.Namespace && ref.Name == workload.Name {
-			return true
-		}
-	}
-	for _, res := range report.Status.AffectedResources {
-		if res.Kind == workload.Kind && res.Namespace == workload.Namespace && res.Name == workload.Name {
-			return true
-		}
-	}
-	return false
 }
 
 // Utility helpers kept for existing package tests.
@@ -386,6 +299,8 @@ func safeNameToken(in string) string {
 	return out
 }
 
+// mapEvent extracts metadata from a raw watcher event. IncidentType uses the
+// raw event type so that types are self-describing, not hardcoded aliases.
 func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, incidentType, severity, summary string) {
 	switch e := event.(type) {
 	case watcher.CrashLoopBackOffEvent:
@@ -393,23 +308,23 @@ func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, inci
 		if e.LastExitCode != 0 && e.ExitCodeCategory != "" {
 			summary = fmt.Sprintf("%s exitCode=%d category=%s description=%s", summary, e.LastExitCode, e.ExitCodeCategory, e.ExitCodeDescription)
 		}
-		return e.Namespace, e.PodName, e.AgentName, "CrashLoop", "P3", summary
+		return e.Namespace, e.PodName, e.AgentName, "CrashLoopBackOff", "P3", summary
 	case watcher.OOMKilledEvent:
-		return e.Namespace, e.PodName, e.AgentName, "OOM", "P2", fmt.Sprintf("OOMKilled exitCode=%d reason=%s", e.ExitCode, e.Reason)
+		return e.Namespace, e.PodName, e.AgentName, "OOMKilled", "P2", fmt.Sprintf("OOMKilled exitCode=%d reason=%s", e.ExitCode, e.Reason)
 	case watcher.ImagePullBackOffEvent:
-		return e.Namespace, e.PodName, e.AgentName, "Registry", "P3", fmt.Sprintf("Image pull failure reason=%s", e.Reason)
+		return e.Namespace, e.PodName, e.AgentName, "ImagePullBackOff", "P3", fmt.Sprintf("Image pull failure reason=%s message=%s", e.Reason, e.Message)
 	case watcher.PodPendingTooLongEvent:
-		return e.Namespace, e.PodName, e.AgentName, incidentTypeBadDeploy, "P3", fmt.Sprintf("Pod pending too long pendingFor=%s timeout=%s", e.PendingFor.String(), e.Timeout.String())
+		return e.Namespace, e.PodName, e.AgentName, "PodPendingTooLong", "P3", fmt.Sprintf("Pod pending too long pendingFor=%s timeout=%s", e.PendingFor.String(), e.Timeout.String())
 	case watcher.GracePeriodViolationEvent:
 		return e.Namespace, e.PodName, e.AgentName, "GracePeriodViolation", "P2", fmt.Sprintf("Pod deletion exceeded grace period grace=%ds overdue=%s", e.GracePeriodSeconds, e.OverdueFor.String())
 	case watcher.NodeNotReadyEvent:
-		return e.Namespace, e.NodeName, e.AgentName, incidentTypeNodeFailure, "P1", fmt.Sprintf("Node not ready reason=%s message=%s", e.Reason, e.Message)
+		return e.Namespace, e.NodeName, e.AgentName, "NodeNotReady", "P1", fmt.Sprintf("Node not ready reason=%s message=%s", e.Reason, e.Message)
 	case watcher.PodEvictedEvent:
-		return e.Namespace, e.PodName, e.AgentName, incidentTypeNodeFailure, "P2", fmt.Sprintf("Pod evicted from node reason=%s message=%s", e.Reason, e.Message)
+		return e.Namespace, e.PodName, e.AgentName, "PodEvicted", "P2", fmt.Sprintf("Pod evicted from node reason=%s message=%s", e.Reason, e.Message)
 	case watcher.ProbeFailureEvent:
 		return e.Namespace, e.PodName, e.AgentName, "ProbeFailure", "P3", fmt.Sprintf("Probe failed probeType=%s message=%s", e.ProbeType, e.Message)
 	case watcher.StalledRolloutEvent:
-		return e.Namespace, e.DeploymentName, e.AgentName, incidentTypeBadDeploy, "P2",
+		return e.Namespace, e.DeploymentName, e.AgentName, string(watcher.EventTypeStalledRollout), "P2",
 			fmt.Sprintf("Deployment rollout stalled reason=%s desiredReplicas=%d readyReplicas=%d message=%s",
 				e.Reason, e.DesiredReplicas, e.ReadyReplicas, e.Message)
 	case watcher.NodePressureEvent:
@@ -417,7 +332,7 @@ func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, inci
 		if e.PressureType == "PIDPressure" {
 			severity = "P3"
 		}
-		return e.Namespace, e.NodeName, e.AgentName, incidentTypeNodeFailure, severity,
+		return e.Namespace, e.NodeName, e.AgentName, "NodePressure", severity,
 			fmt.Sprintf("Node %s condition=%s message=%s", e.NodeName, e.PressureType, e.Message)
 	default:
 		return "", "", "", "", "", ""

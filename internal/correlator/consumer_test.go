@@ -22,10 +22,8 @@ import (
 const testPhaseResolved = "Resolved"
 
 const (
-	testAgentA                  = "agent-a"
-	testIncidentTypeBadDeploy   = "BadDeploy"
-	testIncidentTypeNodeFailure = "NodeFailure"
-	testNamespaceDev            = "development"
+	testAgentA       = "agent-a"
+	testNamespaceDev = "development"
 )
 
 func TestHandleEventResolvesActiveIncidentWhenPodIsHealthy(t *testing.T) {
@@ -62,7 +60,7 @@ func TestHandleEventResolvesActiveIncidentWhenPodIsHealthy(t *testing.T) {
 		Status: rcav1alpha1.IncidentReportStatus{
 			Severity:     "P3",
 			Phase:        "Active",
-			IncidentType: "CrashLoop",
+			IncidentType: "CrashLoopBackOff",
 			AffectedResources: []rcav1alpha1.AffectedResource{{
 				Kind:      "Pod",
 				Name:      "flaky-app-demo",
@@ -123,7 +121,7 @@ func TestMapEventForCrashLoopAndGracePeriodViolation(t *testing.T) {
 	if namespace != testNamespaceDev || pod != "svc" || agent != testAgentA {
 		t.Fatalf("unexpected mapping for crash-loop event: namespace=%s pod=%s agent=%s", namespace, pod, agent)
 	}
-	if incidentType != "CrashLoop" || severity != "P3" {
+	if incidentType != "CrashLoopBackOff" || severity != "P3" {
 		t.Fatalf("unexpected incident mapping for crash-loop event: type=%s severity=%s", incidentType, severity)
 	}
 	if summary == "" || !strings.Contains(summary, "exitCode=126") || !strings.Contains(summary, "category=PermissionDenied") {
@@ -169,8 +167,8 @@ func TestMapEventForStalledRollout(t *testing.T) {
 	if agent != testAgentA {
 		t.Errorf("agent: got %q, want %q", agent, testAgentA)
 	}
-	if incidentType != testIncidentTypeBadDeploy {
-		t.Errorf("incidentType: got %q, want %q", incidentType, testIncidentTypeBadDeploy)
+	if incidentType != "StalledRollout" {
+		t.Errorf("incidentType: got %q, want %q", incidentType, "StalledRollout")
 	}
 	if severity != "P2" {
 		t.Errorf("severity: got %q, want %q", severity, "P2")
@@ -220,7 +218,7 @@ func TestHandleEventCreatesStalledRolloutIncident(t *testing.T) {
 		t.Fatalf("expected 1 IncidentReport, got %d", len(list.Items))
 	}
 	report := list.Items[0]
-	if report.Status.IncidentType != testIncidentTypeBadDeploy {
+	if report.Status.IncidentType != "StalledRollout" {
 		t.Errorf("incidentType: got %q, want BadDeploy", report.Status.IncidentType)
 	}
 	if report.Status.Severity != "P2" {
@@ -232,7 +230,7 @@ func TestHandleEventCreatesStalledRolloutIncident(t *testing.T) {
 	if len(report.Status.AffectedResources) == 0 || report.Status.AffectedResources[0].Name != "payment-service" {
 		t.Errorf("AffectedResources: expected payment-service, got %+v", report.Status.AffectedResources)
 	}
-	if !strings.HasPrefix(report.Name, "baddeploy-payment-service-") {
+	if !strings.HasPrefix(report.Name, "stalledrollout-payment-service-") {
 		t.Errorf("generated name prefix: got %q", report.Name)
 	}
 }
@@ -315,8 +313,8 @@ func TestMapEventForNodePressure(t *testing.T) {
 			if agent != testAgentA {
 				t.Errorf("agent: got %q", agent)
 			}
-			if incidentType != testIncidentTypeNodeFailure {
-				t.Errorf("incidentType: got %q, want NodeFailure", incidentType)
+			if incidentType != "NodePressure" {
+				t.Errorf("incidentType: got %q, want NodePressure", incidentType)
 			}
 			if severity != tc.wantSeverity {
 				t.Errorf("severity: got %q, want %q", severity, tc.wantSeverity)
@@ -345,7 +343,7 @@ func TestHandleEventResolvesActivePodIncidentOnPodDeleted(t *testing.T) {
 		Spec:       rcav1alpha1.IncidentReportSpec{AgentRef: testAgentA},
 		Status: rcav1alpha1.IncidentReportStatus{
 			Phase:        "Active",
-			IncidentType: "CrashLoop",
+			IncidentType: "CrashLoopBackOff",
 			AffectedResources: []rcav1alpha1.AffectedResource{{
 				Kind: "Pod", Name: "my-pod", Namespace: testNamespaceDev,
 			}},
@@ -545,7 +543,7 @@ func TestUpdateActiveIncident_UpdatesSeverityAndTimeline(t *testing.T) {
 		Status: rcav1alpha1.IncidentReportStatus{
 			Phase:        "Active",
 			Severity:     "P3",
-			IncidentType: "CrashLoop",
+			IncidentType: "CrashLoopBackOff",
 			AffectedResources: []rcav1alpha1.AffectedResource{
 				{Kind: "Pod", Name: "svc", Namespace: testNamespaceDev},
 			},
@@ -601,7 +599,7 @@ func TestMapEvent_AllBranches(t *testing.T) {
 			event:        watcher.CrashLoopBackOffEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", PodName: "pod-a", AgentName: "ag"}, RestartCount: 3, Threshold: 3},
 			wantNS:       "dev",
 			wantPod:      "pod-a",
-			wantType:     "CrashLoop",
+			wantType:     "CrashLoopBackOff",
 			wantSeverity: "P3",
 		},
 		{
@@ -609,7 +607,7 @@ func TestMapEvent_AllBranches(t *testing.T) {
 			event:        watcher.CrashLoopBackOffEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", PodName: "pod-a", AgentName: "ag"}, RestartCount: 3, Threshold: 3, LastExitCode: 137, ExitCodeCategory: "OOM", ExitCodeDescription: "container oom"},
 			wantNS:       "dev",
 			wantPod:      "pod-a",
-			wantType:     "CrashLoop",
+			wantType:     "CrashLoopBackOff",
 			wantSeverity: "P3",
 		},
 		{
@@ -617,7 +615,7 @@ func TestMapEvent_AllBranches(t *testing.T) {
 			event:        watcher.OOMKilledEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", PodName: "pod-b", AgentName: "ag"}},
 			wantNS:       "dev",
 			wantPod:      "pod-b",
-			wantType:     "OOM",
+			wantType:     "OOMKilled",
 			wantSeverity: "P2",
 		},
 		{
@@ -625,7 +623,7 @@ func TestMapEvent_AllBranches(t *testing.T) {
 			event:        watcher.ImagePullBackOffEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", PodName: "pod-c", AgentName: "ag"}, Reason: "ErrImagePull"},
 			wantNS:       "dev",
 			wantPod:      "pod-c",
-			wantType:     "Registry",
+			wantType:     "ImagePullBackOff",
 			wantSeverity: "P3",
 		},
 		{
@@ -633,7 +631,7 @@ func TestMapEvent_AllBranches(t *testing.T) {
 			event:        watcher.PodPendingTooLongEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", PodName: "pod-d", AgentName: "ag"}, PendingFor: 5 * time.Minute, Timeout: 3 * time.Minute},
 			wantNS:       "dev",
 			wantPod:      "pod-d",
-			wantType:     testIncidentTypeBadDeploy,
+			wantType:     "PodPendingTooLong",
 			wantSeverity: "P3",
 		},
 		{
@@ -649,7 +647,7 @@ func TestMapEvent_AllBranches(t *testing.T) {
 			event:        watcher.NodeNotReadyEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", NodeName: "node-1", AgentName: "ag"}, Reason: "KubeletNotReady"},
 			wantNS:       "dev",
 			wantPod:      "node-1",
-			wantType:     testIncidentTypeNodeFailure,
+			wantType:     "NodeNotReady",
 			wantSeverity: "P1",
 		},
 		{
@@ -657,7 +655,7 @@ func TestMapEvent_AllBranches(t *testing.T) {
 			event:        watcher.PodEvictedEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", PodName: "pod-f", AgentName: "ag"}, Reason: "Evicted"},
 			wantNS:       "dev",
 			wantPod:      "pod-f",
-			wantType:     testIncidentTypeNodeFailure,
+			wantType:     "PodEvicted",
 			wantSeverity: "P2",
 		},
 		{
@@ -673,7 +671,7 @@ func TestMapEvent_AllBranches(t *testing.T) {
 			event:        watcher.StalledRolloutEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", AgentName: "ag"}, DeploymentName: "my-deploy", Reason: "ProgressDeadlineExceeded"},
 			wantNS:       "dev",
 			wantPod:      "my-deploy",
-			wantType:     testIncidentTypeBadDeploy,
+			wantType:     "StalledRollout",
 			wantSeverity: "P2",
 		},
 		{
@@ -681,7 +679,7 @@ func TestMapEvent_AllBranches(t *testing.T) {
 			event:        watcher.NodePressureEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", NodeName: "node-2", AgentName: "ag"}, PressureType: "DiskPressure"},
 			wantNS:       "dev",
 			wantPod:      "node-2",
-			wantType:     testIncidentTypeNodeFailure,
+			wantType:     "NodePressure",
 			wantSeverity: "P2",
 		},
 		{
@@ -689,7 +687,7 @@ func TestMapEvent_AllBranches(t *testing.T) {
 			event:        watcher.NodePressureEvent{BaseEvent: watcher.BaseEvent{At: now, Namespace: "dev", NodeName: "node-3", AgentName: "ag"}, PressureType: "PIDPressure"},
 			wantNS:       "dev",
 			wantPod:      "node-3",
-			wantType:     testIncidentTypeNodeFailure,
+			wantType:     "NodePressure",
 			wantSeverity: "P3",
 		},
 		{
@@ -794,7 +792,7 @@ func TestResolveIncidentsForPod_ResolvesWhenPodReady(t *testing.T) {
 		Spec:       rcav1alpha1.IncidentReportSpec{AgentRef: "ag"},
 		Status: rcav1alpha1.IncidentReportStatus{
 			Phase:        "Active",
-			IncidentType: "CrashLoop",
+			IncidentType: "CrashLoopBackOff",
 			AffectedResources: []rcav1alpha1.AffectedResource{
 				{Kind: "Pod", Name: "my-pod", Namespace: "dev"},
 			},
@@ -865,7 +863,7 @@ func TestResolveIncidentsForPod_PodNotReady_SkipsResolve(t *testing.T) {
 		Spec:       rcav1alpha1.IncidentReportSpec{AgentRef: "ag"},
 		Status: rcav1alpha1.IncidentReportStatus{
 			Phase:        "Active",
-			IncidentType: "CrashLoop",
+			IncidentType: "CrashLoopBackOff",
 			AffectedResources: []rcav1alpha1.AffectedResource{
 				{Kind: "Pod", Name: "pending-pod", Namespace: "dev"},
 			},
@@ -931,7 +929,7 @@ func TestResolveIncidentsForPod_SkipsRecentSignalCooldown(t *testing.T) {
 		Spec: rcav1alpha1.IncidentReportSpec{AgentRef: "ag"},
 		Status: rcav1alpha1.IncidentReportStatus{
 			Phase:        phaseDetecting,
-			IncidentType: "OOM",
+			IncidentType: "OOMKilled",
 			AffectedResources: []rcav1alpha1.AffectedResource{
 				{Kind: "Pod", Name: "oomkill-demo", Namespace: "dev"},
 			},
@@ -1014,8 +1012,8 @@ func TestHandleEventRegistryDedupsToOneIncidentPerNamespace(t *testing.T) {
 	}
 
 	report := list.Items[0]
-	if report.Status.IncidentType != incidentTypeRegistry {
-		t.Errorf("incidentType: got %q, want %q", report.Status.IncidentType, incidentTypeRegistry)
+	if report.Status.IncidentType != "ImagePullBackOff" {
+		t.Errorf("incidentType: got %q, want %q", report.Status.IncidentType, "ImagePullBackOff")
 	}
 
 	pods := make(map[string]bool)
@@ -1042,14 +1040,14 @@ func TestHandleEvent_StalledRolloutCoalescesIntoExistingRegistryIncident(t *test
 			Name:      "registry-payment-service-abc",
 			Namespace: "dev",
 			Labels: map[string]string{
-				labelIncidentType: incidentTypeRegistry,
+				labelIncidentType: "ImagePullBackOff",
 				labelSeverity:     "P2",
 			},
 		},
 		Spec: rcav1alpha1.IncidentReportSpec{
 			AgentRef:     "ag",
-			Fingerprint:  "Registry|dev|deployment|payment-service",
-			IncidentType: incidentTypeRegistry,
+			Fingerprint:  "Workload|dev|deployment|payment-service",
+			IncidentType: "ImagePullBackOff",
 			Scope: rcav1alpha1.IncidentScope{
 				Level:     incident.ScopeLevelWorkload,
 				Namespace: "dev",
@@ -1069,7 +1067,7 @@ func TestHandleEvent_StalledRolloutCoalescesIntoExistingRegistryIncident(t *test
 		},
 		Status: rcav1alpha1.IncidentReportStatus{
 			Phase:        phaseActive,
-			IncidentType: incidentTypeRegistry,
+			IncidentType: "ImagePullBackOff",
 			Severity:     "P2",
 			AffectedResources: []rcav1alpha1.AffectedResource{
 				{APIVersion: "apps/v1", Kind: "Deployment", Namespace: "dev", Name: "payment-service"},
@@ -1112,8 +1110,9 @@ func TestHandleEvent_StalledRolloutCoalescesIntoExistingRegistryIncident(t *test
 	if list.Items[0].Name != existing.Name {
 		t.Fatalf("expected rollout signal to update %q, got %q", existing.Name, list.Items[0].Name)
 	}
-	if list.Items[0].Status.IncidentType != incidentTypeRegistry {
-		t.Fatalf("incidentType: got %q, want %q", list.Items[0].Status.IncidentType, incidentTypeRegistry)
+	// After the StalledRollout signal, the incident type reflects the latest signal.
+	if list.Items[0].Status.IncidentType != "StalledRollout" {
+		t.Fatalf("incidentType: got %q, want %q", list.Items[0].Status.IncidentType, "StalledRollout")
 	}
 	if got := len(list.Items[0].Status.Timeline); got < 2 {
 		t.Fatalf("expected rollout event appended to timeline, got %d entries", got)
@@ -1143,7 +1142,7 @@ func TestHandleEvent_ReopensRecentlyResolvedIncident(t *testing.T) {
 			Namespace: "dev",
 			Labels: map[string]string{
 				labelSeverity:     "P2",
-				labelIncidentType: "OOM",
+				labelIncidentType: "OOMKilled",
 				labelPodName:      "oomkill-demo",
 			},
 			Annotations: map[string]string{
@@ -1154,7 +1153,7 @@ func TestHandleEvent_ReopensRecentlyResolvedIncident(t *testing.T) {
 		Spec: rcav1alpha1.IncidentReportSpec{AgentRef: "ag"},
 		Status: rcav1alpha1.IncidentReportStatus{
 			Phase:        phaseResolved,
-			IncidentType: "OOM",
+			IncidentType: "OOMKilled",
 			Severity:     "P2",
 			ResolvedTime: &resolvedAt,
 			AffectedResources: []rcav1alpha1.AffectedResource{
@@ -1232,7 +1231,7 @@ func TestHandleEvent_CreatesNewIfResolvedTooOld(t *testing.T) {
 		Spec: rcav1alpha1.IncidentReportSpec{AgentRef: "ag"},
 		Status: rcav1alpha1.IncidentReportStatus{
 			Phase:        phaseResolved,
-			IncidentType: "OOM",
+			IncidentType: "OOMKilled",
 			ResolvedTime: &resolvedAt,
 			AffectedResources: []rcav1alpha1.AffectedResource{
 				{Kind: "Pod", Name: "oomkill-demo", Namespace: "dev"},
@@ -1266,24 +1265,40 @@ func TestHandleEvent_CreatesNewIfResolvedTooOld(t *testing.T) {
 	}
 }
 
-// newRegistryIncident is a test helper that builds an open Registry IncidentReport.
+// newRegistryIncident is a test helper that builds an open ImagePullBackOff IncidentReport
+// at workload scope for a shared deployment. All incidents for the same namespace
+// share the same fingerprint so they consolidate into one.
 //
 //nolint:unparam
 func newRegistryIncident(name, namespace, podName string, createdAt metav1.Time) *rcav1alpha1.IncidentReport {
+	fp := "Workload|" + namespace + "|deployment|my-deploy"
 	return &rcav1alpha1.IncidentReport{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              name,
 			Namespace:         namespace,
 			CreationTimestamp: createdAt,
 			Labels: map[string]string{
-				labelIncidentType: incidentTypeRegistry,
+				labelIncidentType: "ImagePullBackOff",
 				labelSeverity:     "P2",
 			},
 		},
-		Spec: rcav1alpha1.IncidentReportSpec{AgentRef: "ag"},
+		Spec: rcav1alpha1.IncidentReportSpec{
+			AgentRef:    "ag",
+			Fingerprint: fp,
+			Scope: rcav1alpha1.IncidentScope{
+				Level:     incident.ScopeLevelWorkload,
+				Namespace: namespace,
+				WorkloadRef: &rcav1alpha1.IncidentObjectRef{
+					APIVersion: "apps/v1",
+					Kind:       "Deployment",
+					Namespace:  namespace,
+					Name:       "my-deploy",
+				},
+			},
+		},
 		Status: rcav1alpha1.IncidentReportStatus{
 			Phase:        phaseActive,
-			IncidentType: incidentTypeRegistry,
+			IncidentType: "ImagePullBackOff",
 			Severity:     "P2",
 			AffectedResources: []rcav1alpha1.AffectedResource{
 				{Kind: "Pod", Name: podName, Namespace: namespace},
@@ -1422,6 +1437,8 @@ func TestHandleEvent_RegistryCachePreventBootstrapDuplicates(t *testing.T) {
 	c := NewConsumer(cl, nil, logr.Discard())
 	c.now = func() time.Time { return now }
 
+	// Pod names follow Kubernetes naming convention so GuessDeploymentNameFromPod
+	// can derive the shared deployment name "my-deploy" for all three pods.
 	makeEvent := func(pod string) watcher.ImagePullBackOffEvent {
 		return watcher.ImagePullBackOffEvent{
 			BaseEvent:     watcher.BaseEvent{At: now, AgentName: "ag", Namespace: "dev", PodName: pod},
@@ -1430,7 +1447,7 @@ func TestHandleEvent_RegistryCachePreventBootstrapDuplicates(t *testing.T) {
 		}
 	}
 
-	for _, pod := range []string{"pod-a", "pod-b", "pod-c"} {
+	for _, pod := range []string{"my-deploy-abc123def-ab12c", "my-deploy-abc123def-cd34e", "my-deploy-abc123def-ef56g"} {
 		if err := c.handleEvent(context.Background(), makeEvent(pod)); err != nil {
 			t.Fatalf("handleEvent(%s): %v", pod, err)
 		}
@@ -1443,8 +1460,9 @@ func TestHandleEvent_RegistryCachePreventBootstrapDuplicates(t *testing.T) {
 	if len(list.Items) != 1 {
 		t.Fatalf("expected exactly 1 Registry incident, got %d", len(list.Items))
 	}
-	if len(list.Items[0].Status.AffectedResources) != 3 {
-		t.Errorf("expected 3 pods in AffectedResources, got %d", len(list.Items[0].Status.AffectedResources))
+	// Expect 4 AffectedResources: 1 Deployment (workload scope) + 3 pods.
+	if len(list.Items[0].Status.AffectedResources) != 4 {
+		t.Errorf("expected 4 AffectedResources (1 deployment + 3 pods), got %d", len(list.Items[0].Status.AffectedResources))
 	}
 }
 
@@ -1465,24 +1483,37 @@ func TestHandleEvent_Rule2BadDeploy_DedupsWithExistingIncident(t *testing.T) {
 	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
 	const deployName = "payment-service"
 
-	// Existing BadDeploy incident created by the StalledRollout signal. The
-	// "pod" identity matches the deployment name (how StalledRolloutEvent routes).
+	// Existing StalledRollout incident created by the earlier StalledRollout signal.
 	existingBadDeploy := &rcav1alpha1.IncidentReport{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "baddeploy-payment-service-abc",
+			Name:      "stalledrollout-payment-service-abc",
 			Namespace: "dev",
 			Labels: map[string]string{
-				labelIncidentType: testIncidentTypeBadDeploy,
+				labelIncidentType: "StalledRollout",
 				labelSeverity:     "P2",
 			},
 		},
-		Spec: rcav1alpha1.IncidentReportSpec{AgentRef: "ag"},
+		Spec: rcav1alpha1.IncidentReportSpec{
+			AgentRef:     "ag",
+			Fingerprint:  "Workload|dev|deployment|payment-service",
+			IncidentType: "StalledRollout",
+			Scope: rcav1alpha1.IncidentScope{
+				Level:     incident.ScopeLevelWorkload,
+				Namespace: "dev",
+				WorkloadRef: &rcav1alpha1.IncidentObjectRef{
+					APIVersion: "apps/v1",
+					Kind:       "Deployment",
+					Namespace:  "dev",
+					Name:       deployName,
+				},
+			},
+		},
 		Status: rcav1alpha1.IncidentReportStatus{
 			Phase:        phaseActive,
-			IncidentType: testIncidentTypeBadDeploy,
+			IncidentType: "StalledRollout",
 			Severity:     "P2",
 			AffectedResources: []rcav1alpha1.AffectedResource{
-				{Kind: "Pod", Name: deployName, Namespace: "dev"},
+				{APIVersion: "apps/v1", Kind: "Deployment", Namespace: "dev", Name: deployName},
 			},
 		},
 	}
@@ -1544,24 +1575,35 @@ func TestHandleEvent_Rule5NodeFailure_DedupsWithNodeNotReadyIncident(t *testing.
 	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
 	const nodeName = "worker-node-1"
 
-	// Existing NodeFailure incident created by the NodeNotReady signal. The
-	// "pod" identity matches the node name (how NodeNotReadyEvent routes).
+	// Existing NodeNotReady incident created by the earlier NodeNotReady signal.
 	existingNodeFailure := &rcav1alpha1.IncidentReport{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "nodefailure-worker-node-1-abc",
+			Name:      "nodenotready-worker-node-1-abc",
 			Namespace: "dev",
 			Labels: map[string]string{
-				labelIncidentType: testIncidentTypeNodeFailure,
+				labelIncidentType: "NodeNotReady",
 				labelSeverity:     "P1",
 			},
 		},
-		Spec: rcav1alpha1.IncidentReportSpec{AgentRef: "ag"},
+		Spec: rcav1alpha1.IncidentReportSpec{
+			AgentRef:     "ag",
+			Fingerprint:  "Cluster|node|worker-node-1",
+			IncidentType: "NodeNotReady",
+			Scope: rcav1alpha1.IncidentScope{
+				Level: incident.ScopeLevelCluster,
+				ResourceRef: &rcav1alpha1.IncidentObjectRef{
+					APIVersion: "v1",
+					Kind:       "Node",
+					Name:       nodeName,
+				},
+			},
+		},
 		Status: rcav1alpha1.IncidentReportStatus{
 			Phase:        phaseActive,
-			IncidentType: testIncidentTypeNodeFailure,
+			IncidentType: "NodeNotReady",
 			Severity:     "P1",
 			AffectedResources: []rcav1alpha1.AffectedResource{
-				{Kind: "Pod", Name: nodeName, Namespace: "dev"},
+				{APIVersion: "v1", Kind: "Node", Name: nodeName},
 			},
 		},
 	}
@@ -1620,14 +1662,14 @@ func TestHandleEvent_WorkloadRefFallback_PreventsOpenDuplicate(t *testing.T) {
 			Name:      "registry-myapp-rs-abc",
 			Namespace: "dev",
 			Labels: map[string]string{
-				labelIncidentType: incidentTypeRegistry,
+				labelIncidentType: "ImagePullBackOff",
 				labelSeverity:     "P3",
 			},
 		},
 		Spec: rcav1alpha1.IncidentReportSpec{
 			AgentRef:     "ag",
-			Fingerprint:  "Registry|dev|replicaset|myapp-abc12345",
-			IncidentType: incidentTypeRegistry,
+			Fingerprint:  "Workload|dev|replicaset|myapp-abc12345",
+			IncidentType: "ImagePullBackOff",
 			Scope: rcav1alpha1.IncidentScope{
 				Level:     incident.ScopeLevelWorkload,
 				Namespace: "dev",
@@ -1641,7 +1683,7 @@ func TestHandleEvent_WorkloadRefFallback_PreventsOpenDuplicate(t *testing.T) {
 		},
 		Status: rcav1alpha1.IncidentReportStatus{
 			Phase:        phaseActive,
-			IncidentType: incidentTypeRegistry,
+			IncidentType: "ImagePullBackOff",
 			Severity:     "P3",
 			AffectedResources: []rcav1alpha1.AffectedResource{
 				{APIVersion: "apps/v1", Kind: "Deployment", Namespace: "dev", Name: "myapp"},
@@ -1662,8 +1704,8 @@ func TestHandleEvent_WorkloadRefFallback_PreventsOpenDuplicate(t *testing.T) {
 	// New event for a different pod of the SAME deployment. The enricher will
 	// fail (pod not in fake client) and fall back to the heuristic which
 	// correctly guesses "myapp" from the pod name, producing fingerprint
-	// "Registry|dev|deployment|myapp" — different from the existing incident's
-	// "Registry|dev|replicaset|myapp-abc12345".
+	// "Workload|dev|deployment|myapp" — different from the existing incident's
+	// "Workload|dev|replicaset|myapp-abc12345".
 	if err := c.handleEvent(context.Background(), watcher.ImagePullBackOffEvent{
 		BaseEvent:     watcher.BaseEvent{At: now, AgentName: "ag", Namespace: "dev", PodName: "myapp-abc12345-def78"},
 		ContainerName: "app",
@@ -1708,14 +1750,14 @@ func TestHandleEvent_WorkloadRefFallback_ReOpensResolvedWithDifferentFingerprint
 			Name:      "registry-myapp-rs-abc",
 			Namespace: "dev",
 			Labels: map[string]string{
-				labelIncidentType: incidentTypeRegistry,
+				labelIncidentType: "ImagePullBackOff",
 				labelSeverity:     "P3",
 			},
 		},
 		Spec: rcav1alpha1.IncidentReportSpec{
 			AgentRef:     "ag",
-			Fingerprint:  "Registry|dev|replicaset|myapp-abc12345",
-			IncidentType: incidentTypeRegistry,
+			Fingerprint:  "Workload|dev|replicaset|myapp-abc12345",
+			IncidentType: "ImagePullBackOff",
 			Scope: rcav1alpha1.IncidentScope{
 				Level:     incident.ScopeLevelWorkload,
 				Namespace: "dev",
@@ -1729,7 +1771,7 @@ func TestHandleEvent_WorkloadRefFallback_ReOpensResolvedWithDifferentFingerprint
 		},
 		Status: rcav1alpha1.IncidentReportStatus{
 			Phase:        phaseResolved,
-			IncidentType: incidentTypeRegistry,
+			IncidentType: "ImagePullBackOff",
 			Severity:     "P3",
 			ResolvedTime: &resolvedAt,
 			AffectedResources: []rcav1alpha1.AffectedResource{
@@ -1820,13 +1862,13 @@ func TestConsolidateBackfillsFingerprint(t *testing.T) {
 			Name:      "registry-myapp-legacy",
 			Namespace: "dev",
 			Labels: map[string]string{
-				labelIncidentType: incidentTypeRegistry,
+				labelIncidentType: "ImagePullBackOff",
 				labelSeverity:     "P3",
 			},
 		},
 		Spec: rcav1alpha1.IncidentReportSpec{
 			AgentRef:     "ag",
-			IncidentType: incidentTypeRegistry,
+			IncidentType: "ImagePullBackOff",
 			Scope: rcav1alpha1.IncidentScope{
 				Level:     incident.ScopeLevelWorkload,
 				Namespace: "dev",
@@ -1840,7 +1882,7 @@ func TestConsolidateBackfillsFingerprint(t *testing.T) {
 		},
 		Status: rcav1alpha1.IncidentReportStatus{
 			Phase:        phaseActive,
-			IncidentType: incidentTypeRegistry,
+			IncidentType: "ImagePullBackOff",
 			Severity:     "P3",
 			AffectedResources: []rcav1alpha1.AffectedResource{
 				{APIVersion: "apps/v1", Kind: "Deployment", Namespace: "dev", Name: "myapp"},

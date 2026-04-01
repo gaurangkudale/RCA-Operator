@@ -121,12 +121,12 @@ func (e *CRDRuleEngine) Evaluate(event watcher.CorrelatorEvent) correlator.Corre
 		resource := e.resolveResource(rule.fires, event)
 
 		return correlator.CorrelationResult{
-			Fired:        true,
-			IncidentType: rule.fires.IncidentType,
-			Severity:     rule.fires.Severity,
-			Summary:      summary,
-			Rule:         rule.name,
-			Resource:     resource,
+			Fired:      true,
+			Severity:   rule.fires.Severity,
+			Summary:    summary,
+			Rule:       rule.name,
+			Resource:   resource,
+			ScopeLevel: rule.fires.Scope,
 		}
 	}
 

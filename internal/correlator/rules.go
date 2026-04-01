@@ -88,11 +88,10 @@ func ruleCrashLoopPlusOOM(event watcher.CorrelatorEvent, entries []Entry) Correl
 			oom, ok := en.Event.(watcher.OOMKilledEvent)
 			if ok && oom.Namespace == e.Namespace && oom.PodName == e.PodName {
 				return CorrelationResult{
-					Fired:        true,
-					IncidentType: "OOM",
-					Severity:     "P2",
-					Summary:      fmt.Sprintf("MemoryPressure: CrashLoop+OOMKilled pod=%s container=%s restarts=%d", e.PodName, e.ContainerName, e.RestartCount),
-					Rule:         "CrashLoopPlusOOM",
+					Fired:    true,
+					Severity: "P2",
+					Summary:  fmt.Sprintf("MemoryPressure: CrashLoopBackOff+OOMKilled pod=%s container=%s restarts=%d", e.PodName, e.ContainerName, e.RestartCount),
+					Rule:     "CrashLoopPlusOOM",
 				}
 			}
 		}
@@ -101,11 +100,10 @@ func ruleCrashLoopPlusOOM(event watcher.CorrelatorEvent, entries []Entry) Correl
 			cl, ok := en.Event.(watcher.CrashLoopBackOffEvent)
 			if ok && cl.Namespace == e.Namespace && cl.PodName == e.PodName {
 				return CorrelationResult{
-					Fired:        true,
-					IncidentType: "OOM",
-					Severity:     "P2",
-					Summary:      fmt.Sprintf("MemoryPressure: CrashLoop+OOMKilled pod=%s container=%s restarts=%d", e.PodName, e.ContainerName, cl.RestartCount),
-					Rule:         "CrashLoopPlusOOM",
+					Fired:    true,
+					Severity: "P2",
+					Summary:  fmt.Sprintf("MemoryPressure: CrashLoopBackOff+OOMKilled pod=%s container=%s restarts=%d", e.PodName, e.ContainerName, cl.RestartCount),
+					Rule:     "CrashLoopPlusOOM",
 				}
 			}
 		}
@@ -126,14 +124,12 @@ func ruleCrashLoopPlusBadDeploy(event watcher.CorrelatorEvent, entries []Entry) 
 		stalled, ok := en.Event.(watcher.StalledRolloutEvent)
 		if ok && stalled.Namespace == cl.Namespace {
 			return CorrelationResult{
-				Fired:        true,
-				IncidentType: "BadDeploy",
-				Severity:     "P2",
-				Summary:      fmt.Sprintf("BadDeploy: CrashLoop after stalled rollout deployment=%s pod=%s", stalled.DeploymentName, cl.PodName),
-				Rule:         "CrashLoopPlusBadDeploy",
-				// Use deployment name so the incident deduplicates with the
-				// BadDeploy incident created from the StalledRollout signal.
-				Resource: stalled.DeploymentName,
+				Fired:      true,
+				Severity:   "P2",
+				Summary:    fmt.Sprintf("CrashLoopBackOff after stalled rollout deployment=%s pod=%s", stalled.DeploymentName, cl.PodName),
+				Rule:       "CrashLoopPlusBadDeploy",
+				Resource:   stalled.DeploymentName,
+				ScopeLevel: "Workload",
 			}
 		}
 	}
@@ -189,11 +185,10 @@ func ruleImagePullNoHistory(event watcher.CorrelatorEvent, entries []Entry) Corr
 		}
 	}
 	return CorrelationResult{
-		Fired:        true,
-		IncidentType: "Registry",
-		Severity:     "P2",
-		Summary:      fmt.Sprintf("Registry: ImagePullBackOff with no prior success pod=%s container=%s reason=%s", pull.PodName, pull.ContainerName, pull.Reason),
-		Rule:         "ImagePullNoHistory",
+		Fired:    true,
+		Severity: "P2",
+		Summary:  fmt.Sprintf("ImagePullBackOff with no prior success pod=%s container=%s reason=%s", pull.PodName, pull.ContainerName, pull.Reason),
+		Rule:     "ImagePullNoHistory",
 	}
 }
 
@@ -208,14 +203,12 @@ func ruleNodeNotReadyPlusEviction(event watcher.CorrelatorEvent, entries []Entry
 			evicted, ok := en.Event.(watcher.PodEvictedEvent)
 			if ok && evicted.NodeName == e.NodeName {
 				return CorrelationResult{
-					Fired:        true,
-					IncidentType: "NodeFailure",
-					Severity:     "P1",
-					Summary:      fmt.Sprintf("NodeFailure: NodeNotReady+Eviction node=%s reason=%s evictedPod=%s", e.NodeName, e.Reason, evicted.PodName),
-					Rule:         "NodeNotReadyPlusEviction",
-					// Use node name so all signals from the same failed node
-					// dedup into one NodeFailure incident.
-					Resource: e.NodeName,
+					Fired:      true,
+					Severity:   "P1",
+					Summary:    fmt.Sprintf("NodeNotReady+PodEvicted node=%s reason=%s evictedPod=%s", e.NodeName, e.Reason, evicted.PodName),
+					Rule:       "NodeNotReadyPlusEviction",
+					Resource:   e.NodeName,
+					ScopeLevel: "Cluster",
 				}
 			}
 		}
@@ -224,12 +217,12 @@ func ruleNodeNotReadyPlusEviction(event watcher.CorrelatorEvent, entries []Entry
 			notReady, ok := en.Event.(watcher.NodeNotReadyEvent)
 			if ok && notReady.NodeName == e.NodeName {
 				return CorrelationResult{
-					Fired:        true,
-					IncidentType: "NodeFailure",
-					Severity:     "P1",
-					Summary:      fmt.Sprintf("NodeFailure: NodeNotReady+Eviction node=%s reason=%s evictedPod=%s", notReady.NodeName, notReady.Reason, e.PodName),
-					Rule:         "NodeNotReadyPlusEviction",
-					Resource:     notReady.NodeName,
+					Fired:      true,
+					Severity:   "P1",
+					Summary:    fmt.Sprintf("NodeNotReady+PodEvicted node=%s reason=%s evictedPod=%s", notReady.NodeName, notReady.Reason, e.PodName),
+					Rule:       "NodeNotReadyPlusEviction",
+					Resource:   notReady.NodeName,
+					ScopeLevel: "Cluster",
 				}
 			}
 		}

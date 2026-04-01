@@ -21,18 +21,22 @@ type SignalMapping struct {
 }
 
 // DefaultMappings returns the built-in event→incident type mappings.
+// IncidentType mirrors the raw EventType so that incident types are
+// self-describing rather than hardcoded aliases. This avoids creating
+// duplicate incidents when different event types (e.g. ImagePullBackOff and
+// StalledRollout) affect the same workload.
 func DefaultMappings() []SignalMapping {
 	return []SignalMapping{
-		{EventType: "CrashLoopBackOff", IncidentType: "CrashLoop", Severity: "P3", ScopeLevel: "Pod"},
-		{EventType: "OOMKilled", IncidentType: "OOM", Severity: "P2", ScopeLevel: "Pod"},
-		{EventType: "ImagePullBackOff", IncidentType: "Registry", Severity: "P3", ScopeLevel: "Workload"},
-		{EventType: "PodPendingTooLong", IncidentType: "BadDeploy", Severity: "P3", ScopeLevel: "Pod"},
+		{EventType: "CrashLoopBackOff", IncidentType: "CrashLoopBackOff", Severity: "P3", ScopeLevel: "Pod"},
+		{EventType: "OOMKilled", IncidentType: "OOMKilled", Severity: "P2", ScopeLevel: "Pod"},
+		{EventType: "ImagePullBackOff", IncidentType: "ImagePullBackOff", Severity: "P3", ScopeLevel: "Workload"},
+		{EventType: "PodPendingTooLong", IncidentType: "PodPendingTooLong", Severity: "P3", ScopeLevel: "Pod"},
 		{EventType: "GracePeriodViolation", IncidentType: "GracePeriodViolation", Severity: "P2", ScopeLevel: "Pod"},
-		{EventType: "NodeNotReady", IncidentType: "NodeFailure", Severity: "P1", ScopeLevel: "Cluster"},
-		{EventType: "PodEvicted", IncidentType: "NodeFailure", Severity: "P2", ScopeLevel: "Pod"},
+		{EventType: "NodeNotReady", IncidentType: "NodeNotReady", Severity: "P1", ScopeLevel: "Cluster"},
+		{EventType: "PodEvicted", IncidentType: "PodEvicted", Severity: "P2", ScopeLevel: "Pod"},
 		{EventType: "ProbeFailure", IncidentType: "ProbeFailure", Severity: "P3", ScopeLevel: "Pod"},
-		{EventType: "StalledRollout", IncidentType: "BadDeploy", Severity: "P2", ScopeLevel: "Workload"},
-		{EventType: "NodePressure", IncidentType: "NodeFailure", Severity: "P2", ScopeLevel: "Cluster"},
+		{EventType: "StalledRollout", IncidentType: "StalledRollout", Severity: "P2", ScopeLevel: "Workload"},
+		{EventType: "NodePressure", IncidentType: "NodePressure", Severity: "P2", ScopeLevel: "Cluster"},
 	}
 }
 
