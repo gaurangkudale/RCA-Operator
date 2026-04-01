@@ -286,11 +286,11 @@ input::placeholder{color:var(--dim)}
       <span class="topbar-brand">RCA<span>OPERATOR</span></span>
       <span class="topbar-ver">v0.1.0</span>
     </div>
-    <div class="topbar-nav">
-      <div class="sel">INCIDENTS</div>
-      <div class="disabled">AGENTS <span class="soon-tag">SOON</span></div>
-      <div class="disabled">NAMESPACES <span class="soon-tag">SOON</span></div>
-      <div class="disabled">SETTINGS <span class="soon-tag">SOON</span></div>
+    <div class="topbar-nav" id="topbar-nav">
+      <div class="sel" onclick="window._tab('incidents')">INCIDENTS</div>
+      <div onclick="window._tab('rules')">RULES</div>
+      <div onclick="window._tab('agents')">AGENTS</div>
+      <div onclick="window._tab('namespaces')">NAMESPACES</div>
     </div>
     <div class="topbar-right" id="topbar-right"></div>
   </div>
@@ -314,6 +314,10 @@ input::placeholder{color:var(--dim)}
         <div class="mono-label" style="padding:0 14px;margin-bottom:6px">agents</div>
         <div id="sidebar-agents"></div>
       </div>
+      <div>
+        <div class="mono-label" style="padding:0 14px;margin-bottom:6px">rule engine</div>
+        <div id="sidebar-rules"></div>
+      </div>
     </div>
 
     <!-- Main Content -->
@@ -333,6 +337,8 @@ input::placeholder{color:var(--dim)}
   /* ── State ─────────────────────────────────── */
   var incidents = [];
   var stats = {};
+  var rules = [];
+  var activeTab = 'incidents';
   var selectedKey = null;
   var search = '';
   var filters = { phase:'all', ns:'all', sev:'all', type:'all' };
@@ -509,9 +515,10 @@ input::placeholder{color:var(--dim)}
   function fetchAll(){
     Promise.all([
       fetch('/api/incidents').then(function(r){return r.json()}),
-      fetch('/api/stats').then(function(r){return r.json()})
+      fetch('/api/stats').then(function(r){return r.json()}),
+      fetch('/api/rules').then(function(r){return r.json()}).catch(function(){return[]})
     ]).then(function(res){
-      incidents=res[0]||[];stats=res[1]||{};connected=true;
+      incidents=res[0]||[];stats=res[1]||{};rules=res[2]||[];connected=true;
       document.getElementById('conn-pulse').innerHTML=pulse('#4ADE80',8);
       render();
     }).catch(function(){
@@ -546,7 +553,12 @@ input::placeholder{color:var(--dim)}
   /* ── Render ────────────────────────────────── */
   function render(){
     renderTopBarRight();renderMetrics();renderNamespaces();renderSeverity();
-    renderAgents();renderToolbar();renderIncidents();renderDetail();renderStatusBar();
+    renderAgents();renderRuleEngineStatus();renderToolbar();
+    if(activeTab==='incidents'){renderIncidents();renderDetail()}
+    else if(activeTab==='rules'){renderRulesTab()}
+    else if(activeTab==='agents'){renderAgentsTab()}
+    else if(activeTab==='namespaces'){renderNamespacesTab()}
+    renderStatusBar();
   }
 
   function renderTopBarRight(){
@@ -625,6 +637,100 @@ input::placeholder{color:var(--dim)}
         (healthy?'OK':'DEGRADED')+'</span></div>'+nsLine;
     }).join('');
     el.innerHTML=html;
+  }
+
+  function renderRuleEngineStatus(){
+    var el=document.getElementById('sidebar-rules');
+    if(!el) return;
+    var count=rules.length;
+    var html='<div class="metric-row"><span class="metric-label">LOADED CRDs</span><span class="metric-val" style="font-size:16px;color:var(--acc)">'+count+'</span></div>';
+    if(count>0){
+      var severities={};rules.forEach(function(r){severities[r.firesSeverity]=(severities[r.firesSeverity]||0)+1});
+      Object.keys(severities).sort().forEach(function(s){
+        html+='<div style="padding:2px 14px;font-family:var(--mono);font-size:8px;color:var(--sub)">'+s+': '+severities[s]+' rule'+(severities[s]>1?'s':'')+'</div>';
+      });
+    }
+    el.innerHTML=html;
+  }
+
+  function renderRulesTab(){
+    var listEl=document.getElementById('incident-list');
+    var detailEl=document.getElementById('detail-panel');
+    detailEl.style.display='none';
+    listEl.className='incident-list full';
+    var html='<div class="col-headers"><span style="min-width:40px">PRI</span><span style="flex:1">NAME</span><span style="min-width:120px">TRIGGER</span><span style="min-width:100px">FIRES</span><span style="min-width:50px">SEV</span><span style="min-width:80px">CONDITIONS</span><span style="min-width:60px">SELECTOR</span><span style="min-width:60px">AGE</span></div>';
+    if(!rules.length){
+      html+='<div style="padding:40px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--sub)">No RCACorrelationRule CRDs found. Deploy default rules from config/rules/ or create custom rules.</div>';
+    } else {
+      rules.forEach(function(r){
+        html+='<div class="inc-row" style="cursor:default">';
+        html+='<span style="font-family:var(--mono);font-size:11px;color:var(--acc);min-width:40px;text-align:right">'+r.priority+'</span>';
+        html+='<div class="inc-info" style="flex:1;min-width:0"><div class="inc-name">'+esc(r.name)+'</div></div>';
+        html+='<span style="font-family:var(--mono);font-size:10px;color:var(--txt);min-width:120px">'+esc(r.triggerEvent)+'</span>';
+        html+='<span style="font-family:var(--mono);font-size:10px;color:var(--txt);min-width:100px">'+esc(r.firesType)+'</span>';
+        html+='<span class="sev-badge sm sev-'+r.firesSeverity+'" style="min-width:50px">'+r.firesSeverity+'</span>';
+        var condText=(r.conditions||[]).join(', ')||'none';
+        html+='<span style="font-family:var(--mono);font-size:9px;color:var(--sub);min-width:80px" title="'+esc(condText)+'">'+esc(condText.length>30?condText.slice(0,30)+'...':condText)+'</span>';
+        html+='<span style="font-family:var(--mono);font-size:9px;color:var(--sub);min-width:60px">'+esc(r.agentSelector)+'</span>';
+        html+='<span style="font-family:var(--mono);font-size:9px;color:var(--dim);min-width:60px">'+esc(r.age)+'</span>';
+        html+='</div>';
+      });
+    }
+    listEl.innerHTML=html;
+  }
+
+  function renderAgentsTab(){
+    var listEl=document.getElementById('incident-list');
+    var detailEl=document.getElementById('detail-panel');
+    detailEl.style.display='none';
+    listEl.className='incident-list full';
+    var agents=stats.agents||[];
+    if(!agents.length){
+      listEl.innerHTML='<div style="padding:40px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--sub)">No RCAAgent resources found.</div>';
+      return;
+    }
+    var html='<div class="col-headers"><span style="min-width:20px"></span><span style="flex:1">NAME</span><span style="min-width:200px">WATCH NAMESPACES</span><span style="min-width:80px">STATUS</span></div>';
+    agents.forEach(function(a){
+      var name=typeof a==='string'?a:a.name;
+      var healthy=typeof a==='string'?true:a.healthy!==false;
+      var nsList=(typeof a!=='string'&&a.watchNamespaces)?a.watchNamespaces:[];
+      var dot=healthy?'<span style="width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block"></span>':'<span style="width:8px;height:8px;border-radius:50%;background:var(--red);display:inline-block"></span>';
+      html+='<div class="inc-row" style="cursor:default">';
+      html+='<span style="min-width:20px">'+dot+'</span>';
+      html+='<div class="inc-info" style="flex:1;min-width:0"><div class="inc-name">'+esc(name)+'</div></div>';
+      html+='<span style="font-family:var(--mono);font-size:10px;color:var(--sub);min-width:200px">'+nsList.map(function(n){return esc(n)}).join(', ')+'</span>';
+      html+='<span style="font-family:var(--mono);font-size:10px;min-width:80px;color:'+(healthy?'var(--green)':'var(--red)')+'">'+(healthy?'HEALTHY':'DEGRADED')+'</span>';
+      html+='</div>';
+    });
+    listEl.innerHTML=html;
+  }
+
+  function renderNamespacesTab(){
+    var listEl=document.getElementById('incident-list');
+    var detailEl=document.getElementById('detail-panel');
+    detailEl.style.display='none';
+    listEl.className='incident-list full';
+    var ns=stats.namespaces||{};
+    var keys=Object.keys(ns).sort();
+    if(!keys.length){
+      listEl.innerHTML='<div style="padding:40px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--sub)">No namespaces found.</div>';
+      return;
+    }
+    var html='<div class="col-headers"><span style="min-width:20px"></span><span style="flex:1">NAMESPACE</span><span style="min-width:100px">ACTIVE INCIDENTS</span><span style="min-width:100px">MONITORED</span><span style="min-width:200px">INCIDENT TYPES</span></div>';
+    keys.forEach(function(k){
+      var entry=ns[k];
+      var dot=entry.monitored?'<span style="width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block"></span>':'<span style="width:8px;height:8px;border-radius:50%;background:var(--dim);display:inline-block"></span>';
+      var typesInNs={};incidents.forEach(function(i){if(i.namespace===k&&i.phase!=='Resolved')typesInNs[i.incidentType]=true});
+      var typeList=Object.keys(typesInNs).sort().join(', ')||'-';
+      html+='<div class="inc-row" style="cursor:default">';
+      html+='<span style="min-width:20px">'+dot+'</span>';
+      html+='<div class="inc-info" style="flex:1;min-width:0"><div class="inc-name">'+esc(k)+'</div></div>';
+      html+='<span style="font-family:var(--mono);font-size:12px;min-width:100px;color:'+(entry.active>0?'var(--red)':'var(--sub)')+'">'+entry.active+'</span>';
+      html+='<span style="font-family:var(--mono);font-size:10px;min-width:100px;color:'+(entry.monitored?'var(--green)':'var(--dim)')+'">'+(entry.monitored?'YES':'NO')+'</span>';
+      html+='<span style="font-family:var(--mono);font-size:9px;color:var(--sub);min-width:200px">'+esc(typeList)+'</span>';
+      html+='</div>';
+    });
+    listEl.innerHTML=html;
   }
 
   function renderToolbar(){
@@ -848,7 +954,23 @@ input::placeholder{color:var(--dim)}
     });
     html+='</div></div>';
 
-    /* 6. Phase 1 evidence summary */
+    /* 6. Trace & Rule (Phase 1 OTel integration) */
+    var traceId=inc.traceId||'';
+    var firedRule=inc.firedRule||'';
+    if(traceId||firedRule){
+      html+='<div><div class="sec-hdr">trace & rule engine</div>';
+      html+='<div style="display:flex;flex-direction:column;gap:5px">';
+      if(firedRule){
+        html+='<div class="cmd-row"><span class="play-num">rule</span><code class="cmd-code">'+esc(firedRule)+'</code></div>';
+      }
+      if(traceId){
+        html+='<div class="cmd-row"><span class="play-num">trace</span><code class="cmd-code">'+esc(traceId)+'</code>';
+        html+='<button class="copy-btn" onclick="window._copy(this,\''+esc(traceId)+'\')">copy</button></div>';
+      }
+      html+='</div></div>';
+    }
+
+    /* 7. Phase 1 evidence summary (renumbered) */
     html+='<div><div class="sec-hdr">phase 1 evidence summary</div>';
     html+='<div class="rca-stub"><div class="rca-label"><span class="rca-label-dot"></span>';
     html+='<span class="rca-label-text">RULE-BASED INCIDENT VIEW</span></div>';
@@ -909,7 +1031,22 @@ input::placeholder{color:var(--dim)}
   }
 
   /* ── Event handlers ────────────────────────── */
-  window._sel=function(key){selectedKey=selectedKey===key?null:key;renderIncidents();renderDetail()};
+  window._sel=function(key){
+    selectedKey=selectedKey===key?null:key;
+    renderIncidents();renderDetail();
+    if(selectedKey){
+      var inc=incidents.find(function(i){return incKey(i)===selectedKey});
+      if(inc){
+        fetch('/api/incidents/'+encodeURIComponent(inc.namespace)+'/'+encodeURIComponent(inc.name))
+          .then(function(r){return r.json()})
+          .then(function(detail){
+            if(detail.traceId) inc.traceId=detail.traceId;
+            if(detail.firedRule) inc.firedRule=detail.firedRule;
+            if(selectedKey===key) renderDetail();
+          }).catch(function(){});
+      }
+    }
+  };
   window._close=function(){selectedKey=null;renderIncidents();renderDetail()};
   window._f=function(type,val){
     if(filters[type]===val&&val!=='all')filters[type]='all';else filters[type]=val;
@@ -917,6 +1054,14 @@ input::placeholder{color:var(--dim)}
   };
   window._clearSearch=function(){};
   window._copy=function(btn,text){copyToClip(text,btn)};
+  window._tab=function(tab){
+    activeTab=tab;
+    selectedKey=null;
+    var navItems=document.querySelectorAll('#topbar-nav div');
+    var tabs=['incidents','rules','agents','namespaces'];
+    navItems.forEach(function(el,i){el.className=tabs[i]===tab?'sel':''});
+    render();
+  };
   window._toggleSignals=function(){
     signalsOpen=!signalsOpen;
     var body=document.getElementById('signals-body');

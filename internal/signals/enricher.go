@@ -46,11 +46,18 @@ func (e *Enricher) Enrich(ctx context.Context, sig NormalizedSignal) NormalizedS
 			"pod", podName,
 			"error", err.Error(),
 		)
+		// ResolvePodScope returns usable fallback scope/affected even on error.
+		sig.Scope = scope
+		sig.AffectedResources = affectedResources
+		// Even on fallback, attempt Registry promotion using pod name heuristics.
+		if sig.IncidentType == "Registry" {
+			sig.Input = promoteRegistryScope(sig.Input, sig.Namespace, podName)
+		}
 		return sig
 	}
 
-	sig.Input.Scope = scope
-	sig.Input.AffectedResources = affectedResources
+	sig.Scope = scope
+	sig.AffectedResources = affectedResources
 
 	// Promote Registry incidents to workload scope if we resolved an owner.
 	if sig.IncidentType == "Registry" {

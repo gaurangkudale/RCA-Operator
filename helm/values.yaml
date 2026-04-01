@@ -43,21 +43,43 @@ securityContext:
     drop:
       - ALL
 
-# Controller manager arguments
+# Controller manager arguments (built from values below; do not set directly)
 manager:
   args:
     - --leader-elect
     - --health-probe-bind-address=:8081
-    - --dashboard-addr=:9090
+    - --dashboard-bind-address=:9090
+
+# OpenTelemetry configuration
+otel:
+  enabled: false
+  # OTLP gRPC collector address (e.g. "signoz-otel-collector.platform:4317")
+  endpoint: ""
+  serviceName: "rca-operator"
+  samplingRate: "1.0"
+  insecure: true
+
+# Default RCACorrelationRule CRDs
+defaultRules:
+  enabled: true
+
+# Admission webhooks
+webhooks:
+  enabled: false
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
 
 # Resources for the controller manager
 resources:
   limits:
     cpu: 500m
-    memory: 128Mi
+    memory: 512Mi
   requests:
-    cpu: 10m
-    memory: 64Mi
+    cpu: 100m
+    memory: 128Mi
 
 # Liveness probe configuration
 livenessProbe:

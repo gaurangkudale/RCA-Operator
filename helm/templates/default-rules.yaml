@@ -1,0 +1,78 @@
+{{- if .Values.defaultRules.enabled }}
+apiVersion: rca.rca-operator.tech/v1alpha1
+kind: RCACorrelationRule
+metadata:
+  name: node-plus-eviction
+  labels:
+    {{- include "rca-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: default-rule
+spec:
+  priority: 500
+  trigger:
+    eventType: NodeNotReady
+  conditions:
+    - eventType: PodEvicted
+      scope: sameNode
+  fires:
+    incidentType: NodeFailure
+    severity: P1
+    summary: "Node failure: NodeNotReady with pod evictions on same node"
+---
+apiVersion: rca.rca-operator.tech/v1alpha1
+kind: RCACorrelationRule
+metadata:
+  name: crashloop-plus-oom
+  labels:
+    {{- include "rca-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: default-rule
+spec:
+  priority: 400
+  trigger:
+    eventType: CrashLoopBackOff
+  conditions:
+    - eventType: OOMKilled
+      scope: samePod
+  fires:
+    incidentType: OOM
+    severity: P2
+    summary: "OOM: CrashLoopBackOff with OOMKilled on same pod"
+---
+apiVersion: rca.rca-operator.tech/v1alpha1
+kind: RCACorrelationRule
+metadata:
+  name: crashloop-plus-deploy
+  labels:
+    {{- include "rca-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: default-rule
+spec:
+  priority: 300
+  trigger:
+    eventType: CrashLoopBackOff
+  conditions:
+    - eventType: StalledRollout
+      scope: sameNamespace
+  fires:
+    incidentType: BadDeploy
+    severity: P2
+    summary: "Bad deploy: CrashLoopBackOff with stalled rollout in same namespace"
+---
+apiVersion: rca.rca-operator.tech/v1alpha1
+kind: RCACorrelationRule
+metadata:
+  name: imagepull-no-history
+  labels:
+    {{- include "rca-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: default-rule
+spec:
+  priority: 200
+  trigger:
+    eventType: ImagePullBackOff
+  conditions:
+    - eventType: PodHealthy
+      scope: samePod
+      negate: true
+  fires:
+    incidentType: Registry
+    severity: P2
+    summary: "Registry failure: ImagePullBackOff with no prior healthy state"
+{{- end }}

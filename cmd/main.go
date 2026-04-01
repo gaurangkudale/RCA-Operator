@@ -118,10 +118,10 @@ func main() {
 	// --- OTel Setup ---
 	otelEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	otelShutdown, err := rcaotel.Setup(context.Background(), rcaotel.Config{
-		Endpoint:    otelEndpoint,
-		ServiceName: "rca-operator",
+		Endpoint:     otelEndpoint,
+		ServiceName:  "rca-operator",
 		SamplingRate: 1.0,
-		Insecure:    true,
+		Insecure:     true,
 	})
 	if err != nil {
 		setupLog.Error(err, "Failed to initialize OpenTelemetry")

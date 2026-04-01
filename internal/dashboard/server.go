@@ -50,6 +50,8 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// API endpoints
 	mux.HandleFunc("/api/incidents", s.handleIncidents)
+	mux.HandleFunc("/api/incidents/", s.handleIncidentDetail)
+	mux.HandleFunc("/api/rules", s.handleRules)
 	mux.HandleFunc("/api/stats", s.handleStats)
 
 	srv := &http.Server{
@@ -126,6 +128,23 @@ type agentInfo struct {
 	Name            string   `json:"name"`
 	WatchNamespaces []string `json:"watchNamespaces"`
 	Healthy         bool     `json:"healthy"`
+}
+
+type ruleResponse struct {
+	Name          string   `json:"name"`
+	Priority      int      `json:"priority"`
+	TriggerEvent  string   `json:"triggerEvent"`
+	Conditions    []string `json:"conditions"`
+	FiresType     string   `json:"firesType"`
+	FiresSeverity string   `json:"firesSeverity"`
+	AgentSelector string   `json:"agentSelector"`
+	Age           string   `json:"age"`
+}
+
+type incidentDetailResponse struct {
+	incidentResponse
+	TraceID   string `json:"traceId"`
+	FiredRule string `json:"firedRule"`
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
@@ -285,6 +304,95 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, resp)
+}
+
+func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	list := &rcav1alpha1.RCACorrelationRuleList{}
+	if err := s.client.List(r.Context(), list); err != nil {
+		s.log.Error(err, "Failed to list RCACorrelationRules")
+		http.Error(w, "failed to list rules", http.StatusInternalServerError)
+		return
+	}
+
+	result := make([]ruleResponse, 0, len(list.Items))
+	for i := range list.Items {
+		rule := &list.Items[i]
+		conditions := make([]string, 0, len(rule.Spec.Conditions))
+		for _, cond := range rule.Spec.Conditions {
+			desc := cond.EventType + " on " + cond.Scope
+			if cond.Negate {
+				desc = "NOT " + desc
+			}
+			conditions = append(conditions, desc)
+		}
+		agentSel := "all"
+		if rule.Spec.AgentSelector != nil {
+			parts := make([]string, 0)
+			for k, v := range rule.Spec.AgentSelector.MatchLabels {
+				parts = append(parts, k+"="+v)
+			}
+			if len(parts) > 0 {
+				agentSel = strings.Join(parts, ",")
+			}
+		}
+		age := time.Since(rule.CreationTimestamp.Time).Truncate(time.Minute).String()
+		result = append(result, ruleResponse{
+			Name:          rule.Name,
+			Priority:      rule.Spec.Priority,
+			TriggerEvent:  rule.Spec.Trigger.EventType,
+			Conditions:    conditions,
+			FiresType:     rule.Spec.Fires.IncidentType,
+			FiresSeverity: rule.Spec.Fires.Severity,
+			AgentSelector: agentSel,
+			Age:           age,
+		})
+	}
+
+	// Sort by priority descending.
+	sort.SliceStable(result, func(i, j int) bool {
+		return result[i].Priority > result[j].Priority
+	})
+
+	writeJSON(w, result)
+}
+
+func (s *Server) handleIncidentDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract incident name from path: /api/incidents/{namespace}/{name}
+	path := strings.TrimPrefix(r.URL.Path, "/api/incidents/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		http.Error(w, "path must be /api/incidents/{namespace}/{name}", http.StatusBadRequest)
+		return
+	}
+	namespace, name := parts[0], parts[1]
+
+	item := &rcav1alpha1.IncidentReport{}
+	if err := s.client.Get(r.Context(), client.ObjectKey{Namespace: namespace, Name: name}, item); err != nil {
+		s.log.Error(err, "Failed to get IncidentReport", "namespace", namespace, "name", name)
+		http.Error(w, "incident not found", http.StatusNotFound)
+		return
+	}
+
+	base := toIncidentResponse(item)
+	detail := incidentDetailResponse{
+		incidentResponse: base,
+	}
+	if item.Annotations != nil {
+		detail.TraceID = item.Annotations["rca.rca-operator.tech/trace-id"]
+		detail.FiredRule = item.Annotations["rca.rca-operator.tech/fired-rule"]
+	}
+
+	writeJSON(w, detail)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

@@ -9,12 +9,14 @@ import (
 	"github.com/gaurangkudale/rca-operator/internal/engine"
 )
 
+const crdEngineName = "crd"
+
 // crdRuleEngineAdapter wraps CRDRuleEngine to implement the engine.RuleEngine interface.
 type crdRuleEngineAdapter struct {
 	*CRDRuleEngine
 }
 
-func (a crdRuleEngineAdapter) Name() string { return "crd" }
+func (a crdRuleEngineAdapter) Name() string { return crdEngineName }
 
 // Factory creates CRDRuleEngine instances for the engine factory registry.
 type Factory struct {
@@ -22,11 +24,11 @@ type Factory struct {
 	Logger logr.Logger
 }
 
-func (f Factory) Name() string     { return "crd" }
-func (f Factory) Priority() int    { return 200 } // Higher than old correlator (100)
+func (f Factory) Name() string  { return crdEngineName }
+func (f Factory) Priority() int { return 200 } // Higher than old correlator (100)
 
 func (f Factory) Supports(d engine.RuleEngineDiscovery) bool {
-	return d.PreferredName == "" || strings.EqualFold(d.PreferredName, "crd")
+	return d.PreferredName == "" || strings.EqualFold(d.PreferredName, crdEngineName)
 }
 
 func (f Factory) Build(cfg engine.RuleEngineConfig) (engine.RuleEngine, error) {

@@ -7,10 +7,10 @@ import (
 
 // Deduplicator suppresses duplicate signals within a configurable time window.
 type Deduplicator struct {
-	mu      sync.Mutex
-	seen    map[string]time.Time
-	window  time.Duration
-	nowFn   func() time.Time
+	mu     sync.Mutex
+	seen   map[string]time.Time
+	window time.Duration
+	nowFn  func() time.Time
 }
 
 // NewDeduplicator creates a Deduplicator with the given window duration.
