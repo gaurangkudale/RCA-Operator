@@ -1,0 +1,17 @@
+apiVersion: rca.rca-operator.tech/v1alpha1
+kind: RCACorrelationRule
+metadata:
+  name: rcacorrelationrule-sample
+spec:
+  priority: 100
+  trigger:
+    eventType: CrashLoopBackOff
+  conditions:
+    - eventType: OOMKilled
+      scope: samePod
+      negate: false
+  fires:
+    incidentType: CrashLoopWithOOM
+    severity: P1
+    summary: "Pod {{.PodName}} in {{.Namespace}} is CrashLoopBackOff with OOM kills"
+    scope: Pod

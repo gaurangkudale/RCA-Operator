@@ -59,3 +59,11 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - rca.rca-operator.tech
+  resources:
+  - rcacorrelationrules
+  verbs:
+  - get
+  - list
+  - watch
