@@ -143,6 +143,26 @@ func (r *Reporter) EnsureSignal(ctx context.Context, input incident.Input) error
 		return r.reopenIncident(ctx, resolved, input, fingerprint, fingerprintHash)
 	}
 
+	// Workload-ref fallback: catches duplicates when the fingerprint is
+	// inconsistent across operator restarts or transient enrichment failures
+	// (e.g., ReplicaSet owner lookup fails → RS-scoped fingerprint instead of
+	// Deployment-scoped). Without this guard a second incident would be
+	// created for the same workload while the first still exists (open or
+	// recently resolved), producing the "one resolved, one active" duplicate
+	// visible in the UI.
+	if input.Scope.WorkloadRef != nil {
+		existing, err := r.findExistingByWorkloadRef(ctx, input)
+		if err != nil {
+			return err
+		}
+		if existing != nil {
+			if existing.Status.Phase == PhaseResolved {
+				return r.reopenIncident(ctx, existing, input, fingerprint, fingerprintHash)
+			}
+			return r.updateActiveIncident(ctx, existing, input, fingerprint, fingerprintHash)
+		}
+	}
+
 	return r.createIncident(ctx, input, fingerprint, fingerprintHash)
 }
 
@@ -321,6 +341,20 @@ func (r *Reporter) Consolidate(ctx context.Context) error {
 			Namespace: group.canonical.Namespace,
 			Name:      group.canonical.Name,
 		}
+
+		// Back-fill Spec.Fingerprint on legacy incidents that were created
+		// before the field was introduced. Without this, future fingerprint-
+		// based lookups fall back to the computed value which may differ from
+		// what a new enriched signal produces, resulting in duplicate incidents.
+		if group.canonical.Spec.Fingerprint == "" {
+			metaBase := group.canonical.DeepCopy()
+			group.canonical.Spec.Fingerprint = fp
+			if err := r.client.Patch(ctx, group.canonical, client.MergeFrom(metaBase)); err != nil {
+				r.log.Error(err, "failed to backfill fingerprint on canonical incident during consolidation",
+					"namespace", group.canonical.Namespace, "name", group.canonical.Name)
+			}
+		}
+
 		if len(group.extras) == 0 {
 			continue
 		}
@@ -405,6 +439,76 @@ func (r *Reporter) findResolvableIncident(ctx context.Context, namespace, finger
 		}
 	}
 	return best, nil
+}
+
+// findExistingByWorkloadRef is a last-resort dedup guard for workload-scoped
+// incidents. It lists all incidents in the namespace that share the same
+// incident type and have a matching WorkloadRef or a matching entry in
+// AffectedResources. It returns the best candidate: an open incident takes
+// priority over a recently-resolved one (within ReopenWindow). This function
+// is only called when the fingerprint-based lookups have already returned nil,
+// covering the case where fingerprints are inconsistent (e.g., one incident
+// used a Deployment ref while another used a ReplicaSet ref for the same
+// workload due to a transient owner-resolution failure).
+func (r *Reporter) findExistingByWorkloadRef(ctx context.Context, input incident.Input) (*rcav1alpha1.IncidentReport, error) {
+	workloadRef := input.Scope.WorkloadRef
+	if workloadRef == nil || workloadRef.Name == "" {
+		return nil, nil
+	}
+
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := r.client.List(ctx, list, client.InNamespace(input.Namespace),
+		client.MatchingLabels{LabelIncidentType: input.IncidentType}); err != nil {
+		return nil, fmt.Errorf("failed to list IncidentReports for workload-ref fallback: %w", err)
+	}
+
+	var bestOpen *rcav1alpha1.IncidentReport
+	var bestResolved *rcav1alpha1.IncidentReport
+
+	for i := range list.Items {
+		report := &list.Items[i]
+		if !reportMatchesWorkloadRef(report, workloadRef) {
+			continue
+		}
+		if report.Status.Phase != PhaseResolved {
+			if bestOpen == nil {
+				bestOpen = report.DeepCopy()
+			}
+			continue
+		}
+		resolvedAt := incidentstatus.EffectiveResolvedTime(report.Status)
+		if resolvedAt == nil || r.Now().Sub(resolvedAt.Time) > ReopenWindow {
+			continue
+		}
+		if bestResolved == nil || resolvedAt.After(bestResolvedTime(bestResolved).Time) {
+			bestResolved = report.DeepCopy()
+		}
+	}
+
+	if bestOpen != nil {
+		return bestOpen, nil
+	}
+	return bestResolved, nil
+}
+
+// reportMatchesWorkloadRef returns true when the given incident covers the
+// provided workload ref, checking both Spec.Scope.WorkloadRef and every
+// entry in Status.AffectedResources. Kind, Namespace, and Name must all match.
+func reportMatchesWorkloadRef(report *rcav1alpha1.IncidentReport, workloadRef *rcav1alpha1.IncidentObjectRef) bool {
+	if workloadRef == nil {
+		return false
+	}
+	if ref := report.Spec.Scope.WorkloadRef; ref != nil {
+		if ref.Kind == workloadRef.Kind && ref.Namespace == workloadRef.Namespace && ref.Name == workloadRef.Name {
+			return true
+		}
+	}
+	for _, res := range report.Status.AffectedResources {
+		if res.Kind == workloadRef.Kind && res.Namespace == workloadRef.Namespace && res.Name == workloadRef.Name {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Reporter) updateActiveIncident(ctx context.Context, report *rcav1alpha1.IncidentReport, input incident.Input, fingerprint, hash string) error {
