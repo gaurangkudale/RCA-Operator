@@ -27,7 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -54,7 +54,7 @@ const (
 type IncidentReportReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 	Notifier *notify.Dispatcher
 	nowFn    func() time.Time
 }
@@ -190,7 +190,7 @@ func (r *IncidentReportReconciler) transitionToActive(ctx context.Context, repor
 		return ctrl.Result{}, fmt.Errorf("failed to transition IncidentReport %s/%s to Active: %w", report.Namespace, report.Name, err)
 	}
 	if r.Recorder != nil {
-		r.Recorder.Eventf(report, corev1.EventTypeWarning, "IncidentActive",
+		r.Recorder.Eventf(report, nil, corev1.EventTypeWarning, "IncidentActive", "Activate",
 			"Incident confirmed active type=%s severity=%s", report.Status.IncidentType, report.Status.Severity)
 	}
 	return ctrl.Result{RequeueAfter: healthyResolveWindow}, nil
@@ -204,7 +204,8 @@ func (r *IncidentReportReconciler) transitionToResolved(ctx context.Context, rep
 		return ctrl.Result{}, fmt.Errorf("failed to resolve IncidentReport %s/%s: %w", report.Namespace, report.Name, err)
 	}
 	if r.Recorder != nil {
-		r.Recorder.Eventf(report, corev1.EventTypeNormal, "IncidentResolved", "%s", reason)
+		r.Recorder.Eventf(report, nil, corev1.EventTypeNormal, "IncidentResolved", "Resolve",
+			"%s", reason)
 	}
 	return ctrl.Result{}, nil
 }

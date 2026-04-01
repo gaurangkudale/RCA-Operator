@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/gaurangkudale/rca-operator/internal/collectors"
@@ -123,7 +123,7 @@ func WithConsumerOption(opt correlator.Option) Option {
 
 // WithEventRecorder forwards lifecycle events through the incident engine's
 // consumer compatibility layer.
-func WithEventRecorder(recorder record.EventRecorder) Option {
+func WithEventRecorder(recorder events.EventRecorder) Option {
 	return func(opts *incidentEngineOptions) {
 		opts.consumerOptions = append(opts.consumerOptions, correlator.WithEventRecorder(recorder))
 	}
