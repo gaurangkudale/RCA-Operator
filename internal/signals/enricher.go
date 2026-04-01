@@ -42,6 +42,10 @@ func (e *Enricher) Enrich(ctx context.Context, sig NormalizedSignal) NormalizedS
 		return sig
 	}
 
+	// Preserve any pre-existing WorkloadRef set by the normalizer (e.g. for
+	// StalledRollout events that have deployment identity before enrichment).
+	existingWorkloadRef := sig.Scope.WorkloadRef
+
 	scope, affectedResources, err := e.resolver.ResolvePodScope(ctx, sig.Namespace, podName)
 	if err != nil {
 		e.log.V(1).Info("Falling back to pod scope",
@@ -52,6 +56,10 @@ func (e *Enricher) Enrich(ctx context.Context, sig NormalizedSignal) NormalizedS
 		// ResolvePodScope returns usable fallback scope/affected even on error.
 		sig.Scope = scope
 		sig.AffectedResources = affectedResources
+		// Restore pre-existing WorkloadRef if the resolver didn't provide one.
+		if sig.Scope.WorkloadRef == nil && existingWorkloadRef != nil {
+			sig.Scope.WorkloadRef = existingWorkloadRef
+		}
 		// Even on fallback, attempt workload promotion using pod name heuristics.
 		sig.Input = promoteToWorkloadScope(sig.Input, sig.Namespace, podName)
 		return sig
@@ -59,6 +67,10 @@ func (e *Enricher) Enrich(ctx context.Context, sig NormalizedSignal) NormalizedS
 
 	sig.Scope = scope
 	sig.AffectedResources = affectedResources
+	// Restore pre-existing WorkloadRef if the resolver didn't provide one.
+	if sig.Scope.WorkloadRef == nil && existingWorkloadRef != nil {
+		sig.Scope.WorkloadRef = existingWorkloadRef
+	}
 
 	// Promote to workload scope if we resolved an owner.
 	sig.Input = promoteToWorkloadScope(sig.Input, sig.Namespace, podName)

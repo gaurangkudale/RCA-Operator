@@ -442,7 +442,10 @@ func (r *Reporter) findResolvableIncident(ctx context.Context, namespace, finger
 // type. This ensures that different signal types (e.g. ImagePullBackOff and
 // StalledRollout) targeting the same Deployment coalesce into a single
 // incident. It returns the best candidate: an open incident takes priority
-// over a recently-resolved one (within ReopenWindow).
+// over a resolved one (most recently resolved wins). Unlike the fingerprint-
+// based lookups, the workload-ref fallback does NOT enforce ReopenWindow —
+// its purpose is to prevent duplicates even when the operator restarts long
+// after the previous incident was resolved.
 func (r *Reporter) findExistingByWorkloadRef(ctx context.Context, input incident.Input) (*rcav1alpha1.IncidentReport, error) {
 	workloadRef := input.Scope.WorkloadRef
 	if workloadRef == nil || workloadRef.Name == "" {
@@ -469,7 +472,7 @@ func (r *Reporter) findExistingByWorkloadRef(ctx context.Context, input incident
 			continue
 		}
 		resolvedAt := incidentstatus.EffectiveResolvedTime(report.Status)
-		if resolvedAt == nil || r.Now().Sub(resolvedAt.Time) > ReopenWindow {
+		if resolvedAt == nil {
 			continue
 		}
 		if bestResolved == nil || resolvedAt.After(bestResolvedTime(bestResolved).Time) {

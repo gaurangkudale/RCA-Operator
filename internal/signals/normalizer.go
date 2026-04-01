@@ -156,6 +156,9 @@ func (n *Normalizer) buildInput(event watcher.CorrelatorEvent, mapping SignalMap
 	}
 
 	// Handle StalledRollout special case: workload ref is the Deployment.
+	// The deployment watcher stores the deployment name in BaseEvent.PodName for
+	// routing, but StalledRollout is a workload-level event — override the scope
+	// to Workload so the fingerprint uses deployment identity.
 	if sr, ok := event.(watcher.StalledRolloutEvent); ok {
 		ref := &rcav1alpha1.IncidentObjectRef{
 			APIVersion: "apps/v1",
@@ -163,6 +166,8 @@ func (n *Normalizer) buildInput(event watcher.CorrelatorEvent, mapping SignalMap
 			Namespace:  sr.Namespace,
 			Name:       sr.DeploymentName,
 		}
+		input.Scope.Level = incident.ScopeLevelWorkload
+		input.Scope.Namespace = sr.Namespace
 		input.Scope.WorkloadRef = ref
 		input.Scope.ResourceRef = ref
 		input.AffectedResources = []rcav1alpha1.AffectedResource{
