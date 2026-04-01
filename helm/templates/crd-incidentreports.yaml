@@ -1,9 +1,11 @@
+{{- if .Values.crds.install }}
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
+    helm.sh/resource-policy: keep
   name: incidentreports.rca.rca-operator.tech
 spec:
   group: rca.rca-operator.tech
@@ -259,16 +261,10 @@ spec:
                 format: date-time
                 type: string
               incidentType:
-                description: incidentType is the category of incident detected by
-                  the incident engine.
-                enum:
-                - CrashLoop
-                - OOM
-                - BadDeploy
-                - NodeFailure
-                - Registry
-                - GracePeriodViolation
-                - ProbeFailure
+                description: |-
+                  incidentType is the category of incident detected by the incident engine.
+                  The value is self-describing from the raw event type (e.g. CrashLoopBackOff,
+                  OOMKilled, ImagePullBackOff, NodeNotReady) rather than a fixed enum.
                 type: string
               lastObservedAt:
                 description: lastObservedAt is when the most recent confirming signal
@@ -369,3 +365,4 @@ spec:
     storage: true
     subresources:
       status: {}
+{{- end }}

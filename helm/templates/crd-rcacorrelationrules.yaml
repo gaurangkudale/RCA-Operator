@@ -1,9 +1,11 @@
+{{- if .Values.crds.install }}
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
+    helm.sh/resource-policy: keep
   name: rcacorrelationrules.rca.rca-operator.tech
 spec:
   group: rca.rca-operator.tech
@@ -177,7 +179,7 @@ spec:
                   summary:
                     description: |-
                       summary is a Go text/template rendered with event context.
-                      Available variables: {{.PodName}}, {{.Namespace}}, {{.NodeName}}, {{.EventType}}.
+                      Available variables: {{ "{{" }}.PodName{{ "}}" }}, {{ "{{" }}.Namespace{{ "}}" }}, {{ "{{" }}.NodeName{{ "}}" }}, {{ "{{" }}.EventType{{ "}}" }}.
                     minLength: 1
                     type: string
                 required:
@@ -214,3 +216,4 @@ spec:
     served: true
     storage: true
     subresources: {}
+{{- end }}
