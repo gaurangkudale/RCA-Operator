@@ -2,4 +2,5 @@
 resources:
 - rca_v1alpha1_rcaagent.yaml
 - rca_v1alpha1_incidentreport.yaml
+- rca_v1alpha1_rcacorrelationrule.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

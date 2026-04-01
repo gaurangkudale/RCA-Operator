@@ -28,4 +28,7 @@ resources:
 - rcaagent_admin_role.yaml
 - rcaagent_editor_role.yaml
 - rcaagent_viewer_role.yaml
+- rcacorrelationrule_admin_role.yaml
+- rcacorrelationrule_editor_role.yaml
+- rcacorrelationrule_viewer_role.yaml
 
