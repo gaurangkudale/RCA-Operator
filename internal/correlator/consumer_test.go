@@ -1593,14 +1593,280 @@ func TestHandleEvent_Rule5NodeFailure_DedupsWithNodeNotReadyIncident(t *testing.
 		t.Fatalf("handleEvent: %v", err)
 	}
 
+}
+
+// ── Workload-ref fallback deduplication ──────────────────────────────────────
+
+// TestHandleEvent_WorkloadRefFallback_PreventsOpenDuplicate verifies that when
+// an open Registry incident exists with a different fingerprint (e.g.,
+// ReplicaSet-scoped) but the same WorkloadRef (Deployment), a new
+// ImagePullBackOff event is routed to the existing incident via the workload-ref
+// fallback rather than creating a second one.
+func TestHandleEvent_WorkloadRefFallback_PreventsOpenDuplicate(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add RCA scheme: %v", err)
+	}
+
+	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
+
+	// Existing open incident created with a ReplicaSet-scoped fingerprint
+	// (what happens when the RS Get succeeds but Deployment lookup fails).
+	existing := &rcav1alpha1.IncidentReport{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "registry-myapp-rs-abc",
+			Namespace: "dev",
+			Labels: map[string]string{
+				labelIncidentType: incidentTypeRegistry,
+				labelSeverity:     "P3",
+			},
+		},
+		Spec: rcav1alpha1.IncidentReportSpec{
+			AgentRef:     "ag",
+			Fingerprint:  "Registry|dev|replicaset|myapp-abc12345",
+			IncidentType: incidentTypeRegistry,
+			Scope: rcav1alpha1.IncidentScope{
+				Level:     incident.ScopeLevelWorkload,
+				Namespace: "dev",
+				WorkloadRef: &rcav1alpha1.IncidentObjectRef{
+					APIVersion: "apps/v1",
+					Kind:       "Deployment",
+					Namespace:  "dev",
+					Name:       "myapp",
+				},
+			},
+		},
+		Status: rcav1alpha1.IncidentReportStatus{
+			Phase:        phaseActive,
+			IncidentType: incidentTypeRegistry,
+			Severity:     "P3",
+			AffectedResources: []rcav1alpha1.AffectedResource{
+				{APIVersion: "apps/v1", Kind: "Deployment", Namespace: "dev", Name: "myapp"},
+				{Kind: "Pod", Namespace: "dev", Name: "myapp-abc12345-xyz56"},
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		WithObjects(existing).
+		Build()
+
+	c := NewConsumer(cl, nil, logr.Discard())
+	c.now = func() time.Time { return now }
+
+	// New event for a different pod of the SAME deployment. The enricher will
+	// fail (pod not in fake client) and fall back to the heuristic which
+	// correctly guesses "myapp" from the pod name, producing fingerprint
+	// "Registry|dev|deployment|myapp" — different from the existing incident's
+	// "Registry|dev|replicaset|myapp-abc12345".
+	if err := c.handleEvent(context.Background(), watcher.ImagePullBackOffEvent{
+		BaseEvent:     watcher.BaseEvent{At: now, AgentName: "ag", Namespace: "dev", PodName: "myapp-abc12345-def78"},
+		ContainerName: "app",
+		Reason:        "ImagePullBackOff",
+	}); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+
 	list := &rcav1alpha1.IncidentReportList{}
 	if err := cl.List(context.Background(), list); err != nil {
 		t.Fatalf("list: %v", err)
 	}
 	if len(list.Items) != 1 {
-		t.Fatalf("expected 1 NodeFailure incident (no duplicate), got %d", len(list.Items))
+		t.Fatalf("expected 1 IncidentReport (workload-ref fallback, no duplicate), got %d", len(list.Items))
 	}
-	if list.Items[0].Name != existingNodeFailure.Name {
+	if list.Items[0].Name != existing.Name {
 		t.Errorf("existing incident name should be unchanged; got %q", list.Items[0].Name)
+	}
+}
+
+// TestHandleEvent_WorkloadRefFallback_ReOpensResolvedWithDifferentFingerprint
+// verifies that a resolved Registry incident with a different fingerprint is
+// reopened (not duplicated) when a new ImagePullBackOff event arrives for the
+// same workload within the reopen window. This covers the "one resolved, one
+// active" duplicate scenario described in the issue.
+func TestHandleEvent_WorkloadRefFallback_ReOpensResolvedWithDifferentFingerprint(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add RCA scheme: %v", err)
+	}
+
+	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
+	resolvedAt := metav1.NewTime(now.Add(-5 * time.Minute)) // within 30-min reopen window
+
+	// Resolved incident created with a ReplicaSet-scoped fingerprint; the
+	// WorkloadRef correctly points to the parent Deployment.
+	resolved := &rcav1alpha1.IncidentReport{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "registry-myapp-rs-abc",
+			Namespace: "dev",
+			Labels: map[string]string{
+				labelIncidentType: incidentTypeRegistry,
+				labelSeverity:     "P3",
+			},
+		},
+		Spec: rcav1alpha1.IncidentReportSpec{
+			AgentRef:     "ag",
+			Fingerprint:  "Registry|dev|replicaset|myapp-abc12345",
+			IncidentType: incidentTypeRegistry,
+			Scope: rcav1alpha1.IncidentScope{
+				Level:     incident.ScopeLevelWorkload,
+				Namespace: "dev",
+				WorkloadRef: &rcav1alpha1.IncidentObjectRef{
+					APIVersion: "apps/v1",
+					Kind:       "Deployment",
+					Namespace:  "dev",
+					Name:       "myapp",
+				},
+			},
+		},
+		Status: rcav1alpha1.IncidentReportStatus{
+			Phase:        phaseResolved,
+			IncidentType: incidentTypeRegistry,
+			Severity:     "P3",
+			ResolvedTime: &resolvedAt,
+			AffectedResources: []rcav1alpha1.AffectedResource{
+				{APIVersion: "apps/v1", Kind: "Deployment", Namespace: "dev", Name: "myapp"},
+				{Kind: "Pod", Namespace: "dev", Name: "myapp-abc12345-xyz56"},
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		WithObjects(resolved).
+		Build()
+
+	c := NewConsumer(cl, nil, logr.Discard())
+	c.now = func() time.Time { return now }
+
+	// New event for the same deployment. The enricher falls back to heuristic
+	// and produces fingerprint "Registry|dev|deployment|myapp", which differs
+	// from the resolved incident's "Registry|dev|replicaset|myapp-abc12345".
+	// The workload-ref fallback must reopen the resolved incident.
+	if err := c.handleEvent(context.Background(), watcher.ImagePullBackOffEvent{
+		BaseEvent:     watcher.BaseEvent{At: now, AgentName: "ag", Namespace: "dev", PodName: "myapp-abc12345-def78"},
+		ContainerName: "app",
+		Reason:        "ImagePullBackOff",
+	}); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := cl.List(context.Background(), list); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 IncidentReport (reopen via workload-ref, no duplicate), got %d: resolved=%v active=%v",
+			len(list.Items),
+			func() []string {
+				var names []string
+				for _, r := range list.Items {
+					if r.Status.Phase == phaseResolved {
+						names = append(names, r.Name+"(resolved)")
+					}
+				}
+				return names
+			}(),
+			func() []string {
+				var names []string
+				for _, r := range list.Items {
+					if r.Status.Phase != phaseResolved {
+						names = append(names, r.Name+"("+r.Status.Phase+")")
+					}
+				}
+				return names
+			}(),
+		)
+	}
+	got := list.Items[0]
+	if got.Name != resolved.Name {
+		t.Errorf("expected incident %q to be reopened; got %q", resolved.Name, got.Name)
+	}
+	if got.Status.Phase == phaseResolved {
+		t.Errorf("incident should have been reopened, but phase is still %q", got.Status.Phase)
+	}
+	if got.Status.ResolvedTime != nil {
+		t.Error("ResolvedTime should be nil after reopen")
+	}
+}
+
+// TestConsolidateBackfillsFingerprint verifies that Consolidate writes
+// Spec.Fingerprint on legacy incidents that were created without it.
+// After backfill, a new signal can find the incident via the label-based hash
+// lookup without needing the workload-ref fallback.
+func TestConsolidateBackfillsFingerprint(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add RCA scheme: %v", err)
+	}
+
+	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
+
+	// Legacy incident without Spec.Fingerprint; WorkloadRef points to a Deployment.
+	legacy := &rcav1alpha1.IncidentReport{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "registry-myapp-legacy",
+			Namespace: "dev",
+			Labels: map[string]string{
+				labelIncidentType: incidentTypeRegistry,
+				labelSeverity:     "P3",
+			},
+		},
+		Spec: rcav1alpha1.IncidentReportSpec{
+			AgentRef:     "ag",
+			IncidentType: incidentTypeRegistry,
+			Scope: rcav1alpha1.IncidentScope{
+				Level:     incident.ScopeLevelWorkload,
+				Namespace: "dev",
+				WorkloadRef: &rcav1alpha1.IncidentObjectRef{
+					APIVersion: "apps/v1",
+					Kind:       "Deployment",
+					Namespace:  "dev",
+					Name:       "myapp",
+				},
+			},
+		},
+		Status: rcav1alpha1.IncidentReportStatus{
+			Phase:        phaseActive,
+			IncidentType: incidentTypeRegistry,
+			Severity:     "P3",
+			AffectedResources: []rcav1alpha1.AffectedResource{
+				{APIVersion: "apps/v1", Kind: "Deployment", Namespace: "dev", Name: "myapp"},
+				{Kind: "Pod", Namespace: "dev", Name: "myapp-abc12345-xyz56"},
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		WithObjects(legacy).
+		Build()
+
+	c := NewConsumer(cl, nil, logr.Discard())
+	c.now = func() time.Time { return now }
+
+	if err := c.consolidateRegistryDuplicates(context.Background()); err != nil {
+		t.Fatalf("consolidateRegistryDuplicates: %v", err)
+	}
+
+	updated := &rcav1alpha1.IncidentReport{}
+	if err := cl.Get(context.Background(), types.NamespacedName{Namespace: "dev", Name: legacy.Name}, updated); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if updated.Spec.Fingerprint == "" {
+		t.Error("Spec.Fingerprint should have been backfilled by Consolidate")
 	}
 }
