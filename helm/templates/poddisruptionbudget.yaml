@@ -1,0 +1,14 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "rca-operator.fullname" . }}-controller-manager
+  namespace: {{ include "rca-operator.namespace" . }}
+  labels:
+    {{- include "rca-operator.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "rca-operator.selectorLabels" . | nindent 6 }}
+{{- end }}

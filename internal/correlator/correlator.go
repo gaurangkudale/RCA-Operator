@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
@@ -155,7 +155,7 @@ func WithRuleEngine(engine RuleEngine) Option {
 // When set, the consumer emits corev1.Events on IncidentReport CRs at key
 // lifecycle points (detected, resolved, re-opened), making them visible via
 // kubectl describe incidentreport.
-func WithEventRecorder(r record.EventRecorder) Option {
+func WithEventRecorder(r events.EventRecorder) Option {
 	return func(consumer *Consumer) {
 		consumer.rep.Recorder = r
 	}

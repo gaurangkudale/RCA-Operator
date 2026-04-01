@@ -101,6 +101,8 @@ func (n *Normalizer) buildInput(event watcher.CorrelatorEvent, mapping SignalMap
 	}
 
 	// Scope defaults based on mapping.
+	// Pod-originated events start at pod scope so the Enricher can resolve owner refs.
+	// Workload events without a pod name (StalledRollout) go directly to workload scope.
 	switch mapping.ScopeLevel {
 	case "Cluster":
 		input.Scope = rcav1alpha1.IncidentScope{
@@ -115,11 +117,28 @@ func (n *Normalizer) buildInput(event watcher.CorrelatorEvent, mapping SignalMap
 			{APIVersion: "v1", Kind: "Node", Name: base.NodeName},
 		}
 	case "Workload":
-		input.Scope = rcav1alpha1.IncidentScope{
-			Level:     incident.ScopeLevelWorkload,
-			Namespace: base.Namespace,
+		if base.PodName != "" {
+			// Pod-originated workload event (e.g. ImagePullBackOff) — start at pod scope,
+			// the Enricher will resolve owner refs and promote.
+			input.Scope = rcav1alpha1.IncidentScope{
+				Level:     incident.ScopeLevelPod,
+				Namespace: base.Namespace,
+				ResourceRef: &rcav1alpha1.IncidentObjectRef{
+					APIVersion: "v1",
+					Kind:       "Pod",
+					Namespace:  base.Namespace,
+					Name:       base.PodName,
+				},
+			}
+		} else {
+			// Deployment-originated workload event (e.g. StalledRollout).
+			input.Scope = rcav1alpha1.IncidentScope{
+				Level:     incident.ScopeLevelWorkload,
+				Namespace: base.Namespace,
+			}
 		}
 	default:
+		// Pod-scoped events.
 		input.Scope = rcav1alpha1.IncidentScope{
 			Level:     incident.ScopeLevelPod,
 			Namespace: base.Namespace,

@@ -39,6 +39,14 @@ spec:
             - /manager
           args:
             {{- toYaml .Values.manager.args | nindent 12 }}
+            {{- if .Values.webhooks.enabled }}
+            - --enable-webhooks=true
+            {{- end }}
+          env:
+            {{- if .Values.otel.enabled }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.otel.endpoint | quote }}
+            {{- end }}
           {{- with .Values.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}

@@ -118,10 +118,10 @@ func main() {
 	// --- OTel Setup ---
 	otelEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	otelShutdown, err := rcaotel.Setup(context.Background(), rcaotel.Config{
-		Endpoint:    otelEndpoint,
-		ServiceName: "rca-operator",
+		Endpoint:     otelEndpoint,
+		ServiceName:  "rca-operator",
 		SamplingRate: 1.0,
-		Insecure:    true,
+		Insecure:     true,
 	})
 	if err != nil {
 		setupLog.Error(err, "Failed to initialize OpenTelemetry")
@@ -214,7 +214,7 @@ func main() {
 		mgr.GetClient(),
 		signals,
 		ctrl.Log,
-		engine.WithEventRecorder(mgr.GetEventRecorderFor("rca-incident-engine")),
+		engine.WithEventRecorder(mgr.GetEventRecorder("rca-incident-engine")),
 	)
 	if err != nil {
 		setupLog.Error(err, "Failed to create incident engine")
@@ -240,10 +240,9 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&controller.IncidentReportReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-		//nolint:staticcheck // TODO: Migrate to events.EventRecorder API
-		Recorder: mgr.GetEventRecorderFor("incidentreport-controller"),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorder("incidentreport-controller"),
 		Notifier: notify.NewDispatcher(mgr.GetClient(), ctrl.Log),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "IncidentReport")

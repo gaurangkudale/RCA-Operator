@@ -19,6 +19,10 @@ spec:
       jsonPath: .status.conditions[?(@.type=='Available')].status
       name: Status
       type: string
+    - description: Incident retention duration
+      jsonPath: .spec.incidentRetention
+      name: Retention
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -114,6 +118,67 @@ spec:
                     - webhookSecretRef
                     type: object
                 type: object
+              otel:
+                description: OTel holds optional OpenTelemetry configuration for exporting
+                  traces and metrics to SigNoz.
+                properties:
+                  endpoint:
+                    description: Endpoint is the OTLP gRPC collector address (e.g.
+                      "signoz-collector:4317").
+                    minLength: 1
+                    type: string
+                  insecure:
+                    description: Insecure disables TLS on the gRPC connection (typical
+                      for in-cluster collectors).
+                    type: boolean
+                  samplingRate:
+                    description: SamplingRate is the trace sampling ratio as a string
+                      (e.g. "1.0"). Defaults to "1.0".
+                    type: string
+                  serviceName:
+                    description: ServiceName is the service.name resource attribute.
+                      Defaults to "rca-operator".
+                    type: string
+                required:
+                - endpoint
+                type: object
+              signalMappings:
+                description: SignalMappings allows overriding the default event-type
+                  → incident-type mapping.
+                items:
+                  description: SignalMappingConfig overrides the default event→incident
+                    mapping for a single event type.
+                  properties:
+                    eventType:
+                      description: EventType is the watcher event type to override
+                        (e.g. "CrashLoopBackOff").
+                      minLength: 1
+                      type: string
+                    incidentType:
+                      description: IncidentType overrides the default incident type.
+                      minLength: 1
+                      type: string
+                    scope:
+                      description: Scope overrides the default scope level.
+                      enum:
+                      - Pod
+                      - Workload
+                      - Namespace
+                      - Cluster
+                      type: string
+                    severity:
+                      description: Severity overrides the default severity.
+                      enum:
+                      - P1
+                      - P2
+                      - P3
+                      - P4
+                      type: string
+                  required:
+                  - eventType
+                  - incidentType
+                  type: object
+                type: array
               watchNamespaces:
                 default:
                 - default

@@ -65,7 +65,7 @@ func podHealthy(ns, pod string) watcher.PodHealthyEvent {
 
 // makeBuffer returns a Buffer with a fixed nowFn for deterministic tests.
 func makeBuffer(window time.Duration) *Buffer {
-	b := newBuffer(window)
+	b := NewBuffer(window)
 	b.nowFn = func() time.Time { return testNow }
 	return b
 }
@@ -74,7 +74,7 @@ func makeBuffer(window time.Duration) *Buffer {
 func addAt(b *Buffer, e watcher.CorrelatorEvent, at time.Time) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.entries = append(b.entries, entry{event: e, addedAt: at})
+	b.entries = append(b.entries, Entry{Event: e, AddedAt: at})
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -82,7 +82,7 @@ func addAt(b *Buffer, e watcher.CorrelatorEvent, at time.Time) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 func TestBuffer_AddAndPurge(t *testing.T) {
-	b := newBuffer(5 * time.Minute)
+	b := NewBuffer(5 * time.Minute)
 
 	tick := testNow
 	b.nowFn = func() time.Time { return tick }
@@ -101,9 +101,9 @@ func TestBuffer_AddAndPurge(t *testing.T) {
 	if len(b.entries) != 1 {
 		t.Fatalf("expected 1 entry after purge, got %d", len(b.entries))
 	}
-	cl, ok := b.entries[0].event.(watcher.CrashLoopBackOffEvent)
+	cl, ok := b.entries[0].Event.(watcher.CrashLoopBackOffEvent)
 	if !ok || cl.PodName != "pod-b" {
-		t.Fatalf("expected pod-b to remain, got %+v", b.entries[0].event)
+		t.Fatalf("expected pod-b to remain, got %+v", b.entries[0].Event)
 	}
 }
 
@@ -114,14 +114,14 @@ func TestBuffer_Snapshot(t *testing.T) {
 	addAt(b, crashLoop("ns", "pod-a", "node-1", "app", 1), testNow.Add(-2*time.Minute))
 	addAt(b, oomKilled("ns", "pod-a", "node-1", "app"), testNow.Add(-1*time.Minute))
 
-	snap := b.snapshot()
+	snap := b.Snapshot()
 	if len(snap) != 2 {
 		t.Fatalf("expected 2 entries in snapshot, got %d", len(snap))
 	}
 
 	// Mutating the snapshot must not affect the buffer.
-	snap[0] = entry{}
-	if _, ok := b.entries[0].event.(watcher.CrashLoopBackOffEvent); !ok {
+	snap[0] = Entry{}
+	if _, ok := b.entries[0].Event.(watcher.CrashLoopBackOffEvent); !ok {
 		t.Fatal("snapshot mutation affected buffer")
 	}
 }
@@ -131,7 +131,7 @@ func TestBuffer_Snapshot_PurgesExpired(t *testing.T) {
 	addAt(b, crashLoop("ns", "pod-a", "node-1", "app", 1), testNow.Add(-10*time.Minute))
 	addAt(b, oomKilled("ns", "pod-b", "node-1", "app"), testNow.Add(-1*time.Minute))
 
-	snap := b.snapshot()
+	snap := b.Snapshot()
 	if len(snap) != 1 {
 		t.Fatalf("expected 1 entry after expiry purge, got %d", len(snap))
 	}
@@ -184,9 +184,9 @@ func TestRule1_CrashLoopPlusOOM(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			entries := make([]entry, len(tc.history))
+			entries := make([]Entry, len(tc.history))
 			for i, e := range tc.history {
-				entries[i] = entry{event: e, addedAt: testNow}
+				entries[i] = Entry{Event: e, AddedAt: testNow}
 			}
 			result := ruleCrashLoopPlusOOM(tc.trigger, entries)
 			if result.Fired != tc.wantFire {
@@ -246,9 +246,9 @@ func TestRule2_CrashLoopPlusBadDeploy(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			entries := make([]entry, len(tc.history))
+			entries := make([]Entry, len(tc.history))
 			for i, e := range tc.history {
-				entries[i] = entry{event: e, addedAt: testNow}
+				entries[i] = Entry{Event: e, AddedAt: testNow}
 			}
 			result := ruleCrashLoopPlusBadDeploy(tc.trigger, entries)
 			if result.Fired != tc.wantFire {
@@ -310,9 +310,9 @@ func TestRule4_ImagePullNoHistory(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			entries := make([]entry, len(tc.history))
+			entries := make([]Entry, len(tc.history))
 			for i, e := range tc.history {
-				entries[i] = entry{event: e, addedAt: testNow}
+				entries[i] = Entry{Event: e, AddedAt: testNow}
 			}
 			result := ruleImagePullNoHistory(tc.trigger, entries)
 			if result.Fired != tc.wantFire {
@@ -383,9 +383,9 @@ func TestRule5_NodeNotReadyPlusEviction(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			entries := make([]entry, len(tc.history))
+			entries := make([]Entry, len(tc.history))
 			for i, e := range tc.history {
-				entries[i] = entry{event: e, addedAt: testNow}
+				entries[i] = Entry{Event: e, AddedAt: testNow}
 			}
 			result := ruleNodeNotReadyPlusEviction(tc.trigger, entries)
 			if result.Fired != tc.wantFire {
