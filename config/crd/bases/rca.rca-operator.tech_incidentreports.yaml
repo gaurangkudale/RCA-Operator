@@ -264,11 +264,18 @@ spec:
                 enum:
                 - CrashLoop
                 - OOM
-                - BadDeploy
+                - ImagePullFailure
+                - SchedulingFailure
+                - DeploymentRolloutFailure
+                - StatefulSetRolloutFailure
+                - DaemonSetRolloutFailure
+                - JobFailure
+                - CronJobFailure
                 - NodeFailure
-                - Registry
+                - NodePressure
                 - GracePeriodViolation
                 - ProbeFailure
+                - TerminationFailure
                 type: string
               lastObservedAt:
                 description: lastObservedAt is when the most recent confirming signal
