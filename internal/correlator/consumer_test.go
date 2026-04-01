@@ -2,6 +2,7 @@ package correlator
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -1838,6 +1839,98 @@ func TestHandleEvent_WorkloadRefFallback_ReOpensResolvedWithDifferentFingerprint
 	}
 	if got.Status.ResolvedTime != nil {
 		t.Error("ResolvedTime should be nil after reopen")
+	}
+}
+
+// TestHandleEvent_WorkloadRefFallback_ReOpensLongResolvedIncident verifies that
+// a resolved incident for the same workload is reopened even when it was resolved
+// far outside the normal ReopenWindow (30m). This reproduces the operator-restart
+// scenario: a StalledRollout incident resolved 40h ago should be reopened when a
+// new ImagePullBackOff event arrives, preventing duplicate incidents.
+func TestHandleEvent_WorkloadRefFallback_ReOpensLongResolvedIncident(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add RCA scheme: %v", err)
+	}
+
+	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
+	resolvedAt := metav1.NewTime(now.Add(-40 * time.Hour)) // resolved 40h ago — well outside 30m ReopenWindow
+
+	resolved := &rcav1alpha1.IncidentReport{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "stalledrollout-payment-service-abc",
+			Namespace: "development",
+			Labels: map[string]string{
+				labelIncidentType: "StalledRollout",
+				labelSeverity:     "P2",
+			},
+		},
+		Spec: rcav1alpha1.IncidentReportSpec{
+			AgentRef:     "ag",
+			Fingerprint:  "Workload|development|deployment|payment-service",
+			IncidentType: "StalledRollout",
+			Scope: rcav1alpha1.IncidentScope{
+				Level:     incident.ScopeLevelWorkload,
+				Namespace: "development",
+				WorkloadRef: &rcav1alpha1.IncidentObjectRef{
+					APIVersion: "apps/v1",
+					Kind:       "Deployment",
+					Namespace:  "development",
+					Name:       "payment-service",
+				},
+			},
+		},
+		Status: rcav1alpha1.IncidentReportStatus{
+			Phase:        phaseResolved,
+			IncidentType: "StalledRollout",
+			Severity:     "P2",
+			ResolvedTime: &resolvedAt,
+			AffectedResources: []rcav1alpha1.AffectedResource{
+				{APIVersion: "apps/v1", Kind: "Deployment", Namespace: "development", Name: "payment-service"},
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		WithObjects(resolved).
+		Build()
+
+	c := NewConsumer(cl, nil, logr.Discard())
+	c.now = func() time.Time { return now }
+
+	// Simulate operator restart: bootstrap scan detects ImagePullBackOff
+	if err := c.handleEvent(context.Background(), watcher.ImagePullBackOffEvent{
+		BaseEvent:     watcher.BaseEvent{At: now, AgentName: "ag", Namespace: "development", PodName: "payment-service-abc123def-ab12c"},
+		ContainerName: "app",
+		Reason:        "ImagePullBackOff",
+	}); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := cl.List(context.Background(), list); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+
+	if len(list.Items) != 1 {
+		names := make([]string, 0, len(list.Items))
+		for _, item := range list.Items {
+			names = append(names, fmt.Sprintf("%s(%s/%s)", item.Name, item.Status.Phase, item.Status.IncidentType))
+		}
+		t.Fatalf("expected 1 incident (workload-ref reopened long-resolved), got %d: %v", len(list.Items), names)
+	}
+
+	got := list.Items[0]
+	if got.Name != resolved.Name {
+		t.Errorf("expected resolved incident %q to be reopened; got new incident %q", resolved.Name, got.Name)
+	}
+	if got.Status.Phase == phaseResolved {
+		t.Errorf("incident should have been reopened, but phase is still %q", got.Status.Phase)
 	}
 }
 
