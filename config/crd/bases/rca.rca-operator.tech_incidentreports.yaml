@@ -259,16 +259,10 @@ spec:
                 format: date-time
                 type: string
               incidentType:
-                description: incidentType is the category of incident detected by
-                  the incident engine.
-                enum:
-                - CrashLoop
-                - OOM
-                - BadDeploy
-                - NodeFailure
-                - Registry
-                - GracePeriodViolation
-                - ProbeFailure
+                description: |-
+                  incidentType is the category of incident detected by the incident engine.
+                  The value is self-describing from the raw event type (e.g. CrashLoopBackOff,
+                  OOMKilled, ImagePullBackOff, NodeNotReady) rather than a fixed enum.
                 type: string
               lastObservedAt:
                 description: lastObservedAt is when the most recent confirming signal

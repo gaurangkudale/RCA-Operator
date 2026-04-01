@@ -47,8 +47,7 @@ const (
 	resolvedMetricRecordedKey   = "rca.rca-operator.tech/resolved-metric-recorded"
 	annotationTrue              = "true"
 
-	incidentTypeNodeFailure = "NodeFailure"
-	resourceKindPod         = "Pod"
+	resourceKindPod = "Pod"
 )
 
 type IncidentReportReconciler struct {
@@ -227,14 +226,12 @@ func (r *IncidentReportReconciler) incidentStillPresent(ctx context.Context, rep
 		return r.deploymentIncidentStillPresent(ctx, report.Spec.Scope.WorkloadRef.Namespace, report.Spec.Scope.WorkloadRef.Name)
 	}
 
-	if report.Status.IncidentType == incidentTypeNodeFailure {
-		for _, res := range report.Status.AffectedResources {
-			if res.Kind == "Node" {
-				return r.nodeIncidentStillPresent(ctx, res.Name)
-			}
+	// Check affected resources: nodes first, then pods.
+	for _, res := range report.Status.AffectedResources {
+		if res.Kind == "Node" {
+			return r.nodeIncidentStillPresent(ctx, res.Name)
 		}
 	}
-
 	for _, res := range report.Status.AffectedResources {
 		if res.Kind == resourceKindPod {
 			return r.podIncidentStillPresent(ctx, res.Namespace, res.Name)

@@ -31,16 +31,22 @@ type Input struct {
 	AffectedResources []rcav1alpha1.AffectedResource
 }
 
+// Fingerprint returns a stable canonical identity for the incident based on its
+// scope. The fingerprint intentionally excludes IncidentType so that different
+// signal types affecting the same resource (e.g. ImagePullBackOff and
+// StalledRollout on the same Deployment) map to a single incident.
 func (in Input) Fingerprint() string {
 	scope := in.Scope
-	parts := []string{in.IncidentType}
+	var parts []string
 
 	switch scope.Level {
 	case ScopeLevelCluster:
+		parts = append(parts, ScopeLevelCluster)
 		if scope.ResourceRef != nil {
 			parts = append(parts, strings.ToLower(scope.ResourceRef.Kind), scope.ResourceRef.Name)
 		}
 	case ScopeLevelWorkload:
+		parts = append(parts, ScopeLevelWorkload)
 		if scope.Namespace != "" {
 			parts = append(parts, scope.Namespace)
 		}
@@ -48,10 +54,12 @@ func (in Input) Fingerprint() string {
 			parts = append(parts, strings.ToLower(scope.WorkloadRef.Kind), scope.WorkloadRef.Name)
 		}
 	case ScopeLevelNamespace:
+		parts = append(parts, ScopeLevelNamespace)
 		if scope.Namespace != "" {
 			parts = append(parts, scope.Namespace)
 		}
 	case ScopeLevelPod:
+		parts = append(parts, ScopeLevelPod)
 		if scope.Namespace != "" {
 			parts = append(parts, scope.Namespace)
 		}

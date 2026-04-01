@@ -138,7 +138,7 @@ func TestBuffer_Snapshot_PurgesExpired(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Rule 1: CrashLoop + OOMKilled → MemoryPressure (type=OOM, P2)
+// Rule 1: CrashLoop + OOMKilled → escalated severity P2
 // ─────────────────────────────────────────────────────────────────────────────
 
 func TestRule1_CrashLoopPlusOOM(t *testing.T) {
@@ -147,20 +147,19 @@ func TestRule1_CrashLoopPlusOOM(t *testing.T) {
 		history  []watcher.CorrelatorEvent
 		trigger  watcher.CorrelatorEvent
 		wantFire bool
-		wantType string
 		wantSev  string
 	}{
 		{
 			name:     "OOM in buffer + CrashLoop arriving",
 			history:  []watcher.CorrelatorEvent{oomKilled("ns", "pod-a", "node-1", "app")},
 			trigger:  crashLoop("ns", "pod-a", "node-1", "app", 5),
-			wantFire: true, wantType: "OOM", wantSev: "P2",
+			wantFire: true, wantSev: "P2",
 		},
 		{
 			name:     "CrashLoop in buffer + OOM arriving",
 			history:  []watcher.CorrelatorEvent{crashLoop("ns", "pod-a", "node-1", "app", 5)},
 			trigger:  oomKilled("ns", "pod-a", "node-1", "app"),
-			wantFire: true, wantType: "OOM", wantSev: "P2",
+			wantFire: true, wantSev: "P2",
 		},
 		{
 			name:     "CrashLoop only — no OOM",
@@ -193,9 +192,6 @@ func TestRule1_CrashLoopPlusOOM(t *testing.T) {
 				t.Fatalf("Fired=%v want %v", result.Fired, tc.wantFire)
 			}
 			if tc.wantFire {
-				if result.IncidentType != tc.wantType {
-					t.Errorf("IncidentType=%q want %q", result.IncidentType, tc.wantType)
-				}
 				if result.Severity != tc.wantSev {
 					t.Errorf("Severity=%q want %q", result.Severity, tc.wantSev)
 				}
@@ -255,11 +251,11 @@ func TestRule2_CrashLoopPlusBadDeploy(t *testing.T) {
 				t.Fatalf("Fired=%v want %v", result.Fired, tc.wantFire)
 			}
 			if tc.wantFire {
-				if result.IncidentType != testIncidentTypeBadDeploy {
-					t.Errorf("IncidentType=%q want %q", result.IncidentType, testIncidentTypeBadDeploy)
-				}
 				if result.Severity != "P2" {
 					t.Errorf("Severity=%q want P2", result.Severity)
+				}
+				if result.ScopeLevel != "Workload" {
+					t.Errorf("ScopeLevel=%q want Workload", result.ScopeLevel)
 				}
 			}
 		})
@@ -321,9 +317,6 @@ func TestRule4_ImagePullNoHistory(t *testing.T) {
 			if tc.wantFire {
 				if result.Severity != tc.wantSev {
 					t.Errorf("Severity=%q want %q", result.Severity, tc.wantSev)
-				}
-				if result.IncidentType != "Registry" {
-					t.Errorf("IncidentType=%q want Registry", result.IncidentType)
 				}
 			}
 		})
@@ -392,11 +385,11 @@ func TestRule5_NodeNotReadyPlusEviction(t *testing.T) {
 				t.Fatalf("Fired=%v want %v", result.Fired, tc.wantFire)
 			}
 			if tc.wantFire {
-				if result.IncidentType != "NodeFailure" {
-					t.Errorf("IncidentType=%q want NodeFailure", result.IncidentType)
-				}
 				if result.Severity != "P1" {
 					t.Errorf("Severity=%q want P1", result.Severity)
+				}
+				if result.ScopeLevel != "Cluster" {
+					t.Errorf("ScopeLevel=%q want Cluster", result.ScopeLevel)
 				}
 				if result.Rule != "NodeNotReadyPlusEviction" {
 					t.Errorf("Rule=%q want NodeNotReadyPlusEviction", result.Rule)
@@ -444,7 +437,7 @@ func TestCorrelator_DoesNotRaiseNodeFailureFromPodCoFailure(t *testing.T) {
 	corr.Add(oomKilled("ns", "pod-b", "node-1", "app"))
 
 	result := corr.Evaluate(crashLoop("ns", "pod-c", "node-1", "app", 3))
-	if result.Fired && result.IncidentType == testIncidentTypeNodeFailure {
+	if result.Fired && result.ScopeLevel == "Cluster" {
 		t.Fatalf("unexpected NodeFailure from pod co-failure: %+v", result)
 	}
 }

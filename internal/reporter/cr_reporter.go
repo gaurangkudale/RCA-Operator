@@ -47,11 +47,6 @@ const (
 )
 
 const (
-	IncidentTypeNodeFailure = "NodeFailure"
-	IncidentTypeRegistry    = "Registry"
-)
-
-const (
 	SignalCooldown = 5 * time.Minute
 	ReopenWindow   = 30 * time.Minute
 )
@@ -442,14 +437,12 @@ func (r *Reporter) findResolvableIncident(ctx context.Context, namespace, finger
 }
 
 // findExistingByWorkloadRef is a last-resort dedup guard for workload-scoped
-// incidents. It lists all incidents in the namespace that share the same
-// incident type and have a matching WorkloadRef or a matching entry in
-// AffectedResources. It returns the best candidate: an open incident takes
-// priority over a recently-resolved one (within ReopenWindow). This function
-// is only called when the fingerprint-based lookups have already returned nil,
-// covering the case where fingerprints are inconsistent (e.g., one incident
-// used a Deployment ref while another used a ReplicaSet ref for the same
-// workload due to a transient owner-resolution failure).
+// incidents. It lists all incidents in the namespace that have a matching
+// WorkloadRef or a matching entry in AffectedResources, regardless of incident
+// type. This ensures that different signal types (e.g. ImagePullBackOff and
+// StalledRollout) targeting the same Deployment coalesce into a single
+// incident. It returns the best candidate: an open incident takes priority
+// over a recently-resolved one (within ReopenWindow).
 func (r *Reporter) findExistingByWorkloadRef(ctx context.Context, input incident.Input) (*rcav1alpha1.IncidentReport, error) {
 	workloadRef := input.Scope.WorkloadRef
 	if workloadRef == nil || workloadRef.Name == "" {
@@ -457,8 +450,7 @@ func (r *Reporter) findExistingByWorkloadRef(ctx context.Context, input incident
 	}
 
 	list := &rcav1alpha1.IncidentReportList{}
-	if err := r.client.List(ctx, list, client.InNamespace(input.Namespace),
-		client.MatchingLabels{LabelIncidentType: input.IncidentType}); err != nil {
+	if err := r.client.List(ctx, list, client.InNamespace(input.Namespace)); err != nil {
 		return nil, fmt.Errorf("failed to list IncidentReports for workload-ref fallback: %w", err)
 	}
 
@@ -731,7 +723,7 @@ func primaryPodName(in incident.Input) string {
 			return resource.Name
 		}
 	}
-	if in.Scope.ResourceRef != nil && in.Scope.ResourceRef.Kind == "Pod" {
+	if in.Scope.ResourceRef != nil && in.Scope.ResourceRef.Kind == resourceKindPod {
 		return in.Scope.ResourceRef.Name
 	}
 	return ""
@@ -774,6 +766,10 @@ func trimAffectedResources(in []rcav1alpha1.AffectedResource) []rcav1alpha1.Affe
 	return in
 }
 
+// reportFingerprint computes the fingerprint for an existing IncidentReport.
+// The fingerprint is purely scope-based (no incident type), matching
+// Input.Fingerprint(). This ensures that different signal types targeting the
+// same resource share a single incident.
 func reportFingerprint(report *rcav1alpha1.IncidentReport) string {
 	if report == nil {
 		return ""
@@ -781,45 +777,56 @@ func reportFingerprint(report *rcav1alpha1.IncidentReport) string {
 	if report.Spec.Fingerprint != "" {
 		return report.Spec.Fingerprint
 	}
-	incidentType := report.Spec.IncidentType
-	if incidentType == "" {
-		incidentType = report.Status.IncidentType
-	}
-	if incidentType == IncidentTypeRegistry {
-		if report.Spec.Scope.WorkloadRef != nil && report.Spec.Scope.WorkloadRef.Name != "" {
-			return strings.Join([]string{
-				incidentType,
-				report.Spec.Scope.WorkloadRef.Namespace,
-				strings.ToLower(report.Spec.Scope.WorkloadRef.Kind),
-				report.Spec.Scope.WorkloadRef.Name,
-			}, "|")
+
+	scope := report.Spec.Scope
+	var parts []string
+
+	switch scope.Level {
+	case "Cluster":
+		parts = append(parts, "Cluster")
+		if scope.ResourceRef != nil {
+			parts = append(parts, strings.ToLower(scope.ResourceRef.Kind), scope.ResourceRef.Name)
 		}
-		return strings.Join([]string{incidentType, report.Namespace}, "|")
-	}
-	switch incidentType {
-	case "BadDeploy":
-		if len(report.Status.AffectedResources) > 0 && report.Status.AffectedResources[0].Name != "" {
-			return strings.Join([]string{incidentType, report.Status.AffectedResources[0].Namespace, "deployment", report.Status.AffectedResources[0].Name}, "|")
+	case "Workload":
+		parts = append(parts, "Workload")
+		if scope.Namespace != "" {
+			parts = append(parts, scope.Namespace)
 		}
-	case IncidentTypeNodeFailure:
-		if len(report.Status.AffectedResources) > 0 && report.Status.AffectedResources[0].Name != "" {
-			return strings.Join([]string{incidentType, "node", report.Status.AffectedResources[0].Name}, "|")
+		if scope.WorkloadRef != nil {
+			parts = append(parts, strings.ToLower(scope.WorkloadRef.Kind), scope.WorkloadRef.Name)
 		}
-	}
-	for _, res := range report.Status.AffectedResources {
-		switch res.Kind {
-		case "Node":
-			return strings.Join([]string{incidentType, "node", res.Name}, "|")
-		case "Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "ReplicaSet":
-			return strings.Join([]string{incidentType, res.Namespace, strings.ToLower(res.Kind), res.Name}, "|")
-		case "Pod":
-			return strings.Join([]string{incidentType, res.Namespace, "pod", res.Name}, "|")
+	case "Namespace":
+		parts = append(parts, "Namespace")
+		if scope.Namespace != "" {
+			parts = append(parts, scope.Namespace)
 		}
+	case "Pod":
+		parts = append(parts, "Pod")
+		if scope.Namespace != "" {
+			parts = append(parts, scope.Namespace)
+		}
+		if scope.ResourceRef != nil {
+			parts = append(parts, strings.ToLower(scope.ResourceRef.Kind), scope.ResourceRef.Name)
+		}
+	default:
+		// Fallback for legacy incidents: derive from AffectedResources.
+		for _, res := range report.Status.AffectedResources {
+			switch res.Kind {
+			case "Node":
+				return strings.Join([]string{"Cluster", "node", res.Name}, "|")
+			case "Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "ReplicaSet":
+				return strings.Join([]string{"Workload", res.Namespace, strings.ToLower(res.Kind), res.Name}, "|")
+			case "Pod":
+				return strings.Join([]string{"Pod", res.Namespace, "pod", res.Name}, "|")
+			}
+		}
+		if report.Namespace != "" {
+			return strings.Join([]string{"Namespace", report.Namespace}, "|")
+		}
+		return report.Name
 	}
-	if report.Namespace != "" {
-		return strings.Join([]string{incidentType, report.Namespace, report.Name}, "|")
-	}
-	return strings.Join([]string{incidentType, report.Name}, "|")
+
+	return strings.Join(parts, "|")
 }
 
 func bestResolvedTime(report *rcav1alpha1.IncidentReport) *metav1.Time {

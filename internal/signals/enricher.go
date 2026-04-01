@@ -26,6 +26,9 @@ func NewEnricher(c client.Client, logger logr.Logger) *Enricher {
 
 // Enrich resolves pod owner references and populates scope/affectedResources.
 // For non-pod-scoped signals (node-level, workload-level), the signal passes through unchanged.
+// When an owner workload is discovered, pod-scoped signals are promoted to
+// workload scope so that all signals for the same workload share a single
+// incident fingerprint regardless of the originating event type.
 func (e *Enricher) Enrich(ctx context.Context, sig NormalizedSignal) NormalizedSignal {
 	if sig.Scope.Level != incident.ScopeLevelPod {
 		return sig
@@ -49,25 +52,25 @@ func (e *Enricher) Enrich(ctx context.Context, sig NormalizedSignal) NormalizedS
 		// ResolvePodScope returns usable fallback scope/affected even on error.
 		sig.Scope = scope
 		sig.AffectedResources = affectedResources
-		// Even on fallback, attempt Registry promotion using pod name heuristics.
-		if sig.IncidentType == "Registry" {
-			sig.Input = promoteRegistryScope(sig.Input, sig.Namespace, podName)
-		}
+		// Even on fallback, attempt workload promotion using pod name heuristics.
+		sig.Input = promoteToWorkloadScope(sig.Input, sig.Namespace, podName)
 		return sig
 	}
 
 	sig.Scope = scope
 	sig.AffectedResources = affectedResources
 
-	// Promote Registry incidents to workload scope if we resolved an owner.
-	if sig.IncidentType == "Registry" {
-		sig.Input = promoteRegistryScope(sig.Input, sig.Namespace, podName)
-	}
+	// Promote to workload scope if we resolved an owner.
+	sig.Input = promoteToWorkloadScope(sig.Input, sig.Namespace, podName)
 
 	return sig
 }
 
-func promoteRegistryScope(input incident.Input, namespace, podName string) incident.Input {
+// promoteToWorkloadScope promotes a pod-scoped incident to workload scope when
+// the owner workload is known (from resolved owner refs) or can be guessed from
+// the pod name. This ensures all signals for the same deployment share a single
+// fingerprint and therefore a single incident, regardless of event type.
+func promoteToWorkloadScope(input incident.Input, namespace, podName string) incident.Input {
 	if input.Scope.WorkloadRef != nil && input.Scope.WorkloadRef.Name != "" {
 		input.Scope.Level = incident.ScopeLevelWorkload
 		input.Scope.Namespace = namespace
@@ -77,10 +80,7 @@ func promoteRegistryScope(input incident.Input, namespace, podName string) incid
 
 	workloadName := GuessDeploymentNameFromPod(podName)
 	if workloadName == "" {
-		input.Scope.Level = incident.ScopeLevelNamespace
-		input.Scope.Namespace = namespace
-		input.Scope.WorkloadRef = nil
-		input.Scope.ResourceRef = nil
+		// Cannot determine workload — keep pod scope.
 		return input
 	}
 

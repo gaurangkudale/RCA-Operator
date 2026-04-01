@@ -364,7 +364,7 @@ func TestReconcile_Active_NodeFailure_AutoResolvesOnTTL(t *testing.T) {
 		Spec: rcav1alpha1.IncidentReportSpec{AgentRef: "agent-a"},
 		Status: rcav1alpha1.IncidentReportStatus{
 			Phase:        phaseActive,
-			IncidentType: incidentTypeNodeFailure,
+			IncidentType: "NodeNotReady",
 			Severity:     "P1",
 			StartTime:    &start,
 			AffectedResources: []rcav1alpha1.AffectedResource{
