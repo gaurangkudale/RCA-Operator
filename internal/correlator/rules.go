@@ -73,7 +73,7 @@ func RegisteredRules() []Rule {
 func init() {
 	RegisterRule(registeredRule{name: "NodeNotReadyPlusEviction", priority: 500, evaluate: ruleNodeNotReadyPlusEviction})
 	RegisterRule(registeredRule{name: "CrashLoopPlusOOM", priority: 400, evaluate: ruleCrashLoopPlusOOM})
-	RegisterRule(registeredRule{name: "CrashLoopPlusBadDeploy", priority: 300, evaluate: ruleCrashLoopPlusBadDeploy})
+	RegisterRule(registeredRule{name: "CrashLoopPlusRolloutFailure", priority: 300, evaluate: ruleCrashLoopPlusRolloutFailure})
 	RegisterRule(registeredRule{name: "ImagePullNoHistory", priority: 200, evaluate: ruleImagePullNoHistory})
 }
 
@@ -114,10 +114,10 @@ func ruleCrashLoopPlusOOM(event watcher.CorrelatorEvent, entries []Entry) Correl
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Rule 2: CrashLoop + recent StalledRollout in same namespace → BadDeploy, P2
+// Rule 2: CrashLoop + recent StalledRollout in same namespace → DeploymentRolloutFailure, P2
 // ─────────────────────────────────────────────────────────────────────────────
 
-func ruleCrashLoopPlusBadDeploy(event watcher.CorrelatorEvent, entries []Entry) CorrelationResult {
+func ruleCrashLoopPlusRolloutFailure(event watcher.CorrelatorEvent, entries []Entry) CorrelationResult {
 	cl, ok := event.(watcher.CrashLoopBackOffEvent)
 	if !ok {
 		return CorrelationResult{}
@@ -127,12 +127,12 @@ func ruleCrashLoopPlusBadDeploy(event watcher.CorrelatorEvent, entries []Entry) 
 		if ok && stalled.Namespace == cl.Namespace {
 			return CorrelationResult{
 				Fired:        true,
-				IncidentType: "BadDeploy",
+				IncidentType: "DeploymentRolloutFailure",
 				Severity:     "P2",
-				Summary:      fmt.Sprintf("BadDeploy: CrashLoop after stalled rollout deployment=%s pod=%s", stalled.DeploymentName, cl.PodName),
-				Rule:         "CrashLoopPlusBadDeploy",
+				Summary:      fmt.Sprintf("DeploymentRolloutFailure: CrashLoop after stalled rollout deployment=%s pod=%s", stalled.DeploymentName, cl.PodName),
+				Rule:         "CrashLoopPlusRolloutFailure",
 				// Use deployment name so the incident deduplicates with the
-				// BadDeploy incident created from the StalledRollout signal.
+				// DeploymentRolloutFailure incident created from the StalledRollout signal.
 				Resource: stalled.DeploymentName,
 			}
 		}
@@ -170,7 +170,7 @@ func failurePodKey(e watcher.CorrelatorEvent) string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Rule 4: ImagePullBackOff + no prior PodHealthy in window → Registry, P2
+// Rule 4: ImagePullBackOff + no prior PodHealthy in window → ImagePullFailure, P2
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ruleImagePullNoHistory escalates an ImagePullBackOff from P3 to P2 when the
@@ -190,9 +190,9 @@ func ruleImagePullNoHistory(event watcher.CorrelatorEvent, entries []Entry) Corr
 	}
 	return CorrelationResult{
 		Fired:        true,
-		IncidentType: "Registry",
+		IncidentType: "ImagePullFailure",
 		Severity:     "P2",
-		Summary:      fmt.Sprintf("Registry: ImagePullBackOff with no prior success pod=%s container=%s reason=%s", pull.PodName, pull.ContainerName, pull.Reason),
+		Summary:      fmt.Sprintf("ImagePullFailure: ImagePullBackOff with no prior success pod=%s container=%s reason=%s", pull.PodName, pull.ContainerName, pull.Reason),
 		Rule:         "ImagePullNoHistory",
 	}
 }

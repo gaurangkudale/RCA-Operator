@@ -36,8 +36,6 @@ const (
 	valueUnknown   = reporter.ValueUnknown
 
 	incidentTypeNodeFailure = reporter.IncidentTypeNodeFailure
-	incidentTypeRegistry    = reporter.IncidentTypeRegistry
-	incidentTypeBadDeploy   = "BadDeploy"
 
 	maxTimelineEntries = reporter.MaxTimelineEntries
 	maxSignalEntries   = reporter.MaxSignalEntries
@@ -78,8 +76,8 @@ func NewConsumer(c client.Client, events <-chan watcher.CorrelatorEvent, logger 
 }
 
 func (c *Consumer) Run(ctx context.Context) {
-	if err := c.consolidateRegistryDuplicates(ctx); err != nil {
-		c.log.Error(err, "Failed to consolidate duplicate Registry incidents at startup")
+	if err := c.consolidateDuplicates(ctx); err != nil {
+		c.log.Error(err, "Failed to consolidate duplicate incidents at startup")
 	}
 	for {
 		select {
@@ -177,7 +175,7 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 	return c.rep.EnsureSignal(ctx, input)
 }
 
-func (c *Consumer) consolidateRegistryDuplicates(ctx context.Context) error {
+func (c *Consumer) consolidateDuplicates(ctx context.Context) error {
 	return c.rep.Consolidate(ctx)
 }
 
@@ -198,18 +196,14 @@ func mergeAffectedResources(existing, incoming []rcav1alpha1.AffectedResource) [
 	return out
 }
 
+// coalesceOverlappingIncident detects when a new workload-scoped incident signal
+// would otherwise produce a second open incident for the same workload. When an
+// active (non-resolved) incident already exists for the same workload — regardless
+// of incident type — the incoming signal is coalesced into that incident by
+// adopting its incident type. This enforces the single-incident-per-workload rule
+// without requiring hardcoded type-pair mappings.
 func (c *Consumer) coalesceOverlappingIncident(ctx context.Context, input incident.Input) (incident.Input, error) {
 	if input.Scope.Level != incident.ScopeLevelWorkload || input.Scope.WorkloadRef == nil {
-		return input, nil
-	}
-
-	var overlappingType string
-	switch input.IncidentType {
-	case incidentTypeRegistry:
-		overlappingType = incidentTypeBadDeploy
-	case incidentTypeBadDeploy:
-		overlappingType = incidentTypeRegistry
-	default:
 		return input, nil
 	}
 
@@ -223,23 +217,27 @@ func (c *Consumer) coalesceOverlappingIncident(ctx context.Context, input incide
 		if report.Status.Phase == phaseResolved {
 			continue
 		}
-		reportType := report.Spec.IncidentType
-		if reportType == "" {
-			reportType = report.Status.IncidentType
-		}
-		if reportType != overlappingType {
-			continue
-		}
 		if !incidentMatchesWorkload(report, input.Scope.WorkloadRef) {
 			continue
 		}
 
+		existingType := report.Spec.IncidentType
+		if existingType == "" {
+			existingType = report.Status.IncidentType
+		}
+		if existingType == input.IncidentType {
+			// Same type — let the normal fingerprint dedup path handle it.
+			return input, nil
+		}
+
+		// Different type but same workload: adopt the existing incident's type so
+		// the fingerprint resolves to the same CR instead of creating a new one.
 		originalType := input.IncidentType
-		input.IncidentType = overlappingType
+		input.IncidentType = existingType
 		input.Severity = higherSeverity(input.Severity, report.Status.Severity)
-		c.log.Info("Coalesced overlapping incident into existing workload incident",
+		c.log.Info("Coalesced workload signal into existing incident",
 			"fromType", originalType,
-			"toType", overlappingType,
+			"toType", existingType,
 			"namespace", input.Namespace,
 			"workload", input.Scope.WorkloadRef.Name,
 			"incident", report.Name,
@@ -397,9 +395,9 @@ func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, inci
 	case watcher.OOMKilledEvent:
 		return e.Namespace, e.PodName, e.AgentName, "OOM", "P2", fmt.Sprintf("OOMKilled exitCode=%d reason=%s", e.ExitCode, e.Reason)
 	case watcher.ImagePullBackOffEvent:
-		return e.Namespace, e.PodName, e.AgentName, "Registry", "P3", fmt.Sprintf("Image pull failure reason=%s", e.Reason)
+		return e.Namespace, e.PodName, e.AgentName, "ImagePullFailure", "P3", fmt.Sprintf("Image pull failure reason=%s", e.Reason)
 	case watcher.PodPendingTooLongEvent:
-		return e.Namespace, e.PodName, e.AgentName, incidentTypeBadDeploy, "P3", fmt.Sprintf("Pod pending too long pendingFor=%s timeout=%s", e.PendingFor.String(), e.Timeout.String())
+		return e.Namespace, e.PodName, e.AgentName, "SchedulingFailure", "P3", fmt.Sprintf("Pod pending too long pendingFor=%s timeout=%s", e.PendingFor.String(), e.Timeout.String())
 	case watcher.GracePeriodViolationEvent:
 		return e.Namespace, e.PodName, e.AgentName, "GracePeriodViolation", "P2", fmt.Sprintf("Pod deletion exceeded grace period grace=%ds overdue=%s", e.GracePeriodSeconds, e.OverdueFor.String())
 	case watcher.NodeNotReadyEvent:
@@ -409,7 +407,7 @@ func mapEvent(event watcher.CorrelatorEvent) (namespace, podName, agentRef, inci
 	case watcher.ProbeFailureEvent:
 		return e.Namespace, e.PodName, e.AgentName, "ProbeFailure", "P3", fmt.Sprintf("Probe failed probeType=%s message=%s", e.ProbeType, e.Message)
 	case watcher.StalledRolloutEvent:
-		return e.Namespace, e.DeploymentName, e.AgentName, incidentTypeBadDeploy, "P2",
+		return e.Namespace, e.DeploymentName, e.AgentName, "DeploymentRolloutFailure", "P2",
 			fmt.Sprintf("Deployment rollout stalled reason=%s desiredReplicas=%d readyReplicas=%d message=%s",
 				e.Reason, e.DesiredReplicas, e.ReadyReplicas, e.Message)
 	case watcher.NodePressureEvent:

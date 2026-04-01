@@ -21,17 +21,20 @@ type SignalMapping struct {
 }
 
 // DefaultMappings returns the built-in event→incident type mappings.
+// The canonical incident type for each event is derived from the nature of
+// the failure, not from a static label. Signal types are defined in the
+// Phase 1 architecture and must match the CRD incidentType enum.
 func DefaultMappings() []SignalMapping {
 	return []SignalMapping{
 		{EventType: "CrashLoopBackOff", IncidentType: "CrashLoop", Severity: "P3", ScopeLevel: "Pod"},
 		{EventType: "OOMKilled", IncidentType: "OOM", Severity: "P2", ScopeLevel: "Pod"},
-		{EventType: "ImagePullBackOff", IncidentType: "Registry", Severity: "P3", ScopeLevel: "Workload"},
-		{EventType: "PodPendingTooLong", IncidentType: "BadDeploy", Severity: "P3", ScopeLevel: "Pod"},
+		{EventType: "ImagePullBackOff", IncidentType: "ImagePullFailure", Severity: "P3", ScopeLevel: "Workload"},
+		{EventType: "PodPendingTooLong", IncidentType: "SchedulingFailure", Severity: "P3", ScopeLevel: "Pod"},
 		{EventType: "GracePeriodViolation", IncidentType: "GracePeriodViolation", Severity: "P2", ScopeLevel: "Pod"},
 		{EventType: "NodeNotReady", IncidentType: "NodeFailure", Severity: "P1", ScopeLevel: "Cluster"},
 		{EventType: "PodEvicted", IncidentType: "NodeFailure", Severity: "P2", ScopeLevel: "Pod"},
 		{EventType: "ProbeFailure", IncidentType: "ProbeFailure", Severity: "P3", ScopeLevel: "Pod"},
-		{EventType: "StalledRollout", IncidentType: "BadDeploy", Severity: "P2", ScopeLevel: "Workload"},
+		{EventType: "StalledRollout", IncidentType: "DeploymentRolloutFailure", Severity: "P2", ScopeLevel: "Workload"},
 		{EventType: "NodePressure", IncidentType: "NodeFailure", Severity: "P2", ScopeLevel: "Cluster"},
 	}
 }

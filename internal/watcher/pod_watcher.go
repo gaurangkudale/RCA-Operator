@@ -275,8 +275,8 @@ func (w *PodWatcher) detectImagePullBackOff(oldPod, newPod *corev1.Pod) {
 }
 
 // hasImagePullFailure returns true if any container (including init containers) is waiting
-// due to an image-pull error. Used to avoid emitting a redundant BadDeploy incident when a
-// Registry incident already captures the same root cause.
+// due to an image-pull error. Used to avoid emitting a redundant SchedulingFailure incident when an
+// ImagePullFailure incident already captures the same root cause.
 func hasImagePullFailure(pod *corev1.Pod) bool {
 	for _, statuses := range [][]corev1.ContainerStatus{pod.Status.ContainerStatuses, pod.Status.InitContainerStatuses} {
 		for _, s := range statuses {
@@ -307,7 +307,7 @@ func (w *PodWatcher) scanPendingPods(ctx context.Context) {
 			continue
 		}
 
-		// Skip pods already diagnosed as an image-pull failure; the Registry incident covers them.
+		// Skip pods already diagnosed as an image-pull failure; the ImagePullFailure incident covers them.
 		if hasImagePullFailure(pod) {
 			continue
 		}

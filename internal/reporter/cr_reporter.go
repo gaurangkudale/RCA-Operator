@@ -47,8 +47,8 @@ const (
 )
 
 const (
-	IncidentTypeNodeFailure = "NodeFailure"
-	IncidentTypeRegistry    = "Registry"
+	IncidentTypeNodeFailure    = "NodeFailure"
+	IncidentTypeImagePullFailure = "ImagePullFailure"
 )
 
 const (
@@ -146,16 +146,28 @@ func (r *Reporter) EnsureSignal(ctx context.Context, input incident.Input) error
 	// Workload-ref fallback: catches duplicates when the fingerprint is
 	// inconsistent across operator restarts or transient enrichment failures
 	// (e.g., ReplicaSet owner lookup fails → RS-scoped fingerprint instead of
-	// Deployment-scoped). Without this guard a second incident would be
-	// created for the same workload while the first still exists (open or
-	// recently resolved), producing the "one resolved, one active" duplicate
-	// visible in the UI.
+	// Deployment-scoped), and also enforces the single-incident-per-workload rule
+	// when signals of different incident types arrive for the same workload (e.g.
+	// DeploymentRolloutFailure and ImagePullFailure are both active for the same
+	// Deployment). The existing incident's type is adopted so that fingerprints
+	// remain consistent and the new signal is appended to the existing CR.
 	if input.Scope.WorkloadRef != nil {
 		existing, err := r.findExistingByWorkloadRef(ctx, input)
 		if err != nil {
 			return err
 		}
 		if existing != nil {
+			// When the found incident has a different type, adopt its type so the
+			// fingerprint resolves to the same CR rather than creating a new one.
+			existingType := existing.Spec.IncidentType
+			if existingType == "" {
+				existingType = existing.Status.IncidentType
+			}
+			if existingType != "" && existingType != input.IncidentType {
+				input.IncidentType = existingType
+				fingerprint = input.Fingerprint()
+				fingerprintHash = incident.FingerprintHash(fingerprint)
+			}
 			if existing.Status.Phase == PhaseResolved {
 				return r.reopenIncident(ctx, existing, input, fingerprint, fingerprintHash)
 			}
@@ -442,14 +454,13 @@ func (r *Reporter) findResolvableIncident(ctx context.Context, namespace, finger
 }
 
 // findExistingByWorkloadRef is a last-resort dedup guard for workload-scoped
-// incidents. It lists all incidents in the namespace that share the same
-// incident type and have a matching WorkloadRef or a matching entry in
-// AffectedResources. It returns the best candidate: an open incident takes
-// priority over a recently-resolved one (within ReopenWindow). This function
-// is only called when the fingerprint-based lookups have already returned nil,
-// covering the case where fingerprints are inconsistent (e.g., one incident
-// used a Deployment ref while another used a ReplicaSet ref for the same
-// workload due to a transient owner-resolution failure).
+// incidents. It lists all incidents in the namespace that have a matching
+// WorkloadRef or a matching entry in AffectedResources, regardless of incident
+// type. This enforces the single-incident-per-workload rule: when signals of
+// different types arrive for the same workload (e.g. DeploymentRolloutFailure
+// and ImagePullFailure), they coalesce into whichever incident was created
+// first. It returns the best candidate: an open incident takes priority over a
+// recently-resolved one (within ReopenWindow).
 func (r *Reporter) findExistingByWorkloadRef(ctx context.Context, input incident.Input) (*rcav1alpha1.IncidentReport, error) {
 	workloadRef := input.Scope.WorkloadRef
 	if workloadRef == nil || workloadRef.Name == "" {
@@ -457,8 +468,7 @@ func (r *Reporter) findExistingByWorkloadRef(ctx context.Context, input incident
 	}
 
 	list := &rcav1alpha1.IncidentReportList{}
-	if err := r.client.List(ctx, list, client.InNamespace(input.Namespace),
-		client.MatchingLabels{LabelIncidentType: input.IncidentType}); err != nil {
+	if err := r.client.List(ctx, list, client.InNamespace(input.Namespace)); err != nil {
 		return nil, fmt.Errorf("failed to list IncidentReports for workload-ref fallback: %w", err)
 	}
 
@@ -785,7 +795,7 @@ func reportFingerprint(report *rcav1alpha1.IncidentReport) string {
 	if incidentType == "" {
 		incidentType = report.Status.IncidentType
 	}
-	if incidentType == IncidentTypeRegistry {
+	if incidentType == IncidentTypeImagePullFailure {
 		if report.Spec.Scope.WorkloadRef != nil && report.Spec.Scope.WorkloadRef.Name != "" {
 			return strings.Join([]string{
 				incidentType,
@@ -797,7 +807,7 @@ func reportFingerprint(report *rcav1alpha1.IncidentReport) string {
 		return strings.Join([]string{incidentType, report.Namespace}, "|")
 	}
 	switch incidentType {
-	case "BadDeploy":
+	case "DeploymentRolloutFailure":
 		if len(report.Status.AffectedResources) > 0 && report.Status.AffectedResources[0].Name != "" {
 			return strings.Join([]string{incidentType, report.Status.AffectedResources[0].Namespace, "deployment", report.Status.AffectedResources[0].Name}, "|")
 		}

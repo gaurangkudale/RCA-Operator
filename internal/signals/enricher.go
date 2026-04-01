@@ -49,9 +49,9 @@ func (e *Enricher) Enrich(ctx context.Context, sig NormalizedSignal) NormalizedS
 		// ResolvePodScope returns usable fallback scope/affected even on error.
 		sig.Scope = scope
 		sig.AffectedResources = affectedResources
-		// Even on fallback, attempt Registry promotion using pod name heuristics.
-		if sig.IncidentType == "Registry" {
-			sig.Input = promoteRegistryScope(sig.Input, sig.Namespace, podName)
+		// For image pull failures, promote to workload scope using pod name heuristics.
+		if sig.IncidentType == "ImagePullFailure" {
+			sig.Input = promoteImagePullScope(sig.Input, sig.Namespace, podName)
 		}
 		return sig
 	}
@@ -59,15 +59,15 @@ func (e *Enricher) Enrich(ctx context.Context, sig NormalizedSignal) NormalizedS
 	sig.Scope = scope
 	sig.AffectedResources = affectedResources
 
-	// Promote Registry incidents to workload scope if we resolved an owner.
-	if sig.IncidentType == "Registry" {
-		sig.Input = promoteRegistryScope(sig.Input, sig.Namespace, podName)
+	// Promote ImagePullFailure incidents to workload scope if we resolved an owner.
+	if sig.IncidentType == "ImagePullFailure" {
+		sig.Input = promoteImagePullScope(sig.Input, sig.Namespace, podName)
 	}
 
 	return sig
 }
 
-func promoteRegistryScope(input incident.Input, namespace, podName string) incident.Input {
+func promoteImagePullScope(input incident.Input, namespace, podName string) incident.Input {
 	if input.Scope.WorkloadRef != nil && input.Scope.WorkloadRef.Name != "" {
 		input.Scope.Level = incident.ScopeLevelWorkload
 		input.Scope.Namespace = namespace
