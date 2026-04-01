@@ -4,6 +4,7 @@
 resources:
 - bases/rca.rca-operator.tech_rcaagents.yaml
 - bases/rca.rca-operator.tech_incidentreports.yaml
+- bases/rca.rca-operator.tech_rcacorrelationrules.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

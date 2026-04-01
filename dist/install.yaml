@@ -268,7 +268,7 @@ spec:
                 type: string
               incidentType:
                 description: incidentType is the category of incident detected by
-                  the correlator.
+                  the incident engine.
                 enum:
                 - CrashLoop
                 - OOM
@@ -314,7 +314,7 @@ spec:
                 type: string
               severity:
                 description: severity is the incident severity level assigned by the
-                  correlator.
+                  incident engine.
                 enum:
                 - P1
                 - P2
@@ -397,6 +397,10 @@ spec:
     - description: Overall status based on conditions
       jsonPath: .status.conditions[?(@.type=='Available')].status
       name: Status
+      type: string
+    - description: Incident retention duration
+      jsonPath: .spec.incidentRetention
+      name: Retention
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
@@ -493,6 +497,67 @@ spec:
                     - webhookSecretRef
                     type: object
                 type: object
+              otel:
+                description: OTel holds optional OpenTelemetry configuration for exporting
+                  traces and metrics to SigNoz.
+                properties:
+                  endpoint:
+                    description: Endpoint is the OTLP gRPC collector address (e.g.
+                      "signoz-collector:4317").
+                    minLength: 1
+                    type: string
+                  insecure:
+                    description: Insecure disables TLS on the gRPC connection (typical
+                      for in-cluster collectors).
+                    type: boolean
+                  samplingRate:
+                    description: SamplingRate is the trace sampling ratio as a string
+                      (e.g. "1.0"). Defaults to "1.0".
+                    type: string
+                  serviceName:
+                    description: ServiceName is the service.name resource attribute.
+                      Defaults to "rca-operator".
+                    type: string
+                required:
+                - endpoint
+                type: object
+              signalMappings:
+                description: SignalMappings allows overriding the default event-type
+                  → incident-type mapping.
+                items:
+                  description: SignalMappingConfig overrides the default event→incident
+                    mapping for a single event type.
+                  properties:
+                    eventType:
+                      description: EventType is the watcher event type to override
+                        (e.g. "CrashLoopBackOff").
+                      minLength: 1
+                      type: string
+                    incidentType:
+                      description: IncidentType overrides the default incident type.
+                      minLength: 1
+                      type: string
+                    scope:
+                      description: Scope overrides the default scope level.
+                      enum:
+                      - Pod
+                      - Workload
+                      - Namespace
+                      - Cluster
+                      type: string
+                    severity:
+                      description: Severity overrides the default severity.
+                      enum:
+                      - P1
+                      - P2
+                      - P3
+                      - P4
+                      type: string
+                  required:
+                  - eventType
+                  - incidentType
+                  type: object
+                type: array
               watchNamespaces:
                 default:
                 - default
@@ -587,6 +652,222 @@ spec:
     storage: true
     subresources:
       status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: rcacorrelationrules.rca.rca-operator.tech
+spec:
+  group: rca.rca-operator.tech
+  names:
+    kind: RCACorrelationRule
+    listKind: RCACorrelationRuleList
+    plural: rcacorrelationrules
+    shortNames:
+    - rcr
+    singular: rcacorrelationrule
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - description: Evaluation priority
+      jsonPath: .spec.priority
+      name: Priority
+      type: integer
+    - description: Trigger event type
+      jsonPath: .spec.trigger.eventType
+      name: Trigger
+      type: string
+    - description: Incident type produced
+      jsonPath: .spec.fires.incidentType
+      name: Fires
+      type: string
+    - description: Incident severity
+      jsonPath: .spec.fires.severity
+      name: Severity
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          RCACorrelationRule is a cluster-scoped CRD that defines a declarative
+          correlation rule for the RCA Operator rule engine.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              RCACorrelationRuleSpec defines a declarative correlation rule evaluated by the
+              generic rule engine. Rules are loaded dynamically — no operator redeploy needed.
+            properties:
+              agentSelector:
+                description: |-
+                  agentSelector restricts which RCAAgents this rule applies to.
+                  A nil selector matches all agents.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              conditions:
+                description: |-
+                  conditions are additional signals that must be present in the correlation
+                  buffer for the rule to fire. All conditions must match (AND logic).
+                items:
+                  description: RuleCondition specifies an additional signal that must
+                    be present in the buffer.
+                  properties:
+                    eventType:
+                      description: eventType is the signal type that must be present.
+                      minLength: 1
+                      type: string
+                    negate:
+                      description: |-
+                        negate inverts the condition: when true the rule fires only if this signal
+                        is NOT present in the buffer.
+                      type: boolean
+                    scope:
+                      default: samePod
+                      description: scope defines the relationship between the trigger
+                        event and this condition.
+                      enum:
+                      - samePod
+                      - sameNode
+                      - sameNamespace
+                      - any
+                      type: string
+                  required:
+                  - eventType
+                  - scope
+                  type: object
+                type: array
+              fires:
+                description: fires defines the incident properties when this rule
+                  matches.
+                properties:
+                  incidentType:
+                    description: incidentType is the canonical incident category.
+                    minLength: 1
+                    type: string
+                  resource:
+                    description: |-
+                      resource overrides the default resource for incident dedup.
+                      Use "node" for node-scoped, "deployment" for deployment-scoped, or leave empty for pod-scoped.
+                    type: string
+                  scope:
+                    description: scope overrides the incident scope level.
+                    enum:
+                    - Pod
+                    - Workload
+                    - Namespace
+                    - Cluster
+                    type: string
+                  severity:
+                    description: severity is the incident priority level.
+                    enum:
+                    - P1
+                    - P2
+                    - P3
+                    - P4
+                    type: string
+                  summary:
+                    description: |-
+                      summary is a Go text/template rendered with event context.
+                      Available variables: {{.PodName}}, {{.Namespace}}, {{.NodeName}}, {{.EventType}}.
+                    minLength: 1
+                    type: string
+                required:
+                - incidentType
+                - severity
+                - summary
+                type: object
+              priority:
+                default: 100
+                description: |-
+                  priority controls evaluation order. Higher values are evaluated first.
+                  The first rule whose conditions match wins.
+                minimum: 1
+                type: integer
+              trigger:
+                description: trigger is the event type that initiates rule evaluation.
+                properties:
+                  eventType:
+                    description: eventType is one of the watcher EventType constants
+                      (e.g. CrashLoopBackOff, OOMKilled).
+                    minLength: 1
+                    type: string
+                required:
+                - eventType
+                type: object
+            required:
+            - fires
+            - priority
+            - trigger
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources: {}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -769,6 +1050,14 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - rca.rca-operator.tech
+  resources:
+  - rcacorrelationrules
+  verbs:
+  - get
+  - list
+  - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -866,6 +1155,77 @@ rules:
   - rca.rca-operator.tech
   resources:
   - rcaagents/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: rca-operator
+  name: rca-operator-rcacorrelationrule-admin-role
+rules:
+- apiGroups:
+  - rca.rca-operator.tech
+  resources:
+  - rcacorrelationrules
+  verbs:
+  - '*'
+- apiGroups:
+  - rca.rca-operator.tech
+  resources:
+  - rcacorrelationrules/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: rca-operator
+  name: rca-operator-rcacorrelationrule-editor-role
+rules:
+- apiGroups:
+  - rca.rca-operator.tech
+  resources:
+  - rcacorrelationrules
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - rca.rca-operator.tech
+  resources:
+  - rcacorrelationrules/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: rca-operator
+  name: rca-operator-rcacorrelationrule-viewer-role
+rules:
+- apiGroups:
+  - rca.rca-operator.tech
+  resources:
+  - rcacorrelationrules
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - rca.rca-operator.tech
+  resources:
+  - rcacorrelationrules/status
   verbs:
   - get
 ---
