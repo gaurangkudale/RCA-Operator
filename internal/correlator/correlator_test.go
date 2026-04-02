@@ -37,13 +37,6 @@ func imagePull(ns, pod, container, reason string) watcher.ImagePullBackOffEvent 
 	}
 }
 
-func stalledRollout(ns, dep string) watcher.StalledRolloutEvent {
-	return watcher.StalledRolloutEvent{
-		BaseEvent:      watcher.BaseEvent{Namespace: ns},
-		DeploymentName: dep,
-	}
-}
-
 func nodeNotReady(ns, node, reason string) watcher.NodeNotReadyEvent { //nolint:unparam
 	return watcher.NodeNotReadyEvent{
 		BaseEvent: watcher.BaseEvent{Namespace: ns, NodeName: node},
@@ -54,12 +47,6 @@ func nodeNotReady(ns, node, reason string) watcher.NodeNotReadyEvent { //nolint:
 func podEvicted(ns, pod, node string) watcher.PodEvictedEvent { //nolint:unparam
 	return watcher.PodEvictedEvent{
 		BaseEvent: watcher.BaseEvent{Namespace: ns, PodName: pod, NodeName: node},
-	}
-}
-
-func podHealthy(ns, pod string) watcher.PodHealthyEvent {
-	return watcher.PodHealthyEvent{
-		BaseEvent: watcher.BaseEvent{Namespace: ns, PodName: pod},
 	}
 }
 
@@ -138,362 +125,121 @@ func TestBuffer_Snapshot_PurgesExpired(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Rule 1: CrashLoop + OOMKilled → escalated severity P2
+// Correlator: rule injection, evaluate ordering, and no-fire behaviour.
+// All correlation rules are now CRD-driven. These tests inject rules via
+// WithRules() to exercise the Correlator infrastructure.
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestRule1_CrashLoopPlusOOM(t *testing.T) {
-	cases := []struct {
-		name     string
-		history  []watcher.CorrelatorEvent
-		trigger  watcher.CorrelatorEvent
-		wantFire bool
-		wantSev  string
-	}{
-		{
-			name:     "OOM in buffer + CrashLoop arriving",
-			history:  []watcher.CorrelatorEvent{oomKilled("ns", "pod-a", "node-1", "app")},
-			trigger:  crashLoop("ns", "pod-a", "node-1", "app", 5),
-			wantFire: true, wantSev: "P2",
-		},
-		{
-			name:     "CrashLoop in buffer + OOM arriving",
-			history:  []watcher.CorrelatorEvent{crashLoop("ns", "pod-a", "node-1", "app", 5)},
-			trigger:  oomKilled("ns", "pod-a", "node-1", "app"),
-			wantFire: true, wantSev: "P2",
-		},
-		{
-			name:     "CrashLoop only — no OOM",
-			history:  []watcher.CorrelatorEvent{crashLoop("ns", "pod-a", "node-1", "app", 5)},
-			trigger:  crashLoop("ns", "pod-a", "node-1", "app", 6),
-			wantFire: false,
-		},
-		{
-			name:     "OOM for different pod — no fire",
-			history:  []watcher.CorrelatorEvent{oomKilled("ns", "pod-b", "node-1", "app")},
-			trigger:  crashLoop("ns", "pod-a", "node-1", "app", 5),
-			wantFire: false,
-		},
-		{
-			name:     "OOM in different namespace — no fire",
-			history:  []watcher.CorrelatorEvent{oomKilled("other-ns", "pod-a", "node-1", "app")},
-			trigger:  crashLoop("ns", "pod-a", "node-1", "app", 5),
-			wantFire: false,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			entries := make([]Entry, len(tc.history))
-			for i, e := range tc.history {
-				entries[i] = Entry{Event: e, AddedAt: testNow}
-			}
-			result := ruleCrashLoopPlusOOM(tc.trigger, entries)
-			if result.Fired != tc.wantFire {
-				t.Fatalf("Fired=%v want %v", result.Fired, tc.wantFire)
-			}
-			if tc.wantFire {
-				if result.Severity != tc.wantSev {
-					t.Errorf("Severity=%q want %q", result.Severity, tc.wantSev)
-				}
-				if result.Rule != "CrashLoopPlusOOM" {
-					t.Errorf("Rule=%q want CrashLoopPlusOOM", result.Rule)
-				}
-			}
-		})
-	}
+// testRule creates a registeredRule that can be injected into a Correlator via
+// WithRules() for testing the evaluation pipeline without hardcoded rules.
+func testRule(name string, priority int, fn ruleFunc) Rule {
+	return registeredRule{name: name, priority: priority, evaluate: fn}
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Rule 2: CrashLoop + StalledRollout in same namespace → BadDeploy, P2
-// ─────────────────────────────────────────────────────────────────────────────
-
-func TestRule2_CrashLoopPlusBadDeploy(t *testing.T) {
-	cases := []struct {
-		name     string
-		history  []watcher.CorrelatorEvent
-		trigger  watcher.CorrelatorEvent
-		wantFire bool
-	}{
-		{
-			name:     "StalledRollout same ns + CrashLoop fires",
-			history:  []watcher.CorrelatorEvent{stalledRollout("ns", "my-deploy")},
-			trigger:  crashLoop("ns", "pod-a", "node-1", "app", 3),
-			wantFire: true,
-		},
-		{
-			name:     "StalledRollout different ns — no fire",
-			history:  []watcher.CorrelatorEvent{stalledRollout("other-ns", "my-deploy")},
-			trigger:  crashLoop("ns", "pod-a", "node-1", "app", 3),
-			wantFire: false,
-		},
-		{
-			name:     "No stalled rollout in buffer — no fire",
-			history:  []watcher.CorrelatorEvent{oomKilled("ns", "pod-a", "node-1", "app")},
-			trigger:  crashLoop("ns", "pod-a", "node-1", "app", 3),
-			wantFire: false,
-		},
-		{
-			name:     "Non-CrashLoop trigger — never fires",
-			history:  []watcher.CorrelatorEvent{stalledRollout("ns", "my-deploy")},
-			trigger:  imagePull("ns", "pod-a", "app", "ErrImagePull"),
-			wantFire: false,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			entries := make([]Entry, len(tc.history))
-			for i, e := range tc.history {
-				entries[i] = Entry{Event: e, AddedAt: testNow}
+func TestCorrelator_InjectedRuleFires(t *testing.T) {
+	rule := testRule("TestOOM", 400, func(event watcher.CorrelatorEvent, entries []Entry) CorrelationResult {
+		if _, ok := event.(watcher.CrashLoopBackOffEvent); !ok {
+			return CorrelationResult{}
+		}
+		for _, en := range entries {
+			if _, ok := en.Event.(watcher.OOMKilledEvent); ok {
+				return CorrelationResult{Fired: true, Severity: "P2", Summary: "test-oom"}
 			}
-			result := ruleCrashLoopPlusBadDeploy(tc.trigger, entries)
-			if result.Fired != tc.wantFire {
-				t.Fatalf("Fired=%v want %v", result.Fired, tc.wantFire)
-			}
-			if tc.wantFire {
-				if result.Severity != "P2" {
-					t.Errorf("Severity=%q want P2", result.Severity)
-				}
-				if result.ScopeLevel != "Workload" {
-					t.Errorf("ScopeLevel=%q want Workload", result.ScopeLevel)
-				}
-			}
-		})
-	}
-}
+		}
+		return CorrelationResult{}
+	})
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Rule 4: ImagePullBackOff + no prior PodHealthy → Registry P2
-// ─────────────────────────────────────────────────────────────────────────────
-
-func TestRule4_ImagePullNoHistory(t *testing.T) {
-	cases := []struct {
-		name     string
-		history  []watcher.CorrelatorEvent
-		trigger  watcher.CorrelatorEvent
-		wantFire bool
-		wantSev  string
-	}{
-		{
-			name:     "No healthy event in buffer — fires P2",
-			history:  []watcher.CorrelatorEvent{},
-			trigger:  imagePull("ns", "pod-a", "app", "ErrImagePull"),
-			wantFire: true, wantSev: "P2",
-		},
-		{
-			name: "Healthy event for same pod in buffer — no fire",
-			history: []watcher.CorrelatorEvent{
-				podHealthy("ns", "pod-a"),
-			},
-			trigger:  imagePull("ns", "pod-a", "app", "ErrImagePull"),
-			wantFire: false,
-		},
-		{
-			name: "Healthy event for different pod — fires P2",
-			history: []watcher.CorrelatorEvent{
-				podHealthy("ns", "pod-b"),
-			},
-			trigger:  imagePull("ns", "pod-a", "app", "ErrImagePull"),
-			wantFire: true, wantSev: "P2",
-		},
-		{
-			name:     "Non-ImagePull trigger — never fires",
-			history:  []watcher.CorrelatorEvent{},
-			trigger:  crashLoop("ns", "pod-a", "node-1", "app", 3),
-			wantFire: false,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			entries := make([]Entry, len(tc.history))
-			for i, e := range tc.history {
-				entries[i] = Entry{Event: e, AddedAt: testNow}
-			}
-			result := ruleImagePullNoHistory(tc.trigger, entries)
-			if result.Fired != tc.wantFire {
-				t.Fatalf("Fired=%v want %v", result.Fired, tc.wantFire)
-			}
-			if tc.wantFire {
-				if result.Severity != tc.wantSev {
-					t.Errorf("Severity=%q want %q", result.Severity, tc.wantSev)
-				}
-			}
-		})
-	}
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Rule 5: NodeNotReady + eviction events → NodeFailure P1
-// ─────────────────────────────────────────────────────────────────────────────
-
-func TestRule5_NodeNotReadyPlusEviction(t *testing.T) {
-	cases := []struct {
-		name     string
-		history  []watcher.CorrelatorEvent
-		trigger  watcher.CorrelatorEvent
-		wantFire bool
-	}{
-		{
-			name: "PodEvicted in buffer + NodeNotReady arrives — fires",
-			history: []watcher.CorrelatorEvent{
-				podEvicted("ns", "pod-a", "node-1"),
-			},
-			trigger:  nodeNotReady("ns", "node-1", "KubeletNotReady"),
-			wantFire: true,
-		},
-		{
-			name: "NodeNotReady in buffer + PodEvicted arrives — fires",
-			history: []watcher.CorrelatorEvent{
-				nodeNotReady("ns", "node-1", "KubeletNotReady"),
-			},
-			trigger:  podEvicted("ns", "pod-a", "node-1"),
-			wantFire: true,
-		},
-		{
-			name: "Eviction on different node — no fire",
-			history: []watcher.CorrelatorEvent{
-				podEvicted("ns", "pod-a", "node-2"),
-			},
-			trigger:  nodeNotReady("ns", "node-1", "KubeletNotReady"),
-			wantFire: false,
-		},
-		{
-			name: "NodeNotReady for different node — no fire",
-			history: []watcher.CorrelatorEvent{
-				nodeNotReady("ns", "node-2", "KubeletNotReady"),
-			},
-			trigger:  podEvicted("ns", "pod-a", "node-1"),
-			wantFire: false,
-		},
-		{
-			name:     "NodeNotReady only — no fire",
-			history:  []watcher.CorrelatorEvent{},
-			trigger:  nodeNotReady("ns", "node-1", "KubeletNotReady"),
-			wantFire: false,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			entries := make([]Entry, len(tc.history))
-			for i, e := range tc.history {
-				entries[i] = Entry{Event: e, AddedAt: testNow}
-			}
-			result := ruleNodeNotReadyPlusEviction(tc.trigger, entries)
-			if result.Fired != tc.wantFire {
-				t.Fatalf("Fired=%v want %v", result.Fired, tc.wantFire)
-			}
-			if tc.wantFire {
-				if result.Severity != "P1" {
-					t.Errorf("Severity=%q want P1", result.Severity)
-				}
-				if result.ScopeLevel != "Cluster" {
-					t.Errorf("ScopeLevel=%q want Cluster", result.ScopeLevel)
-				}
-				if result.Rule != "NodeNotReadyPlusEviction" {
-					t.Errorf("Rule=%q want NodeNotReadyPlusEviction", result.Rule)
-				}
-			}
-		})
-	}
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Correlator: Evaluate ordering and no-fire behaviour
-// ─────────────────────────────────────────────────────────────────────────────
-
-// TestCorrelator_Rule5TakesPrecedence verifies that the P1 NodeNotReady+Eviction
-// rule still fires correctly from genuine node-level signals.
-func TestCorrelator_Rule5TakesPrecedence(t *testing.T) {
-	corr := NewCorrelator(5 * time.Minute)
+	corr := NewCorrelator(5*time.Minute, WithRules([]Rule{rule}))
 	corr.buf.nowFn = func() time.Time { return testNow }
 
-	// Seed: evicted pod on node-1 (triggers rule 5 when NodeNotReady arrives).
-	corr.Add(podEvicted("ns", "pod-a", "node-1"))
+	corr.Add(oomKilled("ns", "pod-a", "node-1", "app"))
+	result := corr.Evaluate(crashLoop("ns", "pod-a", "node-1", "app", 5))
+	if !result.Fired {
+		t.Fatal("expected injected rule to fire")
+	}
+	if result.Severity != "P2" {
+		t.Errorf("Severity=%q want P2", result.Severity)
+	}
+	if result.Rule != "TestOOM" {
+		t.Errorf("Rule=%q want TestOOM", result.Rule)
+	}
+}
 
-	// Trigger: NodeNotReady for node-1.
-	// Rule 5 (P1) must fire.
-	result := corr.Evaluate(nodeNotReady("ns", "node-1", "DiskPressure"))
+func TestCorrelator_PriorityOrdering(t *testing.T) {
+	lowPriority := testRule("Low", 100, func(event watcher.CorrelatorEvent, _ []Entry) CorrelationResult {
+		return CorrelationResult{Fired: true, Severity: "P3", Summary: "low"}
+	})
+	highPriority := testRule("High", 500, func(event watcher.CorrelatorEvent, _ []Entry) CorrelationResult {
+		return CorrelationResult{Fired: true, Severity: "P1", Summary: "high"}
+	})
+
+	// Inject in wrong order — correlator should sort by priority.
+	corr := NewCorrelator(5*time.Minute, WithRules([]Rule{lowPriority, highPriority}))
+	corr.buf.nowFn = func() time.Time { return testNow }
+
+	result := corr.Evaluate(crashLoop("ns", "pod-a", "node-1", "app", 3))
 	if !result.Fired {
 		t.Fatal("expected a rule to fire")
 	}
-	if result.Rule != "NodeNotReadyPlusEviction" {
-		t.Errorf("expected Rule5 to win, got rule=%q", result.Rule)
+	if result.Rule != "High" {
+		t.Errorf("expected High to win (priority 500), got rule=%q", result.Rule)
 	}
 	if result.Severity != "P1" {
 		t.Errorf("expected P1 severity, got %q", result.Severity)
 	}
 }
 
-// TestCorrelator_DoesNotRaiseNodeFailureFromPodCoFailure verifies that
-// multiple pod failures on the same node no longer synthesize a NodeFailure
-// incident without an actual node signal such as NodeNotReady.
-func TestCorrelator_DoesNotRaiseNodeFailureFromPodCoFailure(t *testing.T) {
-	corr := NewCorrelator(5 * time.Minute)
-	corr.buf.nowFn = func() time.Time { return testNow }
-
-	corr.Add(crashLoop("ns", "pod-a", "node-1", "app", 3))
-	corr.Add(oomKilled("ns", "pod-b", "node-1", "app"))
-
-	result := corr.Evaluate(crashLoop("ns", "pod-c", "node-1", "app", 3))
-	if result.Fired && result.ScopeLevel == "Cluster" {
-		t.Fatalf("unexpected NodeFailure from pod co-failure: %+v", result)
-	}
-}
-
-// TestCorrelator_NoFire verifies that no spurious result is returned when
-// there are no correlated events for the incoming trigger.
 func TestCorrelator_NoFire(t *testing.T) {
-	corr := NewCorrelator(5 * time.Minute)
+	neverFires := testRule("Never", 100, func(_ watcher.CorrelatorEvent, _ []Entry) CorrelationResult {
+		return CorrelationResult{}
+	})
+
+	corr := NewCorrelator(5*time.Minute, WithRules([]Rule{neverFires}))
 	corr.buf.nowFn = func() time.Time { return testNow }
 
-	// Buffer contains an event in a completely different namespace.
 	corr.Add(oomKilled("other-ns", "pod-x", "node-1", "app"))
-
 	result := corr.Evaluate(crashLoop("ns", "pod-a", "node-1", "app", 3))
 	if result.Fired {
 		t.Errorf("expected no rule to fire, got rule=%q", result.Rule)
 	}
 }
 
-// TestCorrelator_WindowExpiry verifies that events outside the correlation
-// window do not trigger rules.
 func TestCorrelator_WindowExpiry(t *testing.T) {
-	corr := NewCorrelator(5 * time.Minute)
+	rule := testRule("TestOOM", 400, func(event watcher.CorrelatorEvent, entries []Entry) CorrelationResult {
+		if _, ok := event.(watcher.CrashLoopBackOffEvent); !ok {
+			return CorrelationResult{}
+		}
+		for _, en := range entries {
+			if _, ok := en.Event.(watcher.OOMKilledEvent); ok {
+				return CorrelationResult{Fired: true, Severity: "P2", Summary: "oom"}
+			}
+		}
+		return CorrelationResult{}
+	})
 
+	corr := NewCorrelator(5*time.Minute, WithRules([]Rule{rule}))
 	tick := testNow
 	corr.buf.nowFn = func() time.Time { return tick }
 
-	// Add OOM event at t=0.
 	corr.Add(oomKilled("ns", "pod-a", "node-1", "app"))
 
 	// Advance time past the window.
 	tick = testNow.Add(6 * time.Minute)
 
-	// Trigger CrashLoop for the same pod — OOM is now expired.
 	result := corr.Evaluate(crashLoop("ns", "pod-a", "node-1", "app", 3))
 	if result.Fired {
 		t.Errorf("expected no rule to fire after window expiry, got rule=%q", result.Rule)
 	}
 }
 
-// TestCorrelator_Add_IsReflectedInEvaluate verifies the end-to-end Add → Evaluate flow.
-func TestCorrelator_Add_IsReflectedInEvaluate(t *testing.T) {
+func TestCorrelator_ZeroRulesNoFire(t *testing.T) {
 	corr := NewCorrelator(5 * time.Minute)
 	corr.buf.nowFn = func() time.Time { return testNow }
 
-	// Add CrashLoop first.
-	corr.Add(crashLoop("ns", "pod-a", "node-1", "app", 3))
-
-	// Now add OOM for the same pod — rule 1 should fire.
 	corr.Add(oomKilled("ns", "pod-a", "node-1", "app"))
-	result := corr.Evaluate(oomKilled("ns", "pod-a", "node-1", "app"))
-	if !result.Fired {
-		t.Fatal("expected rule 1 to fire")
-	}
-	if result.Rule != "CrashLoopPlusOOM" {
-		t.Errorf("expected CrashLoopPlusOOM, got %q", result.Rule)
+	result := corr.Evaluate(crashLoop("ns", "pod-a", "node-1", "app", 3))
+	if result.Fired {
+		t.Errorf("expected no fire with zero registered rules, got rule=%q", result.Rule)
 	}
 }
 

@@ -1525,9 +1525,33 @@ func TestHandleEvent_Rule2BadDeploy_DedupsWithExistingIncident(t *testing.T) {
 		WithObjects(existingBadDeploy).
 		Build()
 
-	corr := NewCorrelator(5 * time.Minute)
+	// Inject a test rule that mimics the old CrashLoop+StalledRollout rule.
+	badDeployRule := registeredRule{
+		name:     "CrashLoopPlusBadDeploy",
+		priority: 300,
+		evaluate: func(event watcher.CorrelatorEvent, entries []Entry) CorrelationResult {
+			cl, ok := event.(watcher.CrashLoopBackOffEvent)
+			if !ok {
+				return CorrelationResult{}
+			}
+			for _, en := range entries {
+				stalled, ok := en.Event.(watcher.StalledRolloutEvent)
+				if ok && stalled.Namespace == cl.Namespace {
+					return CorrelationResult{
+						Fired: true, Severity: "P2",
+						Summary:    "test: CrashLoop+StalledRollout",
+						Rule:       "CrashLoopPlusBadDeploy",
+						Resource:   stalled.DeploymentName,
+						ScopeLevel: "Workload",
+					}
+				}
+			}
+			return CorrelationResult{}
+		},
+	}
+	corr := NewCorrelator(5*time.Minute, WithRules([]Rule{badDeployRule}))
 	corr.buf.nowFn = func() time.Time { return now }
-	// Pre-buffer a StalledRollout event so Rule 2 fires on the CrashLoop.
+	// Pre-buffer a StalledRollout event so the rule fires on the CrashLoop.
 	corr.Add(watcher.StalledRolloutEvent{
 		BaseEvent:       watcher.BaseEvent{At: now.Add(-30 * time.Second), AgentName: "ag", Namespace: "dev"},
 		DeploymentName:  deployName,
@@ -1615,9 +1639,33 @@ func TestHandleEvent_Rule5NodeFailure_DedupsWithNodeNotReadyIncident(t *testing.
 		WithObjects(existingNodeFailure).
 		Build()
 
-	corr := NewCorrelator(5 * time.Minute)
+	// Inject a test rule that mimics the old NodeNotReady+PodEvicted rule.
+	nodeFailureRule := registeredRule{
+		name:     "NodeNotReadyPlusEviction",
+		priority: 500,
+		evaluate: func(event watcher.CorrelatorEvent, entries []Entry) CorrelationResult {
+			evicted, ok := event.(watcher.PodEvictedEvent)
+			if !ok {
+				return CorrelationResult{}
+			}
+			for _, en := range entries {
+				notReady, ok := en.Event.(watcher.NodeNotReadyEvent)
+				if ok && notReady.NodeName == evicted.NodeName {
+					return CorrelationResult{
+						Fired: true, Severity: "P1",
+						Summary:    "test: NodeNotReady+PodEvicted",
+						Rule:       "NodeNotReadyPlusEviction",
+						Resource:   notReady.NodeName,
+						ScopeLevel: "Cluster",
+					}
+				}
+			}
+			return CorrelationResult{}
+		},
+	}
+	corr := NewCorrelator(5*time.Minute, WithRules([]Rule{nodeFailureRule}))
 	corr.buf.nowFn = func() time.Time { return now }
-	// Pre-buffer a NodeNotReady event so Rule 5 fires on the PodEvicted.
+	// Pre-buffer a NodeNotReady event so the rule fires on the PodEvicted.
 	corr.Add(watcher.NodeNotReadyEvent{
 		BaseEvent: watcher.BaseEvent{At: now.Add(-20 * time.Second), AgentName: "ag", Namespace: "dev", NodeName: nodeName},
 		Reason:    "KubeletNotReady",
