@@ -148,7 +148,7 @@ make test              # Run unit tests (uses envtest: real K8s API + etcd)
 make run               # Run locally (uses current kubeconfig context)
 ```
 
-Tests use **Ginkgo + Gomega** (BDD style). Check `suite_test.go` for setup.
+Controller tests use **Ginkgo + Gomega** (BDD style). Check `suite_test.go` for setup. All other unit tests use the **standard `testing` package** with table-driven tests.
 
 ## Deployment Workflow
 

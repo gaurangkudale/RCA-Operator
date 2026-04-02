@@ -14,7 +14,7 @@ Before installing RCA Operator, ensure your environment meets the following requ
 ## Local Tools
 
 ```bash
-# Go 1.22+
+# Go 1.25+
 go version
 
 # kubebuilder (for development only)

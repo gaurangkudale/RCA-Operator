@@ -87,6 +87,7 @@ kubectl apply -f helm/crds/
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/gaurangkudale/RCA-Operator/main-gk/helm/crds/rca.rca-operator.tech_rcaagents.yaml
 kubectl apply -f https://raw.githubusercontent.com/gaurangkudale/RCA-Operator/main-gk/helm/crds/rca.rca-operator.tech_incidentreports.yaml
+kubectl apply -f https://raw.githubusercontent.com/gaurangkudale/RCA-Operator/main-gk/helm/crds/rca.rca-operator.tech_rcacorrelationrules.yaml
 ```
 
 **Option C: From Helm chart package:**

@@ -34,7 +34,14 @@ kubectl get rcaagent -n default
 kubectl describe rcaagent sre-agent -n default
 ```
 
-## 3. Trigger a test incident
+## 3. Verify correlation rules are loaded
+
+```bash
+# The Helm chart installs 4 default rules
+kubectl get rcacorrelationrules
+```
+
+## 4. Trigger a test incident
 
 ```bash
 # Apply one of the pre-built fixture pods
@@ -48,7 +55,7 @@ See [test/fixtures/README.md](../../test/fixtures/README.md) for all available t
 
 ---
 
-## 4. Add Notifications (optional)
+## 5. Add Notifications (optional)
 
 ```bash
 # Slack

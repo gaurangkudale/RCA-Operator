@@ -35,8 +35,16 @@ Kubernetes API Server
 | Signal Collectors           |   | Dashboard API Server        |
 |  - node                     |   | Reads IncidentReport CRs    |
 |  - pod                      |   | Reads RCAAgent CRs          |
-|  - workload                 |   | No raw cluster reads        |
-|  - event                    |   +-----------------------------+
+|  - workload                 |   | Reads RCACorrelationRule CRs|
+|  - event                    |   | No raw cluster reads        |
++-------------+---------------+   +-----------------------------+
+              |
+              v
++-----------------------------+
+| CRD-Driven Rule Engine      |
+|  - loads RCACorrelationRule |
+|  - multi-signal correlation |
+|  - priority-based matching  |
 +-------------+---------------+
               |
               v
@@ -67,6 +75,7 @@ Kubernetes API Server
 
 - `IncidentReport` is the durable incident record for Phase 1.
 - Signal collection is read-only and Kubernetes-native.
+- Correlation rules are defined as `RCACorrelationRule` CRDs, not hardcoded in Go.
 - Only one active incident should exist per fingerprint.
 - Incident lifecycle is explicit: `Detecting`, `Active`, `Resolved`.
 - The dashboard reads normalized incident data only.
@@ -76,6 +85,16 @@ Kubernetes API Server
 ### Signal Collectors
 
 Collectors observe Kubernetes resources and convert them into normalized failure signals. Phase 1 focuses on node, pod, workload, and event-derived signals.
+
+### CRD-Driven Rule Engine
+
+Multi-signal correlation rules are defined as `RCACorrelationRule` cluster-scoped CRDs, not hardcoded in Go. The rule engine:
+
+- loads rules dynamically at startup and on CRD changes
+- evaluates rules by priority (highest first, first match wins)
+- correlates signals within a sliding time window using scope constraints (`samePod`, `sameNode`, `sameNamespace`)
+
+See [RCACorrelationRule Reference](../reference/rcacorrelationrule-crd.md) for the full CRD spec.
 
 ### Incident Engine
 
@@ -93,7 +112,7 @@ Notifications are driven from durable incident state, not transient input signal
 
 ### Dashboard
 
-The dashboard serves a static UI and JSON API from the operator process. It reads only `IncidentReport` and `RCAAgent` resources.
+The dashboard serves a static UI and JSON API from the operator process. It reads `IncidentReport`, `RCAAgent`, and `RCACorrelationRule` resources.
 
 ## Production Properties
 
@@ -110,3 +129,5 @@ Phase 1 is production-ready when these properties hold:
 - [Phase 1 Architecture](../phases/PHASE1_ARCHITECTURE.md)
 - [ADR-0001](../development/architecture-decisions/ADR-0001-phase1-incident-architecture.md)
 - [RCAAgent Reference](../reference/rcaagent-crd.md)
+- [RCACorrelationRule Reference](../reference/rcacorrelationrule-crd.md)
+- [IncidentReport Reference](../reference/incidentreport-crd.md)

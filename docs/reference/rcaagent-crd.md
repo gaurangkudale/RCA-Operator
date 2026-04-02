@@ -1,6 +1,6 @@
 # RCAAgent CRD Reference
 
-`RCAAgent` is the Phase 1 configuration resource for the operator. One agent can watch one or more namespaces, validate notification secrets, start signal collection for that scope, and apply incident retention policy.
+`RCAAgent` is the primary configuration resource for the operator. One agent can watch one or more namespaces, validate notification secrets, start signal collection for that scope, and apply incident retention policy.
 
 ```bash
 kubectl get rcaagent -A
@@ -89,6 +89,28 @@ Examples: `5m`, `12h`, `30d`
 
 Deprecated compatibility field retained for older manifests. Prefer `incidentRetention`.
 
+### spec.otel
+
+Optional OpenTelemetry configuration for exporting traces and metrics.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `endpoint` | `string` | Yes | — | OTLP gRPC collector address (e.g. `signoz-collector:4317`) |
+| `serviceName` | `string` | No | `rca-operator` | `service.name` resource attribute |
+| `samplingRate` | `string` | No | `1.0` | Trace sampling ratio |
+| `insecure` | `bool` | No | `false` | Disable TLS on the gRPC connection (typical for in-cluster collectors) |
+
+### spec.signalMappings
+
+Optional overrides for the default event-type to incident-type mapping.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `eventType` | `string` | Yes | Watcher event type to override (e.g. `CrashLoopBackOff`) |
+| `incidentType` | `string` | Yes | Override incident type |
+| `severity` | `string` | No | Override severity (`P1`, `P2`, `P3`, `P4`) |
+| `scope` | `string` | No | Override scope level (`Pod`, `Workload`, `Namespace`, `Cluster`) |
+
 ## Status Conditions
 
 The operator sets standard Kubernetes conditions on `status.conditions`:
@@ -97,7 +119,7 @@ The operator sets standard Kubernetes conditions on `status.conditions`:
 |---|---|
 | `Available` | `True` when the agent is configured and collection is running |
 | `Degraded` | `True` when a referenced secret is missing or another validation error blocks operation |
-| `Progressing` | Reserved for future controller-managed transitions; Phase 1 does not rely on it |
+| `Progressing` | Reserved for future controller-managed transitions |
 
 ```bash
 kubectl get rcaagent sre-agent -n default -o jsonpath='{.status.conditions}' | jq .
@@ -121,6 +143,8 @@ kubectl delete rcaagent sre-agent -n default
 
 ## Related
 
+- [IncidentReport CRD reference](incidentreport-crd.md)
+- [RCACorrelationRule CRD reference](rcacorrelationrule-crd.md)
 - [Architecture](../concepts/Architecture.md)
 - [RBAC permissions](rbac.md)
 - [Quick Start](../getting-started/quickstart.md)

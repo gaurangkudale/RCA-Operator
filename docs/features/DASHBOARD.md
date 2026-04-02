@@ -1,6 +1,6 @@
 # Dashboard
 
-RCA Operator includes a built-in dashboard for Phase 1 incident visibility.
+RCA Operator includes a built-in dashboard for incident visibility.
 
 ## Data Contract
 
@@ -8,8 +8,9 @@ The dashboard reads only:
 
 - `IncidentReport`
 - `RCAAgent`
+- `RCACorrelationRule`
 
-It does not query Pods, Nodes, Events, Deployments, or any external datastore directly. This keeps the UI consistent with the operator’s durable incident model.
+It does not query Pods, Nodes, Events, Deployments, or any external datastore directly. This keeps the UI consistent with the operator's durable incident model.
 
 ## What It Shows
 
@@ -19,10 +20,16 @@ It does not query Pods, Nodes, Events, Deployments, or any external datastore di
 - affected resources and scope
 - incident timeline
 - monitored namespaces and configured agents
+- loaded correlation rules
+- notification status (sent/pending)
+
+## Theme
+
+The dashboard supports light and dark themes with a toggle button in the top navigation. The selected theme is persisted to `localStorage`.
 
 ## Access
 
-The dashboard is enabled by default in the Helm chart.
+The dashboard is enabled by default in the Helm chart (port 9090).
 
 ### Port-forward
 
@@ -34,7 +41,32 @@ Open `http://localhost:9090`.
 
 ### Ingress
 
-Use the example values files in [examples/dashboard](/Users/gaurangkudale/gk-github/RCA-Operator/examples/dashboard) if you want to expose the dashboard through an ingress or load balancer.
+Use the Helm values to expose the dashboard through an ingress:
+
+```yaml
+dashboard:
+  enabled: true
+  port: 9090
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: rca.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+```
+
+See [examples/dashboard](../../examples/dashboard) for more example configurations.
+
+## API Endpoints
+
+| Endpoint | Description |
+|---|---|
+| `GET /` | Dashboard UI (static HTML/CSS/JS) |
+| `GET /api/incidents` | All IncidentReport CRs as JSON |
+| `GET /api/agents` | All RCAAgent CRs as JSON |
+| `GET /api/rules` | All RCACorrelationRule CRs as JSON |
 
 ## Operational Notes
 

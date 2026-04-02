@@ -1,11 +1,11 @@
 <div align="center">
 
-**RCA Operator for Kubernetes Phase 1**
+**RCA Operator for Kubernetes**
 
-*Cluster-native incident detection, durable incident state, notifications, and dashboarding*
+*Cluster-native incident detection, durable incident state, CRD-driven correlation rules, notifications, and dashboarding*
 
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://golang.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)](https://golang.org)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-1.26+-326CE5?logo=kubernetes)](https://kubernetes.io)
 [![kubebuilder](https://img.shields.io/badge/Built%20with-kubebuilder-FF6B6B)](https://book.kubebuilder.io)
 
@@ -13,16 +13,18 @@
 
 ## What RCA Operator Does
 
-RCA Operator Phase 1 is a Kubernetes-native incident detection operator that:
+RCA Operator is a Kubernetes-native incident detection operator that:
 
-- collects failure signals from native Kubernetes APIs
-- persists durable incident state in `IncidentReport`
-- notifies humans from incident lifecycle state
-- serves a built-in dashboard backed only by `IncidentReport` and `RCAAgent`
+- collects failure signals from native Kubernetes APIs (pods, events, nodes, deployments)
+- evaluates CRD-driven correlation rules (`RCACorrelationRule`) to detect multi-signal incidents
+- persists durable incident state in `IncidentReport` CRDs
+- manages incident lifecycle: `Detecting` → `Active` → `Resolved`
+- notifies humans via Slack and PagerDuty from incident lifecycle state
+- serves a built-in dashboard (light/dark theme) backed only by `IncidentReport` and `RCAAgent` CRDs
 
-Phase 1 is intentionally narrow. It avoids AI systems, external databases, and log-scraping dependencies so the operator stays easy to run and reason about in-cluster.
+The operator avoids AI systems, external databases, and log-scraping dependencies so it stays easy to run and reason about in-cluster.
 
-## Phase 1 Architecture
+## Architecture
 
 ```text
 Kubernetes API Server
@@ -34,22 +36,23 @@ Kubernetes API Server
 |  - shared cache/informers   |
 +-------------+---------------+
               |
-      +-------+-------+
-      |               |
-      v               v
-+-----------------------------+   +-----------------------------+
-| Signal Collectors           |   | Dashboard API Server        |
-|  - node                     |   | Reads IncidentReport CRs    |
-|  - pod                      |   | Reads RCAAgent CRs          |
-|  - workload                 |   | No raw cluster reads        |
-|  - event                    |   +-----------------------------+
-+-------------+---------------+
-              |
-              v
-+-----------------------------+
-| Incident Engine             |
+      +-------+-------+-------+
+      |               |       |
+      v               v       v
++-----------------+  +----+  +-----------------------------+
+| Signal          |  |Rule|  | Dashboard API Server        |
+| Collectors      |  |Ctrl|  | Reads IncidentReport CRs    |
+|  - pod          |  +--+-+  | Reads RCAAgent CRs          |
+|  - event        |     |    | Light/dark theme toggle     |
+|  - node         |     v    +-----------------------------+
+|  - deployment   |  +-----------------------------+
++---------+-------+  | RCACorrelationRule CRDs     |
+          |          | (dynamic rule reload)       |
+          v          +-------------+---------------+
++-----------------------------+    |
+| Incident Engine             |<---+
+|  - CRD rule engine          |
 |  - fingerprinting           |
-|  - 5m stabilization         |
 |  - deduplication            |
 |  - lifecycle transitions    |
 +-------------+---------------+
@@ -76,18 +79,20 @@ More detail lives in [Architecture](docs/concepts/Architecture.md) and [Phase 1 
 | Feature | Description |
 |---|---|
 | Native Kubernetes signal collection | Reads pod, event, node, and workload state from Kubernetes |
+| CRD-driven correlation rules | `RCACorrelationRule` CRDs define multi-signal rules — no Go code changes needed |
 | Durable incident records | Deduplicates repeated signals into one `IncidentReport` per fingerprint |
 | Incident lifecycle | Tracks `Detecting`, `Active`, and `Resolved` phases |
 | Notifications | Sends Slack and PagerDuty notifications and emits Kubernetes events |
-| Dashboard | Built-in incident dashboard served by the operator |
+| Dashboard | Built-in incident dashboard with light/dark theme toggle |
 | Retention | Automatically prunes old resolved incidents |
+| OpenTelemetry | Optional OTLP trace/metric export |
 
 ## Quick Install
 
 ### Helm
 
 ```bash
-helm repo add rca-operator https://gaurangkudale.github.io/rca-operator.github.io
+helm repo add rca-operator https://gaurangkudale.github.io/rca-operator.github.io/charts
 helm repo update
 helm install rca-operator rca-operator/rca-operator \
   --namespace rca-system --create-namespace
@@ -96,7 +101,7 @@ helm install rca-operator rca-operator/rca-operator \
 ### kubectl
 
 ```bash
-kubectl apply -f https://github.com/gaurangkudale/RCA-Operator/releases/download/v0.1.4/install.yaml
+kubectl apply -f https://github.com/gaurangkudale/RCA-Operator/releases/latest/download/install.yaml
 kubectl apply -f config/samples/rca_v1alpha1_rcaagent.yaml
 ```
 
@@ -109,14 +114,18 @@ The checked-in sample is minimal and does not require notification secrets. If y
 | [Prerequisites](docs/getting-started/prerequisites.md) | Cluster and tooling requirements |
 | [Installation](docs/getting-started/installation.md) | Helm and kubectl installation |
 | [Quick Start](docs/getting-started/quickstart.md) | Deploy your first agent in minutes |
-| [Architecture](docs/concepts/Architecture.md) | Phase 1 system design and data flow |
+| [Architecture](docs/concepts/Architecture.md) | System design and data flow |
 | [Phase 1 Architecture](docs/phases/PHASE1_ARCHITECTURE.md) | Production target and cleanup baseline |
 | [RCAAgent CRD Reference](docs/reference/rcaagent-crd.md) | `RCAAgent` schema and examples |
+| [IncidentReport CRD Reference](docs/reference/incidentreport-crd.md) | `IncidentReport` schema and fields |
+| [RCACorrelationRule CRD Reference](docs/reference/rcacorrelationrule-crd.md) | Correlation rule schema and examples |
 | [Dashboard](docs/features/DASHBOARD.md) | Dashboard data model and access patterns |
 | [RBAC Reference](docs/reference/rbac.md) | Permissions used by the operator |
 | [Local Development](docs/development/local-setup.md) | Run locally against a cluster |
 | [Testing Guide](docs/development/testing.md) | Unit, envtest, and e2e coverage |
 | [Fixtures](test/fixtures/README.md) | Manual scenarios for incident testing |
+| [Helm Chart Setup](docs/HELM_PAGES_SETUP.md) | Helm repo publishing to GitHub Pages |
+| [Helm Upgrade Guide](docs/HELM_UPGRADE.md) | CRD upgrade and migration steps |
 
 ## Custom Resources
 
@@ -138,6 +147,24 @@ kubectl get incidentreport -A
 kubectl describe incidentreport <name> -n <namespace>
 ```
 
+### RCACorrelationRule
+
+Cluster-scoped rules that define multi-signal correlation logic. Rules are loaded dynamically — no operator restart needed when rules change.
+
+```bash
+kubectl get rcacorrelationrules
+kubectl describe rcacorrelationrule <name>
+```
+
+Four default rules ship with the Helm chart:
+
+| Rule | Trigger | Condition | Severity |
+|---|---|---|---|
+| `node-plus-eviction` | NodeNotReady | PodEvicted on same node | P1 |
+| `crashloop-plus-oom` | CrashLoopBackOff | OOMKilled on same pod | P2 |
+| `crashloop-plus-deploy` | CrashLoopBackOff | StalledRollout in same namespace | P2 |
+| `imagepull-no-history` | ImagePullBackOff | No PodHealthy on same pod | P2 |
+
 ## Contributing
 
 Contributions are welcome.
@@ -148,4 +175,4 @@ Contributions are welcome.
 
 ## License
 
-Licensed under the Apache License 2.0. See [LICENSE](LICENSE).
+Licensed under the MIT License. See [LICENSE](LICENSE).

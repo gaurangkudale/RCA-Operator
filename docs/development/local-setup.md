@@ -20,6 +20,9 @@ kind create cluster --name rca-dev
 
 # Install CRDs into the cluster
 make install
+
+# Apply default correlation rules
+kubectl apply -f config/rules/
 ```
 
 ## Run the Operator Locally
@@ -29,7 +32,7 @@ make install
 make run
 ```
 
-The operator will reconcile existing `RCAAgent` CRs immediately on startup. Controller logs go to stdout.
+The operator will reconcile existing `RCAAgent` CRs immediately on startup and load `RCACorrelationRule` CRDs for multi-signal correlation. Controller logs go to stdout.
 
 ## Apply Sample Resources
 
