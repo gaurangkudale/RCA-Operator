@@ -10,8 +10,8 @@ spec:
     - eventType: PodEvicted
       scope: sameNode
   fires:
-    incidentType: NodeFailure
+    incidentType: NodeNotReady
     severity: P1
-    summary: "NodeFailure: NodeNotReady+Eviction node={{.NodeName}}"
+    summary: "NodeNotReady with pod evictions on node {{.NodeName}}"
     resource: node
     scope: Cluster

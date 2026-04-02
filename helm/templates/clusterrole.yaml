@@ -47,6 +47,14 @@ rules:
 - apiGroups:
   - rca.rca-operator.tech
   resources:
+  - rcacorrelationrules
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - rca.rca-operator.tech
+  resources:
   - incidentreports/finalizers
   - rcaagents/finalizers
   verbs:
@@ -56,6 +64,7 @@ rules:
   resources:
   - incidentreports/status
   - rcaagents/status
+  - rcacorrelationrules/status
   verbs:
   - get
   - patch

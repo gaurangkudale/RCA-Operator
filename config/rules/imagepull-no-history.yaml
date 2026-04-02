@@ -11,6 +11,6 @@ spec:
       scope: samePod
       negate: true
   fires:
-    incidentType: Registry
+    incidentType: ImagePullBackOff
     severity: P2
-    summary: "Registry: ImagePullBackOff with no prior success pod={{.PodName}} ns={{.Namespace}}"
+    summary: "ImagePullBackOff: no prior healthy state for pod {{.PodName}} in {{.Namespace}}"

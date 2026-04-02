@@ -10,7 +10,8 @@ spec:
     - eventType: StalledRollout
       scope: sameNamespace
   fires:
-    incidentType: BadDeploy
+    incidentType: StalledRollout
     severity: P2
-    summary: "BadDeploy: CrashLoop after stalled rollout pod={{.PodName}} ns={{.Namespace}}"
+    summary: "StalledRollout: CrashLoopBackOff with stalled rollout in {{.Namespace}}"
     resource: deployment
+    scope: Workload
