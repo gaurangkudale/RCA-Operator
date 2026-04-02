@@ -1,6 +1,7 @@
 package correlator
 
 import (
+	"sort"
 	"sync"
 	"time"
 
@@ -97,10 +98,18 @@ type Rule interface {
 
 type CorrelatorOption func(*Correlator)
 
-// WithRules overrides the rule set used by the correlator.
+// WithRules overrides the rule set used by the correlator. Rules are sorted by
+// descending priority so the highest-priority rule fires first.
 func WithRules(rules []Rule) CorrelatorOption {
 	return func(c *Correlator) {
-		c.rules = append([]Rule(nil), rules...)
+		sorted := append([]Rule(nil), rules...)
+		sort.SliceStable(sorted, func(i, j int) bool {
+			if sorted[i].Priority() == sorted[j].Priority() {
+				return sorted[i].Name() < sorted[j].Name()
+			}
+			return sorted[i].Priority() > sorted[j].Priority()
+		})
+		c.rules = sorted
 	}
 }
 
