@@ -3,6 +3,10 @@ apiVersion: rca.rca-operator.tech/v1alpha1
 kind: RCACorrelationRule
 metadata:
   name: node-plus-eviction
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
   labels:
     {{- include "rca-operator.labels" . | nindent 4 }}
     app.kubernetes.io/component: default-rule
@@ -24,6 +28,10 @@ apiVersion: rca.rca-operator.tech/v1alpha1
 kind: RCACorrelationRule
 metadata:
   name: crashloop-plus-oom
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
   labels:
     {{- include "rca-operator.labels" . | nindent 4 }}
     app.kubernetes.io/component: default-rule
@@ -43,6 +51,10 @@ apiVersion: rca.rca-operator.tech/v1alpha1
 kind: RCACorrelationRule
 metadata:
   name: crashloop-plus-deploy
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
   labels:
     {{- include "rca-operator.labels" . | nindent 4 }}
     app.kubernetes.io/component: default-rule
@@ -64,6 +76,10 @@ apiVersion: rca.rca-operator.tech/v1alpha1
 kind: RCACorrelationRule
 metadata:
   name: imagepull-no-history
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
   labels:
     {{- include "rca-operator.labels" . | nindent 4 }}
     app.kubernetes.io/component: default-rule
