@@ -33,3 +33,6 @@ go.work.sum
 tmp/bin/
 tmp
 bin/k8s/
+bin/manager
+bin/controller-gen
+bin/controller-gen-*
