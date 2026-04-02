@@ -13,7 +13,6 @@ env:
 permissions:
   contents: write
   packages: write
-  pages: write
 
 jobs:
   release:
@@ -28,11 +27,6 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-
-      - name: Install Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: v3.17.3
 
       # ── Extract versions ──────────────────────────────────────────
       - name: Extract versions
@@ -76,11 +70,6 @@ jobs:
           make build-installer IMG=${IMG,,}
           make build-crds
 
-      # ── Helm chart package ────────────────────────────────────────
-      - name: Package Helm chart
-        run: |
-          helm package helm/ -d dist/
-
       # ── GitHub Release ────────────────────────────────────────────
       - name: Create GitHub Release
         run: |
@@ -89,51 +78,6 @@ jobs:
             --generate-notes \
             --latest \
             dist/install.yaml \
-            dist/crds.yaml \
-            dist/rca-operator-${{ steps.versions.outputs.chart_version }}.tgz
+            dist/crds.yaml
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # ── Helm repo on gh-pages branch ──────────────────────────────
-      - name: Publish Helm chart to GitHub Pages
-        run: |
-          set -e
-
-          CHART_TGZ="dist/rca-operator-${{ steps.versions.outputs.chart_version }}.tgz"
-          REPO_URL="https://${{ github.repository_owner }}.github.io/$(echo '${{ github.repository }}' | cut -d/ -f2)"
-
-          # Clone gh-pages branch (or create it)
-          git clone --single-branch --branch gh-pages \
-            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" \
-            /tmp/gh-pages 2>/dev/null || {
-              mkdir -p /tmp/gh-pages
-              cd /tmp/gh-pages
-              git init
-              git checkout --orphan gh-pages
-              git commit --allow-empty -m "Initialize gh-pages"
-              cd -
-            }
-
-          # Copy chart and rebuild index
-          mkdir -p /tmp/gh-pages/charts
-          cp "$CHART_TGZ" /tmp/gh-pages/charts/
-
-          # Merge with existing index if present
-          if [ -f /tmp/gh-pages/index.yaml ]; then
-            helm repo index /tmp/gh-pages/charts \
-              --url "$REPO_URL/charts" \
-              --merge /tmp/gh-pages/index.yaml
-          else
-            helm repo index /tmp/gh-pages/charts \
-              --url "$REPO_URL/charts"
-          fi
-          cp /tmp/gh-pages/charts/index.yaml /tmp/gh-pages/index.yaml
-
-          # Push
-          cd /tmp/gh-pages
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          git diff --cached --quiet && echo "No chart changes" && exit 0
-          git commit -m "Release Helm chart v${{ steps.versions.outputs.chart_version }}"
-          git push "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages
