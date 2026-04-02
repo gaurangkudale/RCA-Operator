@@ -23,6 +23,7 @@ type incidentEngineOptions struct {
 	consumerOptions    []correlator.Option
 	preferredRuleName  string
 	resolvedRuleEngine RuleEngine
+	context            context.Context
 }
 
 // RuleEngine is the engine-owned contract for correlated incident evaluation.
@@ -47,6 +48,7 @@ type RuleEngineDiscovery struct {
 // RuleEngineConfig carries runtime settings into a resolved rule engine.
 type RuleEngineConfig struct {
 	CorrelationWindow time.Duration
+	Context           context.Context
 }
 
 var (
@@ -110,6 +112,13 @@ func WithRuleEngine(ruleEngine RuleEngine) Option {
 func WithRuleEngineName(name string) Option {
 	return func(opts *incidentEngineOptions) {
 		opts.preferredRuleName = strings.TrimSpace(name)
+	}
+}
+
+// WithContext sets the context used for rule engine initialization (e.g. loading CRD rules at startup).
+func WithContext(ctx context.Context) Option {
+	return func(opts *incidentEngineOptions) {
+		opts.context = ctx
 	}
 }
 
@@ -179,6 +188,7 @@ func resolveRuleEngine(options incidentEngineOptions) (RuleEngine, error) {
 		}
 		engine, err := factory.Build(RuleEngineConfig{
 			CorrelationWindow: options.correlationWindow,
+			Context:           options.context,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("build rule engine %q: %w", factory.Name(), err)

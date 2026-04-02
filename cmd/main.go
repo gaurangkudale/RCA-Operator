@@ -202,10 +202,11 @@ func main() {
 	managerCtx := ctrl.SetupSignalHandler()
 
 	// --- Register CRD Rule Engine Factory ---
-	engine.RegisterRuleEngineFactory(rulengine.Factory{
+	crdFactory := &rulengine.Factory{
 		Client: mgr.GetClient(),
 		Logger: ctrl.Log,
-	})
+	}
+	engine.RegisterRuleEngineFactory(crdFactory)
 
 	// --- Signal channel + Incident Engine ---
 	signals := make(chan collectors.Signal, 1024)
@@ -214,13 +215,15 @@ func main() {
 		mgr.GetClient(),
 		signals,
 		ctrl.Log,
+		engine.WithContext(managerCtx),
 		engine.WithEventRecorder(mgr.GetEventRecorder("rca-incident-engine")),
 	)
 	if err != nil {
 		setupLog.Error(err, "Failed to create incident engine")
 		os.Exit(1)
 	}
-	setupLog.Info("Incident engine created", "ruleEngine", incidentEngine.RuleEngineName())
+	setupLog.Info("Incident engine created", "ruleEngine", incidentEngine.RuleEngineName(),
+		"loadedRules", crdFactory.Engine.RuleCount())
 	go incidentEngine.Run(managerCtx)
 
 	dashboardServer := dashboard.NewServer(mgr.GetClient(), dashboardAddr, ctrl.Log)
@@ -246,6 +249,14 @@ func main() {
 		Notifier: notify.NewDispatcher(mgr.GetClient(), ctrl.Log),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "IncidentReport")
+		os.Exit(1)
+	}
+	if err := (&controller.RCACorrelationRuleReconciler{
+		Client:  mgr.GetClient(),
+		Factory: crdFactory,
+		Log:     ctrl.Log,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "RCACorrelationRule")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

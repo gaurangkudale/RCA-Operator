@@ -10,6 +10,6 @@ spec:
     - eventType: OOMKilled
       scope: samePod
   fires:
-    incidentType: OOM
+    incidentType: OOMKilled
     severity: P2
-    summary: "MemoryPressure: CrashLoop+OOMKilled pod={{.PodName}} ns={{.Namespace}}"
+    summary: "OOMKilled: CrashLoopBackOff with OOMKilled on pod {{.PodName}} in {{.Namespace}}"

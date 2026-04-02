@@ -14,9 +14,11 @@ spec:
     - eventType: PodEvicted
       scope: sameNode
   fires:
-    incidentType: NodeFailure
+    incidentType: NodeNotReady
     severity: P1
-    summary: "Node failure: NodeNotReady with pod evictions on same node"
+    summary: "NodeNotReady with pod evictions on node {{`{{.NodeName}}`}}"
+    resource: node
+    scope: Cluster
 ---
 apiVersion: rca.rca-operator.tech/v1alpha1
 kind: RCACorrelationRule
@@ -33,9 +35,9 @@ spec:
     - eventType: OOMKilled
       scope: samePod
   fires:
-    incidentType: OOM
+    incidentType: OOMKilled
     severity: P2
-    summary: "OOM: CrashLoopBackOff with OOMKilled on same pod"
+    summary: "OOMKilled: CrashLoopBackOff with OOMKilled on pod {{`{{.PodName}}`}} in {{`{{.Namespace}}`}}"
 ---
 apiVersion: rca.rca-operator.tech/v1alpha1
 kind: RCACorrelationRule
@@ -52,9 +54,11 @@ spec:
     - eventType: StalledRollout
       scope: sameNamespace
   fires:
-    incidentType: BadDeploy
+    incidentType: StalledRollout
     severity: P2
-    summary: "Bad deploy: CrashLoopBackOff with stalled rollout in same namespace"
+    summary: "StalledRollout: CrashLoopBackOff with stalled rollout in {{`{{.Namespace}}`}}"
+    resource: deployment
+    scope: Workload
 ---
 apiVersion: rca.rca-operator.tech/v1alpha1
 kind: RCACorrelationRule
@@ -72,7 +76,7 @@ spec:
       scope: samePod
       negate: true
   fires:
-    incidentType: Registry
+    incidentType: ImagePullBackOff
     severity: P2
-    summary: "Registry failure: ImagePullBackOff with no prior healthy state"
+    summary: "ImagePullBackOff: no prior healthy state for pod {{`{{.PodName}}`}} in {{`{{.Namespace}}`}}"
 {{- end }}
