@@ -10,10 +10,10 @@ spec:
   # How long to keep Resolved IncidentReport CRs. Supported: m, h, d (e.g. 24h, 30d).
   incidentRetention: 5m
   # Optional notifications example:
-  # notifications:
-  #   slack:
-  #     webhookSecretRef: slack-webhook
-  #     channel: "#incidents"
+  notifications:
+    slack:
+      webhookSecretRef: slack-webhook
+      channel: "#incidents"
   #   pagerduty:
   #     secretRef: pd-api-key
 ---
