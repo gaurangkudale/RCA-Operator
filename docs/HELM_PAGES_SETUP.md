@@ -11,7 +11,7 @@ This guide explains how to configure the workflow to automatically publish Helm 
 │                                                              │
 │  • Helm chart source (helm/)                                │
 │  • Workflow: .github/workflows/helm-gh-pages.yml            │
-│  • Triggered on: helm-v* tags or manual dispatch            │
+│  • Triggered on: v* tags or manual dispatch                 │
 └────────────┬────────────────────────────────────────────────┘
              │
              │ 1. Package chart
@@ -146,7 +146,7 @@ After the workflow completes successfully:
 ### Trigger Conditions
 
 The workflow runs when:
-1. A tag matching `helm-v*` is pushed (e.g., `helm-v0.1.2`, `helm-v1.0.0`)
+1. A tag matching `v*` is pushed (e.g., `v0.0.5`, `v1.0.0`)
 2. Manually triggered via GitHub Actions UI or `gh workflow run`
 
 ### What the Workflow Does

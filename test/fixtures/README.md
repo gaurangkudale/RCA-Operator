@@ -15,7 +15,7 @@ test/fixtures/
 │   ├── rcaagent-sample.yaml        ← watches: development
 │   └── rcaagent-development.yaml   ← watches: default
 ├── deployments/
-│   └── deployment1.yaml            ← StalledRollout (BadDeploy P2)
+│   └── deployment1.yaml            ← StalledRollout P2
 ├── nodes/
 │   ├── simulate-not-ready.sh       ← NodeNotReady simulation (Kind only)
 │   └── simulate-pressure.sh        ← DiskPressure / MemoryPressure / PIDPressure (any cluster)
@@ -60,19 +60,19 @@ kubectl apply -f test/fixtures/pods/crashloop.yaml
 
 | File | Namespace | Signal | Incident Type | Severity | Auto-resolved? |
 |---|---|---|---|---|---|
-| `pods/crashloop.yaml` | `default` | `CrashLoopBackOff` | `CrashLoop` | P3 | Yes — after pod recovers |
+| `pods/crashloop.yaml` | `default` | `CrashLoopBackOff` | `CrashLoopBackOff` | P3 | Yes — after pod recovers |
 | `pods/oomkill.yaml` | `development` | `OOMKilled` | `OOMKilled` | P2 | Yes — after pod recovers |
 | `pods/image-pull-backoff.yaml` | `development` | `ImagePullBackOff` | `ImagePullBackOff` | P3 | Manual (delete pod) |
-| `pods/exit-code.yaml` | `development` | `CrashLoopBackOff` + exit-code context (exit 127) | `CrashLoop` | P3 | Yes — after pod recovers |
+| `pods/exit-code.yaml` | `development` | `CrashLoopBackOff` + exit-code context (exit 127) | `CrashLoopBackOff` | P3 | Yes — after pod recovers |
 | `pods/grace-period-violation.yaml` | `development` | `GracePeriodViolation` | `GracePeriodViolation` | P2 | On pod delete |
-| `pods/retention.yaml` | `default` | `CrashLoopBackOff` → `PodHealthy` | `CrashLoop` | P3 | Yes → pruned after `incidentRetention` |
+| `pods/retention.yaml` | `default` | `CrashLoopBackOff` → `PodHealthy` | `CrashLoopBackOff` | P3 | Yes → pruned after `incidentRetention` |
 | `pods/probe-failure.yaml` | `development` | `ProbeFailure` (Unhealthy event) | `ProbeFailure` | P3 | Yes — after pod restarts and becomes Ready |
-| `pods/pod-eviction.yaml` | `development` | `PodEvicted` (Eviction API) | `NodeFailure` | P2 | Manual (delete pod + IncidentReport) |
-| `deployments/deployment1.yaml` | `development` | `StalledRollout` (ProgressDeadlineExceeded) | `BadDeploy` | P2 | Manual (fix image or delete) |
-| `nodes/simulate-not-ready.sh` | `default` | `NodeNotReady` (Kind node pause) | `NodeFailure` | P1 | Automatic — after node unpauses |
-| `nodes/simulate-pressure.sh disk` | `default` | `DiskPressure=True` (status patch) | `NodeFailure` | P2 | Automatic — on script exit |
-| `nodes/simulate-pressure.sh memory` | `default` | `MemoryPressure=True` (status patch) | `NodeFailure` | P2 | Automatic — on script exit |
-| `nodes/simulate-pressure.sh pid` | `default` | `PIDPressure=True` (status patch) | `NodeFailure` | P3 | Automatic — on script exit |
+| `pods/pod-eviction.yaml` | `development` | `PodEvicted` (Eviction API) | `PodEvicted` | P2 | Manual (delete pod + IncidentReport) |
+| `deployments/deployment1.yaml` | `development` | `StalledRollout` (ProgressDeadlineExceeded) | `StalledRollout` | P2 | Manual (fix image or delete) |
+| `nodes/simulate-not-ready.sh` | `default` | `NodeNotReady` (Kind node pause) | `NodeNotReady` | P1 | Automatic — after node unpauses |
+| `nodes/simulate-pressure.sh disk` | `default` | `DiskPressure=True` (status patch) | `NodePressure` | P2 | Automatic — on script exit |
+| `nodes/simulate-pressure.sh memory` | `default` | `MemoryPressure=True` (status patch) | `NodePressure` | P2 | Automatic — on script exit |
+| `nodes/simulate-pressure.sh pid` | `default` | `PIDPressure=True` (status patch) | `NodePressure` | P3 | Automatic — on script exit |
 
 > **event_watcher signals** (ProbeFailure, PodEvicted, NodeNotReady) originate from K8s Event objects
 > rather than Pod/Node object state, so they are detected by `event_watcher.go` independently of `pod_watcher.go`.
@@ -130,13 +130,15 @@ kubectl delete -f test/fixtures/deployments/ --ignore-not-found
 # Remove fixture agents
 kubectl delete -f test/fixtures/agents/ --ignore-not-found
 
-# Remove NodeFailure / ProbeFailure incidents created by event_watcher scenarios
-kubectl delete incidentreports -n development -l rca.rca-operator.tech/incident-type=NodeFailure --ignore-not-found
+# Remove node/eviction/probe incidents created by event_watcher scenarios
+kubectl delete incidentreports -n development -l rca.rca-operator.tech/incident-type=NodeNotReady --ignore-not-found
+kubectl delete incidentreports -n development -l rca.rca-operator.tech/incident-type=PodEvicted --ignore-not-found
 kubectl delete incidentreports -n development -l rca.rca-operator.tech/incident-type=ProbeFailure --ignore-not-found
-kubectl delete incidentreports -n default -l rca.rca-operator.tech/incident-type=NodeFailure --ignore-not-found
+kubectl delete incidentreports -n default -l rca.rca-operator.tech/incident-type=NodeNotReady --ignore-not-found
+kubectl delete incidentreports -n default -l rca.rca-operator.tech/incident-type=NodePressure --ignore-not-found
 
-# Remove BadDeploy incidents created by deployment stall scenario
-kubectl delete incidentreports -n development -l rca.rca-operator.tech/incident-type=BadDeploy --ignore-not-found
+# Remove StalledRollout incidents created by deployment stall scenario
+kubectl delete incidentreports -n development -l rca.rca-operator.tech/incident-type=StalledRollout --ignore-not-found
 ```
 
 ---
@@ -150,6 +152,6 @@ kubectl delete incidentreports -n development -l rca.rca-operator.tech/incident-
 - **pod-eviction** — the Eviction API (`kubectl evict`) terminates the pod without rescheduling (`restartPolicy: Never`). Delete the pod and IncidentReport manually when done.
 - **node-not-ready** — requires a Kind cluster. The `simulate-not-ready.sh` script pauses the Docker container backing a Kind worker node; after the uninterrupted 40 s `node-monitor-grace-period` the kube-controller-manager fires a `NodeNotReady` K8s Event. Run `kubectl get nodes -w` in a separate terminal to watch the status change.
 - **simulate-pressure** — works against any Kubernetes cluster (no Docker required). Uses `kubectl patch --subresource=status` to inject the pressure condition directly on the Node object. The kubelet heartbeat overwrites the patch every ~10 s, so the script re-patches every 8 s during the observation window. On exit (or Ctrl-C), the condition is restored to `False`. The `NodeWatcher` picks up the change via the informer within ~1 reconcile period (30 s scan or informer push, whichever fires first). Requires `python3` for the JSON condition array manipulation.
-- **deployment1** — after `kubectl apply`, the pods enter `ImagePullBackOff` (nonexistent image). After `progressDeadlineSeconds: 60` Kubernetes sets `Progressing=False/ProgressDeadlineExceeded`. The `DeploymentWatcher` detects this and emits a `StalledRolloutEvent`, creating a `BadDeploy` P2 incident.
-- **exit-code** — a non-zero exit no longer creates a separate `ExitCode` incident. If the pod enters `CrashLoopBackOff`, the `CrashLoop` incident summary includes `exitCode`, `category`, and `description` fields.
+- **deployment1** — after `kubectl apply`, the pods enter `ImagePullBackOff` (nonexistent image). After `progressDeadlineSeconds: 60` Kubernetes sets `Progressing=False/ProgressDeadlineExceeded`. The `DeploymentWatcher` detects this and emits a `StalledRolloutEvent`, creating a `StalledRollout` P2 incident.
+- **exit-code** — a non-zero exit no longer creates a separate `ExitCode` incident. If the pod enters `CrashLoopBackOff`, the `CrashLoopBackOff` incident summary includes `exitCode`, `category`, and `description` fields.
 - See [docs/concepts/Architecture.md](../../docs/concepts/Architecture.md) for the Phase 1 runtime model.

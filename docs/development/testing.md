@@ -4,18 +4,24 @@
 
 ## Unit Tests
 
-Unit tests use **envtest** (real Kubernetes API server + etcd, no real cluster needed) with Ginkgo + Gomega.
+The project uses two testing styles:
+
+- **Controller tests** use **envtest** (real Kubernetes API server + etcd, no real cluster needed) with Ginkgo + Gomega. See `internal/controller/suite_test.go` for the envtest setup.
+- **All other unit tests** use the **standard `testing` package** with table-driven tests. New tests should follow this convention.
 
 ```bash
 make test
 ```
 
-Test files follow the pattern `*_test.go` in `internal/`. See `internal/controller/suite_test.go` for the envtest setup.
+Test files follow the pattern `*_test.go` in `internal/`.
 
 ## Run a Specific Test
 
 ```bash
-# Single test by name (Ginkgo label filter)
+# By test function name
+go test ./internal/correlator/... -v -run TestCorrelator_InjectedRuleFires
+
+# Controller tests (Ginkgo)
 go test ./internal/controller/... -v -run TestControllers/"RCAAgent reconciler"
 ```
 
@@ -48,7 +54,7 @@ kubectl apply -f test/fixtures/pods/crashloop.yaml
 kubectl get incidentreports -n default -w
 ```
 
-For exit-code validation, use `test/fixtures/pods/exit-code.yaml`. The operator no longer creates a standalone `ExitCode` incident; instead, the resulting `CrashLoop` incident includes the classified exit-code context in its summary and timeline.
+For exit-code validation, use `test/fixtures/pods/exit-code.yaml`. The operator no longer creates a standalone `ExitCode` incident; instead, the resulting `CrashLoopBackOff` incident includes the classified exit-code context in its summary and timeline.
 
 ## Build and Push the Docker Image
 

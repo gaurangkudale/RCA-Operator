@@ -62,7 +62,7 @@ Before building a significant feature, check:
 
 | Tool | Version | Purpose |
 |---|---|---|
-| Go | 1.22+ | Build the operator |
+| Go | 1.25+ | Build the operator |
 | Docker | 24+ | Build images |
 | kind | 0.23+ | Local Kubernetes cluster |
 | kubectl | 1.28+ | Interact with cluster |
@@ -132,25 +132,36 @@ make helm-lint         # lint the Helm chart
 
 ```
 rca-operator/
-├── api/v1alpha1/          ← CRD type definitions
+├── api/v1alpha1/          ← CRD type definitions (RCAAgent, IncidentReport, RCACorrelationRule)
 ├── internal/
-│   ├── controller/        ← Kubernetes controllers (reconcile loops)
+│   ├── controller/        ← Kubernetes controllers (RCAAgent, IncidentReport, RCACorrelationRule reconcilers)
 │   ├── collectors/        ← Collector-facing runtime seam for pod, event, node, and workload signals
-│   ├── watcher/           ← Current informer-backed collector implementations
-│   ├── engine/            ← Incident engine runtime seam
-│   ├── correlator/        ← Current incident-engine internals and incident model
-│   ├── reporter/          ← Slack, PagerDuty, CR reporter
-│   └── rca/               ← RCA engine (Phase 2+, stubs only in Phase 1)
+│   ├── watcher/           ← Informer-backed collector implementations
+│   ├── engine/            ← Incident engine: factory registry, rule engine resolution
+│   ├── correlator/        ← Consumer event loop, correlation buffer, rule infrastructure
+│   ├── rulengine/         ← CRD-driven rule engine: loads RCACorrelationRule CRDs dynamically
+│   ├── signals/           ← Signal processing pipeline: normalizer, enricher
+│   ├── reporter/          ← Slack, PagerDuty, CR reporter for incident lifecycle
+│   ├── incident/          ← Incident scope and fingerprint model
+│   ├── dashboard/         ← Built-in dashboard API server and static assets
+│   ├── notify/            ← Notification dispatcher (Slack, PagerDuty)
+│   ├── retention/         ← Incident retention duration parsing
+│   ├── metrics/           ← Prometheus metrics
+│   ├── otel/              ← OpenTelemetry setup
+│   └── webhook/           ← Admission webhooks for RCAAgent and RCACorrelationRule validation
 ├── config/
 │   ├── crd/               ← Generated CRD manifests
 │   ├── rbac/              ← RBAC rules
+│   ├── rules/             ← Default RCACorrelationRule YAML samples
 │   └── samples/           ← Example CRs
-├── charts/rca-operator/   ← Helm chart
+├── helm/                  ← Helm chart (templates, values, CRDs, default rules)
 ├── docs/                  ← All documentation
-└── tests/e2e/             ← End-to-end tests
+└── test/                  ← E2E tests and fixtures
 ```
 
-**Key design constraint:** collectors are read-only. They emit signals into the incident engine and never write to the cluster directly. Only controllers and reporters write.
+**Key design constraints:**
+- Collectors are read-only — they emit signals into the incident engine and never write to the cluster directly. Only controllers and reporters write.
+- All correlation rules are CRD-driven — no hardcoded rules in Go code. Rules are loaded from `RCACorrelationRule` CRDs at startup and reloaded automatically on changes.
 
 ---
 
@@ -350,52 +361,67 @@ make test-coverage
 
 ## Adding a Correlation Rule
 
-Correlation rules are the core value of the project. Here's how to add one properly.
+Correlation rules are defined as `RCACorrelationRule` CRDs — no Go code changes needed. Here's how to add one properly.
 
-### 1. Define the rule in `internal/correlator/rules.go`
+### 1. Create a rule YAML
 
-```go
-// RuleRegistryCredentials fires when ImagePullBackOff is detected
-// with no prior successful pull from the same image.
-func RuleRegistryCredentials(signals []Signal) *IncidentCandidate {
-    hasPullFailure := containsType(signals, SignalImagePullBackOff)
-    hasNoPriorSuccess := !containsType(signals, SignalImagePullSuccess)
-    if hasPullFailure && hasNoPriorSuccess {
-        return &IncidentCandidate{
-            Type:     IncidentTypeRegistry,
-            Severity: P2,
-            Signals:  filterByType(signals, SignalImagePullBackOff),
-        }
-    }
-    return nil
-}
+```yaml
+# config/rules/my-custom-rule.yaml
+apiVersion: rca.rca-operator.tech/v1alpha1
+kind: RCACorrelationRule
+metadata:
+  name: my-custom-rule
+spec:
+  priority: 250
+  trigger:
+    eventType: CrashLoopBackOff
+  conditions:
+    - eventType: ProbeFailure
+      scope: samePod
+  fires:
+    incidentType: ProbeInducedCrashLoop
+    severity: P2
+    summary: "CrashLoopBackOff with probe failures on pod {{.PodName}} in {{.Namespace}}"
 ```
 
-### 2. Register it in the rule set
+### 2. Apply the rule
 
-```go
-var DefaultRules = []Rule{
-    RuleCrashLoopOOM,
-    RuleBadDeploy,
-    RuleNodeLevel,
-    RuleRegistryCredentials, // ← add here
-    RuleNodeFailure,
-}
+```bash
+kubectl apply -f config/rules/my-custom-rule.yaml
 ```
 
-### 3. Write table-driven unit tests
+The operator reloads rules automatically — no restart needed.
 
-Cover: fires correctly, does not fire on partial signals, does not double-fire within cool-down window.
+### 3. Available trigger/condition event types
 
-### 4. Document it
+`CrashLoopBackOff`, `OOMKilled`, `ImagePullBackOff`, `PodPendingTooLong`, `GracePeriodViolation`, `NodeNotReady`, `PodEvicted`, `ProbeFailure`, `StalledRollout`, `NodePressure`, `PodHealthy`, `PodDeleted`
 
-Add a row to the correlation rules table in `docs/concepts/correlation-rules.md`.
+### 4. Available condition scopes
 
-### 5. Update CHANGELOG.md
+| Scope | Meaning |
+|---|---|
+| `samePod` | Same namespace and pod name |
+| `sameNode` | Same node name |
+| `sameNamespace` | Same namespace |
+| `any` | No scope restriction |
+
+### 5. Summary template variables
+
+`{{.PodName}}`, `{{.Namespace}}`, `{{.NodeName}}`, `{{.EventType}}`
+
+### 6. Ship with Helm (optional)
+
+If the rule should be a default, add it to `helm/templates/default-rules.yaml` with the `post-install,post-upgrade` hook annotations.
+
+### 7. Test and document
+
+- Test locally by applying the rule and triggering the relevant signals
+- Add a row to the default rules table in the [RCACorrelationRule CRD reference](docs/reference/rcacorrelationrule-crd.md) if it's a default rule
+- Update CHANGELOG.md
 
 ```markdown
 ### Added
-- Correlation rule: ImagePullBackOff + no prior success → Registry credentials incident (#55)
+- Correlation rule: CrashLoopBackOff + ProbeFailure → ProbeInducedCrashLoop P2 (#55)
 ```
 
 ---

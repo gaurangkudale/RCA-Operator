@@ -9,7 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 > **How to read this file**
 >
-> - `[Unreleased]` — changes on `main` not yet in a release
+> - `[Unreleased]` — changes on `main-gk` not yet in a release
 > - Entries are newest-first within each section
 > - Each version links to the GitHub diff since the previous release
 > - Section types: `Added` · `Changed` · `Deprecated` · `Removed` · `Fixed` · `Security`
@@ -20,51 +20,68 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **CRD-driven correlation rules** — `RCACorrelationRule` cluster-scoped CRD with dynamic rule loading, template-based summaries, and a dedicated controller that reloads rules on create/update/delete without operator restart
+- **RCACorrelationRule controller** — watches `RCACorrelationRule` CRDs and reloads the rule engine automatically
+- **CRD rule engine** — factory-based plugin (priority 200) that evaluates rules loaded from CRDs at runtime
+- **4 default correlation rules** shipped via Helm chart (`node-plus-eviction`, `crashloop-plus-oom`, `crashloop-plus-deploy`, `imagepull-no-history`)
+- **Dashboard redesign** — new clean UI with light/dark theme toggle (persisted to localStorage), Inter + JetBrains Mono fonts
+- **Workload-scoped fingerprinting** — `Workload|ns|kind|name` format for proper incident dedup across pod restarts
+- **Signal processing pipeline** — Normalizer → Enricher → Rule Engine → Reporter architecture
+- **Three-stage incident lookup** — `findOpenIncident` → `findResolvableIncident` → `findExistingByWorkloadRef` for zero-duplicate guarantees
+- **ExitCodePattern suppression** — prevents duplicate incidents when exit codes build toward ConsecutiveExitCode threshold
+- **FrequencySpike auto-resolution guard** — namespace-scoped incidents no longer incorrectly auto-resolved
+- **Helm hooks for default rules** — `post-install,post-upgrade` hooks ensure CRDs are registered before rules are applied
+- **OpenTelemetry support** — optional OTLP trace/metric export via `spec.otel` configuration
+- **Signal mappings** — `spec.signalMappings` allows overriding default event→incident type mappings
 - ADR-0001 documenting the Phase 1 Kubernetes-native incident architecture
 
 ### Changed
 
+- **All correlation rules are now CRD-driven** — removed all hardcoded Go rules from `internal/correlator/rules.go`
+- Removed legacy correlator rule engine factory (`correlator_rule_engine.go`) — CRD engine is the only active engine
+- Incident types are now self-describing (`CrashLoopBackOff`, `OOMKilled`, `ImagePullBackOff`, `NodeNotReady`, `StalledRollout`) instead of aliases (`OOM`, `Registry`, `NodeFailure`, `BadDeploy`)
 - Simplified `RCAAgent` to Phase 1 fields only
 - Switched secret validation from unused AI settings to real Slack and PagerDuty notification secrets
-- Rewrote core docs and samples to align with the Phase 1 incident-engine architecture
+- Consolidated 3 release workflows into clear separation: `release.yml` (Docker + manifests), `helm-release.yml` (chart release), `helm-gh-pages.yml` (chart repo)
 
 ### Removed
 
-- CPU throttling and `ResourceSaturation` incident paths that are outside the current Phase 1 architecture
-- stale AI/OpenAI setup guidance and watcher-first planning docs that no longer match the repo direction
+- All 4 hardcoded correlation rules from Go code (replaced by CRD rules)
+- Legacy correlator rule engine factory (`internal/engine/correlator_rule_engine.go`)
+- CPU throttling and `ResourceSaturation` incident paths that are outside the current architecture
+- Stale AI/OpenAI setup guidance and watcher-first planning docs
+
+### Fixed
+
+- Duplicate incidents on operator restart (40h resolved StalledRollout + new Active for same workload)
+- StalledRollout getting pod-scoped fingerprint instead of workload-scoped
+- Enricher overwriting pre-existing WorkloadRef during scope resolution
+- Helm chart install failure when CRDs and CRs are in the same release (added post-install hooks)
 
 ---
 
-## [0.1.0] — *Target: TBD*
+## [0.0.5] — 2026-04-02
 
-> Phase 1 Foundation — first deployable release of RCA Operator.
+> CRD rule engine, dashboard redesign, Helm production readiness.
 
 ### Added
 
-- **RCAAgent CRD** (`rca-operator.tech/v1alpha1`) — primary configuration resource for the operator
-- **IncidentReport CRD** (`rca-operator.tech/v1alpha1`) — auto-created per detected incident, with full status lifecycle
-- **Pod Watcher** — detects CrashLoopBackOff, OOMKilled (exit 137), ImagePullBackOff, and pods stuck in Pending
-- **Event Watcher** — streams `core/v1` Kubernetes events with in-memory deduplication via ring buffer
-- **Node Watcher** — detects `NotReady`, `DiskPressure`, and `MemoryPressure` node conditions
-- **Deployment Watcher** — tracks recent deployment timestamps and revision history; detects stalled rollouts
-- **Correlator** — in-memory ring buffer feeding a rule engine with 5 built-in correlation rules:
-  - Rule 1: CrashLoop + OOMKilled → Memory pressure incident
-  - Rule 2: CrashLoop + recent deployment → Bad deploy incident
-  - Rule 3: Multiple pods failing on same node → Node-level incident
-  - Rule 4: ImagePullBackOff + no prior pull success → Registry / credentials incident
-  - Rule 5: Node NotReady + eviction events → Node failure incident
-- **Incident lifecycle** — status transitions: `Detecting → Active → Resolved`, with auto-resolve detection
-- **Severity scoring** — P1 (cluster-wide) / P2 (namespace) / P3 (single service) / P4 (warning)
-- **Slack notifications** — incident open and resolved messages via webhook, configurable channel and @mention on P1
-- **PagerDuty notifications** — Events API v2 trigger and auto-resolve for P1/P2 incidents
-- **Kubernetes event emission** — events written to `IncidentReport` CRs for `kubectl` visibility
-- **Prometheus metrics** — `rca_incidents_detected_total`, `rca_incidents_resolved_total`, `rca_watcher_events_processed_total`
-- **Health endpoints** — `/healthz` and `/readyz`
-- **Structured JSON logging** — via `zap` with incident ID correlation field
-- **Helm chart** — `charts/rca-operator/` with RBAC, ServiceAccount, Deployment, and CRD templates
-- **RBAC** — read-only `ClusterRole` on pods/events/nodes/deployments + write access to RCA Operator CRDs only
-- **E2E test** — CrashLoop scenario: broken pod → IncidentReport created → Slack notified → pod healed → incident resolved
-- **Sample configs** — `config/samples/rcaagent-minimal.yaml` and `config/samples/rcaagent-full.yaml`
+- RCACorrelationRule CRD and controller
+- CRD rule engine with dynamic rule loading
+- Dashboard light/dark theme
+- Helm hooks for default rules
+- RBAC for `rcacorrelationrules` get/list/watch
+
+---
+
+## [0.0.4] — 2026-03-22
+
+> Duplicate incident prevention, workload-scoped fingerprinting.
+
+### Fixed
+
+- ExitCodePattern suppression for consecutive exit codes
+- FrequencySpike auto-resolution guard for namespace-scoped incidents
 
 ---
 
@@ -75,13 +92,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Initial kubebuilder project structure
 - Go module `github.com/gaurangkudale/rca-operator`
 - CI pipeline (lint, build, unit test)
-- `LICENSE` (Apache 2.0)
+- `LICENSE` (MIT)
 - `README.md` skeleton
-- Stub directories for all planned Phase 1 packages
+- Stub directories for all planned packages
 
 ---
 
 <!-- Version diff links — update on each release -->
-[Unreleased]: https://github.com/gaurangkudale/rca-operator/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/gaurangkudale/rca-operator/compare/v0.0.1...v0.1.0
-[0.0.1]: https://github.com/gaurangkudale/rca-operator/releases/tag/v0.0.1
+[Unreleased]: https://github.com/gaurangkudale/RCA-Operator/compare/v0.0.5...HEAD
+[0.0.5]: https://github.com/gaurangkudale/RCA-Operator/compare/v0.0.4...v0.0.5
+[0.0.4]: https://github.com/gaurangkudale/RCA-Operator/compare/v0.0.1...v0.0.4
+[0.0.1]: https://github.com/gaurangkudale/RCA-Operator/releases/tag/v0.0.1
