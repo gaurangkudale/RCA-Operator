@@ -1,0 +1,62 @@
+name: Release Helm Charts
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v4.0.4
+
+      - name: Get chart version
+        id: chart_version
+        run: |
+          VERSION=$(grep '^version:' helm/Chart.yaml | awk '{print $2}')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Chart version: $VERSION"
+
+      - name: Package Helm chart
+        run: |
+          helm package helm/ -d .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: helm-v${{ steps.chart_version.outputs.version }}
+          name: Helm Chart v${{ steps.chart_version.outputs.version }}
+          make_latest: false
+          body: |
+            ## Helm Chart Release
+
+            ### Install via Helm repository (recommended)
+            ```bash
+            helm repo add rca-operator https://gaurangkudale.github.io/rca-operator.github.io/charts
+            helm repo update
+            helm install rca-operator rca-operator/rca-operator \
+              --namespace rca-system --create-namespace
+            ```
+
+            ### Install directly from this release
+            ```bash
+            helm install rca-operator \
+              https://github.com/${{ github.repository }}/releases/download/helm-v${{ steps.chart_version.outputs.version }}/rca-operator-${{ steps.chart_version.outputs.version }}.tgz \
+              --namespace rca-system --create-namespace
+            ```
+          files: |
+            rca-operator-*.tgz
+          fail_on_unmatched_files: true
