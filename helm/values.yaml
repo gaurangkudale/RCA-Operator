@@ -1,9 +1,11 @@
 # RCA Operator Helm Chart Values
 
 # Number of replicas for the controller manager
+# Use case: Scale operator control-plane availability and throughput.
 replicaCount: 1
 
 # Controller manager image configuration
+# Use case: Select which RCA Operator image/version is deployed.
 image:
   repository: ghcr.io/gaurangkudale/rca-operator
   pullPolicy: IfNotPresent
@@ -15,10 +17,12 @@ nameOverride: ""
 fullnameOverride: ""
 
 # Install CRDs with the chart
+# Use case: Bootstrap custom resources during install/upgrade when cluster owners allow chart-managed CRDs.
 crds:
   install: true
 
 # Service account configuration
+# Use case: Control workload identity and API access for the operator pod.
 serviceAccount:
   create: true
   automount: true
@@ -26,16 +30,19 @@ serviceAccount:
   name: ""
 
 # Pod annotations and labels
+# Use case: Attach metadata for policy engines, service meshes, and observability tools.
 podAnnotations: {}
 podLabels: {}
 
 # Pod security context
+# Use case: Enforce pod-level hardening defaults.
 podSecurityContext:
   runAsNonRoot: true
   seccompProfile:
     type: RuntimeDefault
 
 # Container security context
+# Use case: Enforce container-level least-privilege runtime restrictions.
 securityContext:
   readOnlyRootFilesystem: true
   allowPrivilegeEscalation: false
@@ -44,6 +51,7 @@ securityContext:
       - ALL
 
 # Controller manager arguments (built from values below; do not set directly)
+# Use case: Define core runtime flags for reconciliation, probes, and dashboard endpoint.
 manager:
   args:
     - --leader-elect
@@ -51,6 +59,7 @@ manager:
     - --dashboard-bind-address=:9090
 
 # OpenTelemetry configuration
+# Use case: Export operator traces/telemetry to an OTLP backend for observability.
 otel:
   enabled: false
   # OTLP gRPC collector address (e.g. "signoz-otel-collector.platform:4317")
@@ -60,27 +69,32 @@ otel:
   insecure: true
 
 # Default RCACorrelationRule CRDs
+# Use case: Seed built-in correlation knowledge so RCA works immediately after installation.
 defaultRules:
-  enabled: true
+  enabled: false
 
 # Automatic correlation rule detection
+# Use case: Learn new recurring incident patterns and create rules automatically.
 autoDetect:
-  enabled: false
+  enabled: true
   minOccurrences: 5
   maxRules: 20
   interval: 60s
   expiry: 1h
 
 # Admission webhooks
+# Use case: Validate/default RCA custom resources before they are persisted.
 webhooks:
   enabled: false
 
 # Pod Disruption Budget
+# Use case: Protect operator availability during voluntary node disruptions.
 podDisruptionBudget:
   enabled: true
   minAvailable: 1
 
 # Resources for the controller manager
+# Use case: Reserve and cap CPU/memory for stable reconciliation performance.
 resources:
   limits:
     cpu: 500m
@@ -90,6 +104,7 @@ resources:
     memory: 128Mi
 
 # Liveness probe configuration
+# Use case: Restart stuck containers automatically.
 livenessProbe:
   httpGet:
     path: /healthz
@@ -98,6 +113,7 @@ livenessProbe:
   periodSeconds: 20
 
 # Readiness probe configuration
+# Use case: Route traffic only when the manager is ready to serve.
 readinessProbe:
   httpGet:
     path: /readyz
@@ -106,19 +122,24 @@ readinessProbe:
   periodSeconds: 10
 
 # Node selector for scheduling
+# Use case: Pin operator pods to specific node pools.
 nodeSelector: {}
 
 # Tolerations for scheduling
+# Use case: Allow scheduling on tainted nodes when required.
 tolerations: []
 
 # Affinity rules for scheduling
+# Use case: Control pod placement for reliability and topology goals.
 affinity: {}
 
 # Leader election configuration
+# Use case: Ensure only one active controller manager reconciles at a time.
 leaderElection:
   enabled: true
 
 # Metrics endpoint configuration
+# Use case: Expose Prometheus-style metrics for monitoring and alerting.
 metrics:
   enabled: true
   service:
@@ -126,6 +147,7 @@ metrics:
     type: ClusterIP
 
 # Dashboard/Web UI configuration
+# Use case: Enable RCA Operator dashboard access for investigation and visualization.
 dashboard:
   enabled: true
   port: 9090
