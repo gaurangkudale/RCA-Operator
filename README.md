@@ -26,51 +26,7 @@ The operator avoids AI systems, external databases, and log-scraping dependencie
 
 ## Architecture
 
-```text
-Kubernetes API Server
-        |
-        v
-+-----------------------------+
-| controller-runtime Manager  |
-|  - leader election          |
-|  - shared cache/informers   |
-+-------------+---------------+
-              |
-      +-------+-------+-------+
-      |               |       |
-      v               v       v
-+-----------------+  +----+  +-----------------------------+
-| Signal          |  |Rule|  | Dashboard API Server        |
-| Collectors      |  |Ctrl|  | Reads IncidentReport CRs    |
-|  - pod          |  +--+-+  | Reads RCAAgent CRs          |
-|  - event        |     |    | Light/dark theme toggle     |
-|  - node         |     v    +-----------------------------+
-|  - deployment   |  +-----------------------------+
-+---------+-------+  | RCACorrelationRule CRDs     |
-          |          | (dynamic rule reload)       |
-          v          +-------------+---------------+
-+-----------------------------+    |
-| Incident Engine             |<---+
-|  - CRD rule engine          |
-|  - fingerprinting           |
-|  - deduplication            |
-|  - lifecycle transitions    |
-+-------------+---------------+
-              |
-              v
-+-----------------------------+
-| IncidentReport CRD          |
-| durable source of truth     |
-+-------------+---------------+
-              |
-      +-------+-------+
-      |               |
-      v               v
-+-------------+  +----------------+
-| Notifications|  | Dashboard UI   |
-| Slack/PD/K8s |  | reads CRs only |
-+-------------+  +----------------+
-```
+![alt text](<architecture.png>)
 
 More detail lives in [Architecture](docs/concepts/Architecture.md) and [Phase 1 Architecture](docs/phases/PHASE1_ARCHITECTURE.md).
 
