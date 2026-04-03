@@ -34,6 +34,40 @@ make run
 
 The operator will reconcile existing `RCAAgent` CRs immediately on startup and load `RCACorrelationRule` CRDs for multi-signal correlation. Controller logs go to stdout.
 
+### Enable Auto-Detection (Optional)
+
+To test automatic correlation rule detection, run with the `--enable-autodetect` flag:
+
+```bash
+make run -- --enable-autodetect \
+  --autodetect-min-occurrences=3 \
+  --autodetect-confidence=0.6 \
+  --autodetect-max-rules=10 \
+  --autodetect-interval=30s \
+  --autodetect-expiry=30m
+```
+
+The operator will now periodically snapshot the correlation buffer and mine for recurring signal patterns. When patterns exceed the confidence threshold, it will auto-create `RCACorrelationRule` CRDs labeled `rca.rca-operator.tech/auto-generated: "true"`.
+
+Configuration flags:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--enable-autodetect` | `false` | Master toggle |
+| `--autodetect-min-occurrences` | `5` | Min co-occurrences before creating a rule |
+| `--autodetect-confidence` | `0.7` | P(B\|A) threshold (0.0-1.0) |
+| `--autodetect-max-rules` | `20` | Hard cap on auto-generated rules |
+| `--autodetect-interval` | `60s` | Analysis frequency |
+| `--autodetect-expiry` | `1h` | Delete rules unseen for this long |
+
+Watch auto-generated rules:
+
+```bash
+kubectl get rcacorrelationrules -l rca.rca-operator.tech/auto-generated=true -w
+```
+
+See [Auto-Detection](../features/auto-detection.md) for full details.
+
 ## Apply Sample Resources
 
 ```bash
