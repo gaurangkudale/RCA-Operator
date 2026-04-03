@@ -245,7 +245,10 @@ func main() {
 	}
 	setupLog.Info("Incident engine created", "ruleEngine", incidentEngine.RuleEngineName(),
 		"loadedRules", crdFactory.Engine.RuleCount())
-	go incidentEngine.Run(managerCtx)
+	if err := mgr.Add(incidentEngine); err != nil {
+		setupLog.Error(err, "Failed to add incident engine")
+		os.Exit(1)
+	}
 
 	// --- Auto-Detection ---
 	if enableAutoDetect && crdFactory.Engine != nil {

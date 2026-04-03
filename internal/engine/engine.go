@@ -215,3 +215,14 @@ func (e *IncidentEngine) Run(ctx context.Context) {
 	}
 	e.consumer.Run(ctx)
 }
+
+// Start implements manager.Runnable and runs the incident engine loop.
+func (e *IncidentEngine) Start(ctx context.Context) error {
+	e.Run(ctx)
+	return nil
+}
+
+// NeedLeaderElection ensures only the active leader runs the incident engine.
+func (e *IncidentEngine) NeedLeaderElection() bool {
+	return true
+}
