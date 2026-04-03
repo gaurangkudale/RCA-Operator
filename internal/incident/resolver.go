@@ -18,6 +18,8 @@ type Resolver struct {
 	client client.Client
 }
 
+// +kubebuilder:rbac:groups=apps,resources=replicasets,verbs=get;list;watch
+
 func NewResolver(c client.Client) *Resolver {
 	return &Resolver{client: c}
 }
