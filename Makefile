@@ -179,6 +179,15 @@ build-crds: manifests kustomize ## Generate CRDs-only YAML for standalone instal
 	mkdir -p dist
 	"$(KUSTOMIZE)" build config/crd > dist/crds.yaml
 
+.PHONY: update-chart-version
+update-chart-version: ## Update helm/Chart.yaml versions. Usage: make update-chart-version CHART_VERSION=0.1.0 [APP_VERSION=v0.1.0]
+	@if [ -z "$(CHART_VERSION)" ]; then \
+		echo "Error: CHART_VERSION is required"; \
+		echo "Usage: make update-chart-version CHART_VERSION=0.1.0 [APP_VERSION=v0.1.0]"; \
+		exit 1; \
+	fi
+	./scripts/update-chart-version.sh "$(CHART_VERSION)" "$(APP_VERSION)"
+
 ##@ Deployment
 
 ifndef ignore-not-found
