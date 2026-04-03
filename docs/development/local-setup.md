@@ -36,15 +36,10 @@ The operator will reconcile existing `RCAAgent` CRs immediately on startup and l
 
 ### Enable Auto-Detection (Optional)
 
-To test automatic correlation rule detection, run with the `--enable-autodetect` flag:
+To test automatic correlation rule detection, pass the flags via `ARGS`:
 
 ```bash
-make run -- --enable-autodetect \
-  --autodetect-min-occurrences=3 \
-  --autodetect-confidence=0.6 \
-  --autodetect-max-rules=10 \
-  --autodetect-interval=30s \
-  --autodetect-expiry=30m
+make run ARGS="--enable-autodetect --autodetect-min-occurrences=3 --autodetect-confidence=0.6 --autodetect-max-rules=10 --autodetect-interval=30s --autodetect-expiry=30m"
 ```
 
 The operator will now periodically snapshot the correlation buffer and mine for recurring signal patterns. When patterns exceed the confidence threshold, it will auto-create `RCACorrelationRule` CRDs labeled `rca.rca-operator.tech/auto-generated: "true"`.

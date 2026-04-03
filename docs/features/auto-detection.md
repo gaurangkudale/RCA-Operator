@@ -56,6 +56,12 @@ rules participate in normal evaluation
   --autodetect-expiry=1h
 ```
 
+### Local Development (make run)
+
+```bash
+make run ARGS="--enable-autodetect --autodetect-min-occurrences=3 --autodetect-confidence=0.6 --autodetect-max-rules=10 --autodetect-interval=30s --autodetect-expiry=30m"
+```
+
 ### Helm Values
 
 ```yaml
