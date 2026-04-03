@@ -19,7 +19,7 @@ fullnameOverride: ""
 # Install CRDs with the chart
 # Use case: Bootstrap custom resources during install/upgrade when cluster owners allow chart-managed CRDs.
 crds:
-  install: true
+  install: false
 
 # Service account configuration
 # Use case: Control workload identity and API access for the operator pod.
