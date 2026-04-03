@@ -64,8 +64,11 @@ rules:
   resources:
   - rcacorrelationrules
   verbs:
+  - create
+  - delete
   - get
   - list
+  - update
   - watch
 - apiGroups:
   - rca.rca-operator.tech

@@ -63,6 +63,14 @@ otel:
 defaultRules:
   enabled: true
 
+# Automatic correlation rule detection
+autoDetect:
+  enabled: false
+  minOccurrences: 5
+  maxRules: 20
+  interval: 60s
+  expiry: 1h
+
 # Admission webhooks
 webhooks:
   enabled: false

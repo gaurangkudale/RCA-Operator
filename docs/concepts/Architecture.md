@@ -96,6 +96,12 @@ Multi-signal correlation rules are defined as `RCACorrelationRule` cluster-scope
 
 See [RCACorrelationRule Reference](../reference/rcacorrelationrule-crd.md) for the full CRD spec.
 
+### Automatic Rule Detection
+
+When enabled, the auto-detector periodically snapshots the correlation buffer and mines for recurring signal co-occurrence patterns. When a pattern exceeds the occurrence threshold, it auto-creates an `RCACorrelationRule` CRD with a fixed priority of 30 (below user-created rules). Stale auto-generated rules are expired and deleted automatically.
+
+See [Auto-Detection](../features/auto-detection.md) for configuration and details.
+
 ### Incident Engine
 
 The incident engine is the single writer for incident lifecycle state. It owns:

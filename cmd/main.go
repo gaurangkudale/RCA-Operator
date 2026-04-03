@@ -21,6 +21,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"os"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -37,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
+	"github.com/gaurangkudale/rca-operator/internal/autodetect"
 	"github.com/gaurangkudale/rca-operator/internal/collectors"
 	"github.com/gaurangkudale/rca-operator/internal/controller"
 	"github.com/gaurangkudale/rca-operator/internal/dashboard"
@@ -90,6 +92,25 @@ func main() {
 		"The directory that contains the metrics server certificate.")
 	flag.StringVar(&metricsCertName, "metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
+	var enableAutoDetect bool
+	var autoDetectMinOccurrences int
+	var autoDetectMinTimeSpan time.Duration
+	var autoDetectMaxRules int
+	var autoDetectInterval time.Duration
+	var autoDetectExpiry time.Duration
+	flag.BoolVar(&enableAutoDetect, "enable-autodetect", false,
+		"Enable automatic correlation rule detection from buffer patterns.")
+	flag.IntVar(&autoDetectMinOccurrences, "autodetect-min-occurrences", 5,
+		"Minimum pattern occurrences before auto-creating a rule.")
+	flag.DurationVar(&autoDetectMinTimeSpan, "autodetect-min-timespan", 10*time.Minute,
+		"Minimum time span between first and last observation before auto-creating a rule.")
+	flag.IntVar(&autoDetectMaxRules, "autodetect-max-rules", 20,
+		"Maximum number of auto-generated correlation rules.")
+	flag.DurationVar(&autoDetectInterval, "autodetect-interval", 60*time.Second,
+		"How often to analyze the buffer for patterns.")
+	flag.DurationVar(&autoDetectExpiry, "autodetect-expiry", time.Hour,
+		"Duration without observation before an auto-generated rule expires.")
+
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	opts := zap.Options{
@@ -225,6 +246,25 @@ func main() {
 	setupLog.Info("Incident engine created", "ruleEngine", incidentEngine.RuleEngineName(),
 		"loadedRules", crdFactory.Engine.RuleCount())
 	go incidentEngine.Run(managerCtx)
+
+	// --- Auto-Detection ---
+	if enableAutoDetect && crdFactory.Engine != nil {
+		adCfg := autodetect.DefaultConfig()
+		adCfg.Enabled = true
+		adCfg.MinOccurrences = autoDetectMinOccurrences
+		adCfg.MinTimeSpan = autoDetectMinTimeSpan
+		adCfg.MaxAutoRules = autoDetectMaxRules
+		adCfg.AnalysisInterval = autoDetectInterval
+		adCfg.ExpiryDuration = autoDetectExpiry
+		det := autodetect.NewDetector(crdFactory.Engine.Buffer(), mgr.GetClient(), adCfg, ctrl.Log)
+		go det.Run(managerCtx)
+		setupLog.Info("Auto-detection enabled",
+			"interval", adCfg.AnalysisInterval,
+			"minOccurrences", adCfg.MinOccurrences,
+			"minTimeSpan", adCfg.MinTimeSpan,
+			"maxRules", adCfg.MaxAutoRules,
+		)
+	}
 
 	dashboardServer := dashboard.NewServer(mgr.GetClient(), dashboardAddr, ctrl.Log)
 	if err := mgr.Add(dashboardServer); err != nil {

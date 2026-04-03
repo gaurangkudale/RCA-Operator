@@ -80,6 +80,7 @@ More detail lives in [Architecture](docs/concepts/Architecture.md) and [Phase 1 
 |---|---|
 | Native Kubernetes signal collection | Reads pod, event, node, and workload state from Kubernetes |
 | CRD-driven correlation rules | `RCACorrelationRule` CRDs define multi-signal rules — no Go code changes needed |
+| Automatic rule detection | Mines the correlation buffer for recurring signal patterns and auto-creates `RCACorrelationRule` CRDs |
 | Durable incident records | Deduplicates repeated signals into one `IncidentReport` per fingerprint |
 | Incident lifecycle | Tracks `Detecting`, `Active`, and `Resolved` phases |
 | Notifications | Sends Slack and PagerDuty notifications and emits Kubernetes events |
@@ -119,6 +120,7 @@ The checked-in sample is minimal and does not require notification secrets. If y
 | [RCAAgent CRD Reference](docs/reference/rcaagent-crd.md) | `RCAAgent` schema and examples |
 | [IncidentReport CRD Reference](docs/reference/incidentreport-crd.md) | `IncidentReport` schema and fields |
 | [RCACorrelationRule CRD Reference](docs/reference/rcacorrelationrule-crd.md) | Correlation rule schema and examples |
+| [Auto-Detection](docs/features/auto-detection.md) | Automatic correlation rule detection |
 | [Dashboard](docs/features/DASHBOARD.md) | Dashboard data model and access patterns |
 | [RBAC Reference](docs/reference/rbac.md) | Permissions used by the operator |
 | [Local Development](docs/development/local-setup.md) | Run locally against a cluster |
@@ -164,6 +166,8 @@ Four default rules ship with the Helm chart:
 | `crashloop-plus-oom` | CrashLoopBackOff | OOMKilled on same pod | P2 |
 | `crashloop-plus-deploy` | CrashLoopBackOff | StalledRollout in same namespace | P2 |
 | `imagepull-no-history` | ImagePullBackOff | No PodHealthy on same pod | P2 |
+
+When auto-detection is enabled (`--enable-autodetect`), the operator also creates rules automatically from observed signal patterns. Auto-generated rules use a fixed priority of 30 (below user rules) and are labeled `rca.rca-operator.tech/auto-generated: "true"`. See [Auto-Detection](docs/features/auto-detection.md) for details.
 
 ## Contributing
 

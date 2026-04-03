@@ -174,8 +174,20 @@ kubectl delete rcacorrelationrule my-rule
 kubectl apply -f config/rules/
 ```
 
+## Auto-Generated Rules
+
+The operator can automatically create `RCACorrelationRule` CRDs from observed signal patterns when auto-detection is enabled (`--enable-autodetect`). Auto-generated rules:
+
+- Use a fixed priority of 30 (below user-created rules at 100+)
+- Are labeled `rca.rca-operator.tech/auto-generated: "true"`
+- Carry occurrence and timestamp annotations
+- Are automatically expired and deleted if the pattern is not observed within the configured expiry window
+
+See [Auto-Detection](../features/auto-detection.md) for full documentation.
+
 ## Related
 
 - [RCAAgent CRD reference](rcaagent-crd.md)
 - [IncidentReport CRD reference](incidentreport-crd.md)
+- [Auto-Detection](../features/auto-detection.md)
 - [RBAC permissions](rbac.md)

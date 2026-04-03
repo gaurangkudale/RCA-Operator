@@ -109,8 +109,36 @@ build: manifests generate fmt vet ## Build manager binary.
 	go build -o bin/manager cmd/main.go
 
 .PHONY: run
-run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./cmd/main.go
+run: manifests generate fmt vet ## Run a controller from your host. Pass args via ARGS="..." or `make run -- --flag=value`.
+	go run ./cmd/main.go $(RUN_ARGS)
+
+# Support `make run -- --flag=value` by capturing flag-like goals.
+RUN_ARGS ?= $(ARGS)
+ifeq ($(firstword $(MAKECMDGOALS)),run)
+RUN_ARGS += $(filter --%,$(MAKECMDGOALS))
+endif
+
+# GNU make treats `--flag=value` tokens as variable assignments, not goals.
+# Reconstruct supported run flags from those assignments when present.
+ifneq ($(--autodetect-min-occurrences),)
+RUN_ARGS += --autodetect-min-occurrences=$(--autodetect-min-occurrences)
+endif
+ifneq ($(--autodetect-min-timespan),)
+RUN_ARGS += --autodetect-min-timespan=$(--autodetect-min-timespan)
+endif
+ifneq ($(--autodetect-max-rules),)
+RUN_ARGS += --autodetect-max-rules=$(--autodetect-max-rules)
+endif
+ifneq ($(--autodetect-interval),)
+RUN_ARGS += --autodetect-interval=$(--autodetect-interval)
+endif
+ifneq ($(--autodetect-expiry),)
+RUN_ARGS += --autodetect-expiry=$(--autodetect-expiry)
+endif
+
+# Swallow forwarded flag goals so make does not treat them as missing targets.
+--%:
+	@:
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
