@@ -21,8 +21,6 @@ const (
 
 	// AnnotationPatternKey stores the pattern dedup key on the rule.
 	AnnotationPatternKey = "rca.rca-operator.tech/pattern-key"
-	// AnnotationConfidence stores the confidence score.
-	AnnotationConfidence = "rca.rca-operator.tech/confidence"
 	// AnnotationOccurrences stores the occurrence count.
 	AnnotationOccurrences = "rca.rca-operator.tech/occurrences"
 	// AnnotationFirstSeen stores when the pattern was first observed.
@@ -180,7 +178,7 @@ func (c *Creator) LoadExisting(ctx context.Context) (map[string]*PatternRecord, 
 
 func (c *Creator) createRule(ctx context.Context, name string, rec *PatternRecord) error {
 	severity := c.resolveSeverity(rec.Pair)
-	priority := c.config.Priority(rec.Confidence())
+	priority := c.config.AutoRulePriority
 	now := c.nowFn()
 
 	rule := &rcav1alpha1.RCACorrelationRule{
@@ -191,7 +189,6 @@ func (c *Creator) createRule(ctx context.Context, name string, rec *PatternRecor
 			},
 			Annotations: map[string]string{
 				AnnotationPatternKey:  rec.Pair.Key(),
-				AnnotationConfidence:  fmt.Sprintf("%.2f", rec.Confidence()),
 				AnnotationOccurrences: strconv.Itoa(rec.Occurrences),
 				AnnotationFirstSeen:   rec.FirstSeen.Format(time.RFC3339),
 				AnnotationLastSeen:    now.Format(time.RFC3339),
@@ -229,7 +226,7 @@ func (c *Creator) createRule(ctx context.Context, name string, rec *PatternRecor
 		"trigger", rec.Pair.TriggerType,
 		"condition", rec.Pair.ConditionType,
 		"scope", rec.Pair.Scope,
-		"confidence", rec.Confidence(),
+		"occurrences", rec.Occurrences,
 		"priority", priority,
 	)
 	return nil
@@ -239,12 +236,8 @@ func (c *Creator) updateAnnotations(ctx context.Context, rule *rcav1alpha1.RCACo
 	if rule.Annotations == nil {
 		rule.Annotations = make(map[string]string)
 	}
-	rule.Annotations[AnnotationConfidence] = fmt.Sprintf("%.2f", rec.Confidence())
 	rule.Annotations[AnnotationOccurrences] = strconv.Itoa(rec.Occurrences)
 	rule.Annotations[AnnotationLastSeen] = c.nowFn().Format(time.RFC3339)
-
-	// Update priority based on latest confidence.
-	rule.Spec.Priority = c.config.Priority(rec.Confidence())
 
 	if err := c.client.Update(ctx, rule); err != nil {
 		return fmt.Errorf("updating auto-rule %s: %w", rule.Name, err)

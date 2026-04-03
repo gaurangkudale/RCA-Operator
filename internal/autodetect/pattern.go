@@ -21,11 +21,9 @@ func (p EventPair) Key() string {
 	return p.TriggerType + ":" + p.ConditionType + ":" + p.Scope
 }
 
-// MineResult holds the mined pairs and per-event-type trigger counts
-// for confidence calculation.
+// MineResult holds the mined pairs from a buffer snapshot.
 type MineResult struct {
-	Pairs         []EventPair
-	TriggerCounts map[string]int // event type → count of occurrences
+	Pairs []EventPair
 }
 
 // baseEntry holds extracted event info for pattern mining.
@@ -43,7 +41,6 @@ func MinePatterns(entries []correlator.Entry) MineResult {
 
 	// Extract base info and filter lifecycle events.
 	var filtered []baseEntry
-	triggerCounts := make(map[string]int)
 	for i, entry := range entries {
 		et := string(entry.Event.Type())
 		if et == string(watcher.EventTypePodHealthy) || et == string(watcher.EventTypePodDeleted) {
@@ -51,7 +48,6 @@ func MinePatterns(entries []correlator.Entry) MineResult {
 		}
 		base := rulengine.ExtractBase(entry.Event)
 		filtered = append(filtered, baseEntry{base: base, eventType: et, index: i})
-		triggerCounts[et]++
 	}
 
 	// Track seen pairs to deduplicate within a single tick.
@@ -90,7 +86,7 @@ func MinePatterns(entries []correlator.Entry) MineResult {
 	}
 	emitPairs(nsGroups, "sameNamespace", seen, &pairs)
 
-	return MineResult{Pairs: pairs, TriggerCounts: triggerCounts}
+	return MineResult{Pairs: pairs}
 }
 
 // emitPairs generates ordered event pairs within each group.

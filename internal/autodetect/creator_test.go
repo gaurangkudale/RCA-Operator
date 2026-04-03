@@ -40,11 +40,10 @@ func TestCreator_EnsureRule_Creates(t *testing.T) {
 	cr := testCreator(fc)
 
 	rec := &PatternRecord{
-		Pair:         EventPair{TriggerType: "CrashLoopBackOff", ConditionType: "OOMKilled", Scope: "samePod"},
-		FirstSeen:    time.Date(2026, 4, 3, 11, 0, 0, 0, time.UTC),
-		LastSeen:     time.Date(2026, 4, 3, 11, 50, 0, 0, time.UTC),
-		Occurrences:  7,
-		TriggerCount: 10,
+		Pair:        EventPair{TriggerType: "CrashLoopBackOff", ConditionType: "OOMKilled", Scope: "samePod"},
+		FirstSeen:   time.Date(2026, 4, 3, 11, 0, 0, 0, time.UTC),
+		LastSeen:    time.Date(2026, 4, 3, 11, 50, 0, 0, time.UTC),
+		Occurrences: 7,
 	}
 
 	if err := cr.EnsureRule(context.Background(), rec); err != nil {
@@ -87,7 +86,6 @@ func TestCreator_EnsureRule_UpdatesExisting(t *testing.T) {
 			},
 			Annotations: map[string]string{
 				AnnotationPatternKey:  "CrashLoopBackOff:OOMKilled:samePod",
-				AnnotationConfidence:  "0.50",
 				AnnotationOccurrences: "5",
 				AnnotationLastSeen:    "2026-04-03T11:00:00Z",
 			},
@@ -110,9 +108,8 @@ func TestCreator_EnsureRule_UpdatesExisting(t *testing.T) {
 	cr := testCreator(fc)
 
 	rec := &PatternRecord{
-		Pair:         EventPair{TriggerType: "CrashLoopBackOff", ConditionType: "OOMKilled", Scope: "samePod"},
-		Occurrences:  10,
-		TriggerCount: 12,
+		Pair:        EventPair{TriggerType: "CrashLoopBackOff", ConditionType: "OOMKilled", Scope: "samePod"},
+		Occurrences: 10,
 	}
 
 	if err := cr.EnsureRule(context.Background(), rec); err != nil {
@@ -155,9 +152,8 @@ func TestCreator_EnsureRule_RespectsMaxCap(t *testing.T) {
 	cr := testCreator(fc) // MaxAutoRules=5
 
 	rec := &PatternRecord{
-		Pair:         EventPair{TriggerType: "New", ConditionType: "Pattern", Scope: "samePod"},
-		Occurrences:  10,
-		TriggerCount: 10,
+		Pair:        EventPair{TriggerType: "New", ConditionType: "Pattern", Scope: "samePod"},
+		Occurrences: 10,
 	}
 
 	// Should not error, but should skip creation.
@@ -193,9 +189,8 @@ func TestCreator_EnsureRule_SkipsUserRuleConflict(t *testing.T) {
 	cr := testCreator(fc)
 
 	rec := &PatternRecord{
-		Pair:         EventPair{TriggerType: "CrashLoopBackOff", ConditionType: "OOMKilled", Scope: "samePod"},
-		Occurrences:  10,
-		TriggerCount: 10,
+		Pair:        EventPair{TriggerType: "CrashLoopBackOff", ConditionType: "OOMKilled", Scope: "samePod"},
+		Occurrences: 10,
 	}
 
 	if err := cr.EnsureRule(context.Background(), rec); err != nil {

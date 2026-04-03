@@ -67,7 +67,6 @@ defaultRules:
 autoDetect:
   enabled: false
   minOccurrences: 5
-  confidence: 0.7
   maxRules: 20
   interval: 60s
   expiry: 1h

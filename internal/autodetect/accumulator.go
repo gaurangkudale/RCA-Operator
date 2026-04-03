@@ -9,20 +9,11 @@ import (
 // PatternRecord tracks the history of a detected event co-occurrence pattern
 // across multiple analysis ticks.
 type PatternRecord struct {
-	Pair         EventPair
-	FirstSeen    time.Time
-	LastSeen     time.Time
-	Occurrences  int    // times this pair was observed co-occurring
-	TriggerCount int    // times the trigger event appeared (for conditional probability)
-	RuleName     string // name of auto-created rule, "" if not yet created
-}
-
-// Confidence returns the conditional probability P(condition|trigger) for this pattern.
-func (r *PatternRecord) Confidence() float64 {
-	if r.TriggerCount == 0 {
-		return 0
-	}
-	return float64(r.Occurrences) / float64(r.TriggerCount)
+	Pair        EventPair
+	FirstSeen   time.Time
+	LastSeen    time.Time
+	Occurrences int    // times this pair was observed co-occurring
+	RuleName    string // name of auto-created rule, "" if not yet created
 }
 
 // Accumulator maintains pattern history across analysis ticks.
@@ -41,9 +32,8 @@ func NewAccumulator() *Accumulator {
 	}
 }
 
-// Record updates the accumulator with pairs and trigger counts from a single
-// analysis tick.
-func (a *Accumulator) Record(pairs []EventPair, triggerCounts map[string]int) {
+// Record updates the accumulator with pairs from a single analysis tick.
+func (a *Accumulator) Record(pairs []EventPair) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -70,17 +60,6 @@ func (a *Accumulator) Record(pairs []EventPair, triggerCounts map[string]int) {
 		rec.LastSeen = now
 		rec.Occurrences++
 	}
-
-	// Update trigger counts: for each pattern, increment its TriggerCount
-	// by the trigger event's count in this tick.
-	for key, rec := range a.patterns {
-		if !seenThisTick[key] {
-			continue
-		}
-		if tc, ok := triggerCounts[rec.Pair.TriggerType]; ok {
-			rec.TriggerCount += tc
-		}
-	}
 }
 
 // ReadyPatterns returns all patterns that exceed the configuration thresholds
@@ -95,9 +74,6 @@ func (a *Accumulator) ReadyPatterns(cfg Config) []*PatternRecord {
 			continue
 		}
 		if rec.LastSeen.Sub(rec.FirstSeen) < cfg.MinTimeSpan {
-			continue
-		}
-		if rec.Confidence() < cfg.ConfidenceThreshold {
 			continue
 		}
 		ready = append(ready, rec)

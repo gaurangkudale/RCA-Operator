@@ -84,13 +84,6 @@ func TestMinePatterns_SamePod(t *testing.T) {
 		}
 	}
 
-	// Check trigger counts.
-	if result.TriggerCounts["CrashLoopBackOff"] != 1 {
-		t.Errorf("expected CrashLoopBackOff count=1, got %d", result.TriggerCounts["CrashLoopBackOff"])
-	}
-	if result.TriggerCounts["OOMKilled"] != 1 {
-		t.Errorf("expected OOMKilled count=1, got %d", result.TriggerCounts["OOMKilled"])
-	}
 }
 
 func TestMinePatterns_SameNode(t *testing.T) {
@@ -195,9 +188,6 @@ func TestMinePatterns_EmptyBuffer(t *testing.T) {
 	result := MinePatterns(nil)
 	if len(result.Pairs) != 0 {
 		t.Errorf("expected 0 pairs for empty buffer, got %d", len(result.Pairs))
-	}
-	if len(result.TriggerCounts) != 0 {
-		t.Errorf("expected 0 trigger counts for empty buffer, got %d", len(result.TriggerCounts))
 	}
 }
 

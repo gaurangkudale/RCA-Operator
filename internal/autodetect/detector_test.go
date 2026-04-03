@@ -19,7 +19,6 @@ func TestDetector_Tick_CreatesRule(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.MinOccurrences = 3
 	cfg.MinTimeSpan = 0 // disable for test
-	cfg.ConfidenceThreshold = 0.5
 	cfg.MaxAutoRules = 10
 
 	det := NewDetector(buf, fc, cfg, zap.New(zap.UseDevMode(true)))
@@ -62,7 +61,6 @@ func TestDetector_Tick_NoRuleBeforeThreshold(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.MinOccurrences = 5
 	cfg.MinTimeSpan = 0
-	cfg.ConfidenceThreshold = 0.5
 
 	det := NewDetector(buf, fc, cfg, zap.New(zap.UseDevMode(true)))
 	det.seeded = true

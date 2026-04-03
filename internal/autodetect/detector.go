@@ -12,7 +12,7 @@ import (
 
 // Detector periodically snapshots the correlation buffer, mines for
 // co-occurring event patterns, and auto-creates RCACorrelationRule CRDs
-// when confidence thresholds are met.
+// when occurrence thresholds are met.
 type Detector struct {
 	buffer      *correlator.Buffer
 	accumulator *Accumulator
@@ -38,7 +38,6 @@ func (d *Detector) Run(ctx context.Context) {
 	d.log.Info("Auto-detect started",
 		"interval", d.config.AnalysisInterval,
 		"minOccurrences", d.config.MinOccurrences,
-		"confidence", d.config.ConfidenceThreshold,
 		"maxRules", d.config.MaxAutoRules,
 		"expiry", d.config.ExpiryDuration,
 	)
@@ -77,7 +76,7 @@ func (d *Detector) tick(ctx context.Context) {
 	result := MinePatterns(entries)
 
 	// 3. Record in accumulator.
-	d.accumulator.Record(result.Pairs, result.TriggerCounts)
+	d.accumulator.Record(result.Pairs)
 
 	// 4. Create rules for ready patterns.
 	ready := d.accumulator.ReadyPatterns(d.config)

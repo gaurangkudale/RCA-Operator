@@ -94,7 +94,6 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	var enableAutoDetect bool
 	var autoDetectMinOccurrences int
-	var autoDetectConfidence float64
 	var autoDetectMaxRules int
 	var autoDetectInterval time.Duration
 	var autoDetectExpiry time.Duration
@@ -102,8 +101,6 @@ func main() {
 		"Enable automatic correlation rule detection from buffer patterns.")
 	flag.IntVar(&autoDetectMinOccurrences, "autodetect-min-occurrences", 5,
 		"Minimum pattern occurrences before auto-creating a rule.")
-	flag.Float64Var(&autoDetectConfidence, "autodetect-confidence", 0.7,
-		"Confidence threshold (0.0-1.0) for auto-creating rules.")
 	flag.IntVar(&autoDetectMaxRules, "autodetect-max-rules", 20,
 		"Maximum number of auto-generated correlation rules.")
 	flag.DurationVar(&autoDetectInterval, "autodetect-interval", 60*time.Second,
@@ -252,7 +249,6 @@ func main() {
 		adCfg := autodetect.DefaultConfig()
 		adCfg.Enabled = true
 		adCfg.MinOccurrences = autoDetectMinOccurrences
-		adCfg.ConfidenceThreshold = autoDetectConfidence
 		adCfg.MaxAutoRules = autoDetectMaxRules
 		adCfg.AnalysisInterval = autoDetectInterval
 		adCfg.ExpiryDuration = autoDetectExpiry
@@ -261,7 +257,6 @@ func main() {
 		setupLog.Info("Auto-detection enabled",
 			"interval", adCfg.AnalysisInterval,
 			"minOccurrences", adCfg.MinOccurrences,
-			"confidence", adCfg.ConfidenceThreshold,
 			"maxRules", adCfg.MaxAutoRules,
 		)
 	}

@@ -178,9 +178,9 @@ kubectl apply -f config/rules/
 
 The operator can automatically create `RCACorrelationRule` CRDs from observed signal patterns when auto-detection is enabled (`--enable-autodetect`). Auto-generated rules:
 
-- Use priority 10-50 (below user-created rules at 100+)
+- Use a fixed priority of 30 (below user-created rules at 100+)
 - Are labeled `rca.rca-operator.tech/auto-generated: "true"`
-- Carry confidence, occurrence, and timestamp annotations
+- Carry occurrence and timestamp annotations
 - Are automatically expired and deleted if the pattern is not observed within the configured expiry window
 
 See [Auto-Detection](../features/auto-detection.md) for full documentation.

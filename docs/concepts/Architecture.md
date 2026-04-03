@@ -98,7 +98,7 @@ See [RCACorrelationRule Reference](../reference/rcacorrelationrule-crd.md) for t
 
 ### Automatic Rule Detection
 
-When enabled, the auto-detector periodically snapshots the correlation buffer and mines for recurring signal co-occurrence patterns. When a pattern exceeds configurable confidence and occurrence thresholds, it auto-creates an `RCACorrelationRule` CRD with priority 10-50 (below user-created rules). Stale auto-generated rules are expired and deleted automatically.
+When enabled, the auto-detector periodically snapshots the correlation buffer and mines for recurring signal co-occurrence patterns. When a pattern exceeds the occurrence threshold, it auto-creates an `RCACorrelationRule` CRD with a fixed priority of 30 (below user-created rules). Stale auto-generated rules are expired and deleted automatically.
 
 See [Auto-Detection](../features/auto-detection.md) for configuration and details.
 

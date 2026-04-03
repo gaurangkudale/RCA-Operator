@@ -167,7 +167,7 @@ Four default rules ship with the Helm chart:
 | `crashloop-plus-deploy` | CrashLoopBackOff | StalledRollout in same namespace | P2 |
 | `imagepull-no-history` | ImagePullBackOff | No PodHealthy on same pod | P2 |
 
-When auto-detection is enabled (`--enable-autodetect`), the operator also creates rules automatically from observed signal patterns. Auto-generated rules use priority 10-50 (below user rules) and are labeled `rca.rca-operator.tech/auto-generated: "true"`. See [Auto-Detection](docs/features/auto-detection.md) for details.
+When auto-detection is enabled (`--enable-autodetect`), the operator also creates rules automatically from observed signal patterns. Auto-generated rules use a fixed priority of 30 (below user rules) and are labeled `rca.rca-operator.tech/auto-generated: "true"`. See [Auto-Detection](docs/features/auto-detection.md) for details.
 
 ## Contributing
 
