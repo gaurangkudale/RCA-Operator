@@ -54,6 +54,12 @@ func (e *CRDRuleEngine) Name() string {
 	return "crd"
 }
 
+// Buffer returns the underlying correlation buffer. This is used by the
+// auto-detection subsystem to snapshot events for pattern mining.
+func (e *CRDRuleEngine) Buffer() *correlator.Buffer {
+	return e.buf
+}
+
 // LoadRules fetches all RCACorrelationRule CRDs from the cluster and compiles them.
 func (e *CRDRuleEngine) LoadRules(ctx context.Context) error {
 	list := &rcav1alpha1.RCACorrelationRuleList{}
@@ -166,8 +172,8 @@ func (e *CRDRuleEngine) conditionsMet(trigger watcher.CorrelatorEvent, condition
 }
 
 func (e *CRDRuleEngine) scopeMatches(trigger, candidate watcher.CorrelatorEvent, scope string) bool {
-	triggerBase := extractBase(trigger)
-	candidateBase := extractBase(candidate)
+	triggerBase := ExtractBase(trigger)
+	candidateBase := ExtractBase(candidate)
 
 	switch scope {
 	case "samePod":
@@ -183,7 +189,9 @@ func (e *CRDRuleEngine) scopeMatches(trigger, candidate watcher.CorrelatorEvent,
 	}
 }
 
-func extractBase(event watcher.CorrelatorEvent) watcher.BaseEvent {
+// ExtractBase extracts the BaseEvent fields from any CorrelatorEvent.
+// Exported for use by the auto-detection pattern miner.
+func ExtractBase(event watcher.CorrelatorEvent) watcher.BaseEvent {
 	switch e := event.(type) {
 	case watcher.CrashLoopBackOffEvent:
 		return e.BaseEvent
@@ -218,7 +226,7 @@ type templateContext struct {
 }
 
 func (e *CRDRuleEngine) renderSummary(tmpl *template.Template, event watcher.CorrelatorEvent) string {
-	base := extractBase(event)
+	base := ExtractBase(event)
 	ctx := templateContext{
 		PodName:   base.PodName,
 		Namespace: base.Namespace,
@@ -233,7 +241,7 @@ func (e *CRDRuleEngine) renderSummary(tmpl *template.Template, event watcher.Cor
 }
 
 func (e *CRDRuleEngine) resolveResource(fires rcav1alpha1.RuleFires, event watcher.CorrelatorEvent) string {
-	base := extractBase(event)
+	base := ExtractBase(event)
 	switch strings.ToLower(fires.Resource) {
 	case "node":
 		return base.NodeName

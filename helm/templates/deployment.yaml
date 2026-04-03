@@ -42,6 +42,14 @@ spec:
             {{- if .Values.webhooks.enabled }}
             - --enable-webhooks=true
             {{- end }}
+            {{- if .Values.autoDetect.enabled }}
+            - --enable-autodetect=true
+            - --autodetect-min-occurrences={{ .Values.autoDetect.minOccurrences }}
+            - --autodetect-confidence={{ .Values.autoDetect.confidence }}
+            - --autodetect-max-rules={{ .Values.autoDetect.maxRules }}
+            - --autodetect-interval={{ .Values.autoDetect.interval }}
+            - --autodetect-expiry={{ .Values.autoDetect.expiry }}
+            {{- end }}
           env:
             {{- if .Values.otel.enabled }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

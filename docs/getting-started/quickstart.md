@@ -73,4 +73,23 @@ Then add the `notifications` block to your `RCAAgent` spec — see the [RCAAgent
 
 ---
 
+## 6. Enable Auto-Detection (optional)
+
+The operator can automatically learn correlation rules from observed signal patterns. Enable it via Helm:
+
+```yaml
+autoDetect:
+  enabled: true
+```
+
+Or pass the flag directly:
+
+```bash
+--enable-autodetect
+```
+
+Auto-generated rules use priority 10-50 (below user rules) and are labeled for easy identification. See [Auto-Detection](../features/auto-detection.md) for details.
+
+---
+
 Next: [RCAAgent CRD Reference](../reference/rcaagent-crd.md)
