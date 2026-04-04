@@ -2,8 +2,8 @@ apiVersion: v2
 name: rca-operator
 description: A Kubernetes-native incident detection operator with durable incident state and a built-in dashboard
 type: application
-version: 0.0.12
-appVersion: "0.0.12"
+version: 0.0.13
+appVersion: "0.0.13"
 keywords:
   - kubernetes
   - operator
