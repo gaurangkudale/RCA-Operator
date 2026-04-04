@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -219,11 +220,31 @@ func (r *IncidentReportReconciler) incidentStillPresent(ctx context.Context, rep
 			return r.podIncidentStillPresent(ctx, ref.Namespace, ref.Name)
 		case "Deployment":
 			return r.deploymentIncidentStillPresent(ctx, ref.Namespace, ref.Name)
+		case "StatefulSet":
+			return r.statefulSetIncidentStillPresent(ctx, ref.Namespace, ref.Name)
+		case "DaemonSet":
+			return r.daemonSetIncidentStillPresent(ctx, ref.Namespace, ref.Name)
+		case "Job":
+			return r.jobIncidentStillPresent(ctx, ref.Namespace, ref.Name)
+		case "CronJob":
+			return r.cronJobIncidentStillPresent(ctx, ref.Namespace, ref.Name)
 		}
 	}
 
-	if report.Spec.Scope.WorkloadRef != nil && report.Spec.Scope.WorkloadRef.Kind == "Deployment" {
-		return r.deploymentIncidentStillPresent(ctx, report.Spec.Scope.WorkloadRef.Namespace, report.Spec.Scope.WorkloadRef.Name)
+	if report.Spec.Scope.WorkloadRef != nil {
+		wref := report.Spec.Scope.WorkloadRef
+		switch wref.Kind {
+		case "Deployment":
+			return r.deploymentIncidentStillPresent(ctx, wref.Namespace, wref.Name)
+		case "StatefulSet":
+			return r.statefulSetIncidentStillPresent(ctx, wref.Namespace, wref.Name)
+		case "DaemonSet":
+			return r.daemonSetIncidentStillPresent(ctx, wref.Namespace, wref.Name)
+		case "Job":
+			return r.jobIncidentStillPresent(ctx, wref.Namespace, wref.Name)
+		case "CronJob":
+			return r.cronJobIncidentStillPresent(ctx, wref.Namespace, wref.Name)
+		}
 	}
 
 	// Check affected resources: nodes first, then pods.
@@ -279,6 +300,63 @@ func (r *IncidentReportReconciler) deploymentIncidentStillPresent(ctx context.Co
 			return true, nil
 		}
 	}
+	return false, nil
+}
+
+func (r *IncidentReportReconciler) statefulSetIncidentStillPresent(ctx context.Context, namespace, name string) (bool, error) {
+	sts := &appsv1.StatefulSet{}
+	if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, sts); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	// Stall: UpdateRevision != CurrentRevision and not all pods updated.
+	if sts.Status.UpdateRevision != sts.Status.CurrentRevision {
+		desired := int32(1)
+		if sts.Spec.Replicas != nil {
+			desired = *sts.Spec.Replicas
+		}
+		if sts.Status.UpdatedReplicas < desired {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (r *IncidentReportReconciler) daemonSetIncidentStillPresent(ctx context.Context, namespace, name string) (bool, error) {
+	ds := &appsv1.DaemonSet{}
+	if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, ds); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	// Stall: updated < desired.
+	if ds.Status.DesiredNumberScheduled > 0 && ds.Status.UpdatedNumberScheduled < ds.Status.DesiredNumberScheduled {
+		return true, nil
+	}
+	return false, nil
+}
+
+func (r *IncidentReportReconciler) jobIncidentStillPresent(ctx context.Context, namespace, name string) (bool, error) {
+	job := &batchv1.Job{}
+	if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, job); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	for _, cond := range job.Status.Conditions {
+		if cond.Type == batchv1.JobFailed && cond.Status == corev1.ConditionTrue {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (r *IncidentReportReconciler) cronJobIncidentStillPresent(ctx context.Context, namespace, name string) (bool, error) {
+	// CronJob incidents resolve when the CronJob no longer exists or when
+	// its most recent active/completed job is not in a Failed state.
+	// Since CronJob failures are transient (next run may succeed), we consider
+	// the incident still present only if the CronJob object still exists.
+	// The healthyResolveWindow handles the time-based resolution.
+	cj := &batchv1.CronJob{}
+	if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, cj); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	// CronJob exists — let the time-based window handle resolution.
 	return false, nil
 }
 

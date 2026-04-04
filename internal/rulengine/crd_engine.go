@@ -213,6 +213,14 @@ func ExtractBase(event watcher.CorrelatorEvent) watcher.BaseEvent {
 		return e.BaseEvent
 	case watcher.NodePressureEvent:
 		return e.BaseEvent
+	case watcher.StalledStatefulSetEvent:
+		return e.BaseEvent
+	case watcher.StalledDaemonSetEvent:
+		return e.BaseEvent
+	case watcher.JobFailedEvent:
+		return e.BaseEvent
+	case watcher.CronJobFailedEvent:
+		return e.BaseEvent
 	default:
 		return watcher.BaseEvent{}
 	}

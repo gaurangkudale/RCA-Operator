@@ -20,6 +20,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **StatefulSet, DaemonSet, Job, CronJob collectors** — new workload-level signal collectors detect stalled StatefulSet/DaemonSet rollouts, failed Jobs (BackoffLimitExceeded, DeadlineExceeded), and failed CronJob child runs; includes incident resolution support, signal mappings, RBAC markers, and full test coverage
 - **Automatic correlation rule detection** — `internal/autodetect` package mines the correlation buffer for recurring signal co-occurrence patterns and auto-creates `RCACorrelationRule` CRDs when occurrence thresholds are met; includes pattern mining, accumulator, CRD lifecycle management, expiry, startup recovery, Prometheus metrics, and Helm integration (`--enable-autodetect`)
 - **CRD-driven correlation rules** — `RCACorrelationRule` cluster-scoped CRD with dynamic rule loading, template-based summaries, and a dedicated controller that reloads rules on create/update/delete without operator restart
 - **RCACorrelationRule controller** — watches `RCACorrelationRule` CRDs and reloads the rule engine automatically

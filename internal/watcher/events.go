@@ -26,6 +26,18 @@ const (
 	// NodeNotReady is also captured via event_watcher.go; both paths feed the correlator
 	// and the dedup key (namespace+nodeName) prevents duplicate incidents.
 	EventTypeNodePressure EventType = "NodePressure"
+
+	// StatefulSet-sourced signals (detected from apps/v1 StatefulSet objects).
+	EventTypeStalledStatefulSet EventType = "StalledStatefulSet"
+
+	// DaemonSet-sourced signals (detected from apps/v1 DaemonSet objects).
+	EventTypeStalledDaemonSet EventType = "StalledDaemonSet"
+
+	// Job-sourced signals (detected from batch/v1 Job objects).
+	EventTypeJobFailed EventType = "JobFailed"
+
+	// CronJob-sourced signals (detected from batch/v1 CronJob objects).
+	EventTypeCronJobFailed EventType = "CronJobFailed"
 )
 
 // CorrelatorEvent is the shared typed event interface consumed by the correlator.
@@ -243,4 +255,74 @@ func (e NodePressureEvent) DedupKey() string {
 	// Keyed on NodeName + PressureType so each distinct pressure type on the
 	// same node can fire independently.
 	return string(e.Type()) + ":" + e.NodeName + ":" + e.PressureType
+}
+
+// StalledStatefulSetEvent is emitted when an apps/v1 StatefulSet's rolling update
+// stalls — detected when UpdateRevision != CurrentRevision and no pods have been
+// updated for longer than the scan interval.
+type StalledStatefulSetEvent struct {
+	BaseEvent
+	StatefulSetName string
+	Revision        int64
+	DesiredReplicas int32
+	ReadyReplicas   int32
+	UpdatedReplicas int32
+	Reason          string
+	Message         string
+}
+
+func (e StalledStatefulSetEvent) Type() EventType       { return EventTypeStalledStatefulSet }
+func (e StalledStatefulSetEvent) OccurredAt() time.Time { return e.At }
+func (e StalledStatefulSetEvent) DedupKey() string {
+	return string(e.Type()) + ":" + e.Namespace + ":" + e.StatefulSetName
+}
+
+// StalledDaemonSetEvent is emitted when an apps/v1 DaemonSet has fewer ready pods
+// than desired for an extended period, indicating a stalled rollout or scheduling failure.
+type StalledDaemonSetEvent struct {
+	BaseEvent
+	DaemonSetName        string
+	Revision             int64
+	DesiredNumberScheduled int32
+	NumberReady          int32
+	UpdatedNumberScheduled int32
+	Reason               string
+	Message              string
+}
+
+func (e StalledDaemonSetEvent) Type() EventType       { return EventTypeStalledDaemonSet }
+func (e StalledDaemonSetEvent) OccurredAt() time.Time { return e.At }
+func (e StalledDaemonSetEvent) DedupKey() string {
+	return string(e.Type()) + ":" + e.Namespace + ":" + e.DaemonSetName
+}
+
+// JobFailedEvent is emitted when a batch/v1 Job reaches a Failed condition,
+// typically due to BackoffLimitExceeded or DeadlineExceeded.
+type JobFailedEvent struct {
+	BaseEvent
+	JobName string
+	Reason  string
+	Message string
+}
+
+func (e JobFailedEvent) Type() EventType       { return EventTypeJobFailed }
+func (e JobFailedEvent) OccurredAt() time.Time { return e.At }
+func (e JobFailedEvent) DedupKey() string {
+	return string(e.Type()) + ":" + e.Namespace + ":" + e.JobName
+}
+
+// CronJobFailedEvent is emitted when a batch/v1 CronJob's most recent child Job
+// has failed, indicating a broken scheduled task.
+type CronJobFailedEvent struct {
+	BaseEvent
+	CronJobName   string
+	LastJobName   string
+	Reason        string
+	Message       string
+}
+
+func (e CronJobFailedEvent) Type() EventType       { return EventTypeCronJobFailed }
+func (e CronJobFailedEvent) OccurredAt() time.Time { return e.At }
+func (e CronJobFailedEvent) DedupKey() string {
+	return string(e.Type()) + ":" + e.Namespace + ":" + e.CronJobName
 }

@@ -35,8 +35,12 @@ Kubernetes API Server
 | Signal Collectors           |   | Dashboard API Server        |
 |  - node                     |   | Reads IncidentReport CRs    |
 |  - pod                      |   | Reads RCAAgent CRs          |
-|  - workload                 |   | Reads RCACorrelationRule CRs|
-|  - event                    |   | No raw cluster reads        |
+|  - workload (Deployment)    |   | Reads RCACorrelationRule CRs|
+|  - statefulset              |   | No raw cluster reads        |
+|  - daemonset                |   |                             |
+|  - job                      |   |                             |
+|  - cronjob                  |   |                             |
+|  - event                    |   |                             |
 +-------------+---------------+   +-----------------------------+
               |
               v
@@ -84,7 +88,16 @@ Kubernetes API Server
 
 ### Signal Collectors
 
-Collectors observe Kubernetes resources and convert them into normalized failure signals. Phase 1 focuses on node, pod, workload, and event-derived signals.
+Collectors observe Kubernetes resources and convert them into normalized failure signals. Phase 1 covers:
+
+- **Pod collector**: CrashLoopBackOff, OOMKilled, ImagePullBackOff, pending, grace period, probe failures
+- **Node collector**: NodeNotReady, NodePressure (Disk/Memory/PID)
+- **Deployment collector**: StalledRollout (ProgressDeadlineExceeded)
+- **StatefulSet collector**: StalledStatefulSet (UpdateRevision != CurrentRevision with incomplete updates)
+- **DaemonSet collector**: StalledDaemonSet (UpdatedNumberScheduled < DesiredNumberScheduled)
+- **Job collector**: JobFailed (BackoffLimitExceeded, DeadlineExceeded)
+- **CronJob collector**: CronJobFailed (child Job in Failed condition)
+- **Event collector**: Node events, evictions, probe failures from Kubernetes Event stream
 
 ### CRD-Driven Rule Engine
 

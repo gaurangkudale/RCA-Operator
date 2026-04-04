@@ -37,6 +37,10 @@ func DefaultMappings() []SignalMapping {
 		{EventType: "ProbeFailure", IncidentType: "ProbeFailure", Severity: "P3", ScopeLevel: "Pod"},
 		{EventType: "StalledRollout", IncidentType: "StalledRollout", Severity: "P2", ScopeLevel: "Workload"},
 		{EventType: "NodePressure", IncidentType: "NodePressure", Severity: "P2", ScopeLevel: "Cluster"},
+		{EventType: "StalledStatefulSet", IncidentType: "StalledStatefulSet", Severity: "P2", ScopeLevel: "Workload"},
+		{EventType: "StalledDaemonSet", IncidentType: "StalledDaemonSet", Severity: "P2", ScopeLevel: "Workload"},
+		{EventType: "JobFailed", IncidentType: "JobFailed", Severity: "P3", ScopeLevel: "Workload"},
+		{EventType: "CronJobFailed", IncidentType: "CronJobFailed", Severity: "P3", ScopeLevel: "Workload"},
 	}
 }
 
@@ -155,23 +159,78 @@ func (n *Normalizer) buildInput(event watcher.CorrelatorEvent, mapping SignalMap
 		}
 	}
 
-	// Handle StalledRollout special case: workload ref is the Deployment.
-	// The deployment watcher stores the deployment name in BaseEvent.PodName for
-	// routing, but StalledRollout is a workload-level event — override the scope
-	// to Workload so the fingerprint uses deployment identity.
-	if sr, ok := event.(watcher.StalledRolloutEvent); ok {
+	// Handle workload-level events: override scope to Workload so the fingerprint
+	// uses workload identity instead of pod identity.
+	switch ev := event.(type) {
+	case watcher.StalledRolloutEvent:
 		ref := &rcav1alpha1.IncidentObjectRef{
 			APIVersion: "apps/v1",
 			Kind:       "Deployment",
-			Namespace:  sr.Namespace,
-			Name:       sr.DeploymentName,
+			Namespace:  ev.Namespace,
+			Name:       ev.DeploymentName,
 		}
 		input.Scope.Level = incident.ScopeLevelWorkload
-		input.Scope.Namespace = sr.Namespace
+		input.Scope.Namespace = ev.Namespace
 		input.Scope.WorkloadRef = ref
 		input.Scope.ResourceRef = ref
 		input.AffectedResources = []rcav1alpha1.AffectedResource{
-			{APIVersion: "apps/v1", Kind: "Deployment", Namespace: sr.Namespace, Name: sr.DeploymentName},
+			{APIVersion: "apps/v1", Kind: "Deployment", Namespace: ev.Namespace, Name: ev.DeploymentName},
+		}
+	case watcher.StalledStatefulSetEvent:
+		ref := &rcav1alpha1.IncidentObjectRef{
+			APIVersion: "apps/v1",
+			Kind:       "StatefulSet",
+			Namespace:  ev.Namespace,
+			Name:       ev.StatefulSetName,
+		}
+		input.Scope.Level = incident.ScopeLevelWorkload
+		input.Scope.Namespace = ev.Namespace
+		input.Scope.WorkloadRef = ref
+		input.Scope.ResourceRef = ref
+		input.AffectedResources = []rcav1alpha1.AffectedResource{
+			{APIVersion: "apps/v1", Kind: "StatefulSet", Namespace: ev.Namespace, Name: ev.StatefulSetName},
+		}
+	case watcher.StalledDaemonSetEvent:
+		ref := &rcav1alpha1.IncidentObjectRef{
+			APIVersion: "apps/v1",
+			Kind:       "DaemonSet",
+			Namespace:  ev.Namespace,
+			Name:       ev.DaemonSetName,
+		}
+		input.Scope.Level = incident.ScopeLevelWorkload
+		input.Scope.Namespace = ev.Namespace
+		input.Scope.WorkloadRef = ref
+		input.Scope.ResourceRef = ref
+		input.AffectedResources = []rcav1alpha1.AffectedResource{
+			{APIVersion: "apps/v1", Kind: "DaemonSet", Namespace: ev.Namespace, Name: ev.DaemonSetName},
+		}
+	case watcher.JobFailedEvent:
+		ref := &rcav1alpha1.IncidentObjectRef{
+			APIVersion: "batch/v1",
+			Kind:       "Job",
+			Namespace:  ev.Namespace,
+			Name:       ev.JobName,
+		}
+		input.Scope.Level = incident.ScopeLevelWorkload
+		input.Scope.Namespace = ev.Namespace
+		input.Scope.WorkloadRef = ref
+		input.Scope.ResourceRef = ref
+		input.AffectedResources = []rcav1alpha1.AffectedResource{
+			{APIVersion: "batch/v1", Kind: "Job", Namespace: ev.Namespace, Name: ev.JobName},
+		}
+	case watcher.CronJobFailedEvent:
+		ref := &rcav1alpha1.IncidentObjectRef{
+			APIVersion: "batch/v1",
+			Kind:       "CronJob",
+			Namespace:  ev.Namespace,
+			Name:       ev.CronJobName,
+		}
+		input.Scope.Level = incident.ScopeLevelWorkload
+		input.Scope.Namespace = ev.Namespace
+		input.Scope.WorkloadRef = ref
+		input.Scope.ResourceRef = ref
+		input.AffectedResources = []rcav1alpha1.AffectedResource{
+			{APIVersion: "batch/v1", Kind: "CronJob", Namespace: ev.Namespace, Name: ev.CronJobName},
 		}
 	}
 
@@ -200,6 +259,14 @@ func extractBase(event watcher.CorrelatorEvent) watcher.BaseEvent {
 		return e.BaseEvent
 	case watcher.NodePressureEvent:
 		return e.BaseEvent
+	case watcher.StalledStatefulSetEvent:
+		return e.BaseEvent
+	case watcher.StalledDaemonSetEvent:
+		return e.BaseEvent
+	case watcher.JobFailedEvent:
+		return e.BaseEvent
+	case watcher.CronJobFailedEvent:
+		return e.BaseEvent
 	default:
 		return watcher.BaseEvent{}
 	}
@@ -227,6 +294,14 @@ func extractReason(event watcher.CorrelatorEvent) string {
 		return e.Reason
 	case watcher.NodePressureEvent:
 		return e.PressureType
+	case watcher.StalledStatefulSetEvent:
+		return e.Reason
+	case watcher.StalledDaemonSetEvent:
+		return e.Reason
+	case watcher.JobFailedEvent:
+		return e.Reason
+	case watcher.CronJobFailedEvent:
+		return e.Reason
 	default:
 		return ""
 	}
@@ -259,6 +334,16 @@ func buildSummary(event watcher.CorrelatorEvent) string {
 			e.Reason, e.DesiredReplicas, e.ReadyReplicas, e.Message)
 	case watcher.NodePressureEvent:
 		return fmt.Sprintf("Node %s condition=%s message=%s", e.NodeName, e.PressureType, e.Message)
+	case watcher.StalledStatefulSetEvent:
+		return fmt.Sprintf("StatefulSet rollout stalled reason=%s desiredReplicas=%d readyReplicas=%d updatedReplicas=%d message=%s",
+			e.Reason, e.DesiredReplicas, e.ReadyReplicas, e.UpdatedReplicas, e.Message)
+	case watcher.StalledDaemonSetEvent:
+		return fmt.Sprintf("DaemonSet rollout stalled reason=%s desired=%d ready=%d updated=%d message=%s",
+			e.Reason, e.DesiredNumberScheduled, e.NumberReady, e.UpdatedNumberScheduled, e.Message)
+	case watcher.JobFailedEvent:
+		return fmt.Sprintf("Job failed reason=%s message=%s", e.Reason, e.Message)
+	case watcher.CronJobFailedEvent:
+		return fmt.Sprintf("CronJob failed lastJob=%s reason=%s message=%s", e.LastJobName, e.Reason, e.Message)
 	default:
 		return ""
 	}

@@ -18,6 +18,10 @@ type PodCollectorConfig = watcher.PodWatcherConfig
 type EventCollectorConfig = watcher.EventWatcherConfig
 type WorkloadCollectorConfig = watcher.DeploymentWatcherConfig
 type NodeCollectorConfig = watcher.NodeWatcherConfig
+type StatefulSetCollectorConfig = watcher.StatefulSetWatcherConfig
+type DaemonSetCollectorConfig = watcher.DaemonSetWatcherConfig
+type JobCollectorConfig = watcher.JobWatcherConfig
+type CronJobCollectorConfig = watcher.CronJobWatcherConfig
 
 func NewChannelSignalEmitter(ch chan<- Signal, logger logr.Logger) SignalEmitter {
 	return watcher.NewChannelEventEmitter(ch, logger)
@@ -59,4 +63,40 @@ func NewNodeCollector(
 	cfg NodeCollectorConfig,
 ) *watcher.NodeWatcher {
 	return watcher.NewNodeWatcher(cache, emitter, logger, cfg)
+}
+
+func NewStatefulSetCollector(
+	cache ctrlcache.Cache,
+	emitter SignalEmitter,
+	logger logr.Logger,
+	cfg StatefulSetCollectorConfig,
+) *watcher.StatefulSetWatcher {
+	return watcher.NewStatefulSetWatcher(cache, emitter, logger, cfg)
+}
+
+func NewDaemonSetCollector(
+	cache ctrlcache.Cache,
+	emitter SignalEmitter,
+	logger logr.Logger,
+	cfg DaemonSetCollectorConfig,
+) *watcher.DaemonSetWatcher {
+	return watcher.NewDaemonSetWatcher(cache, emitter, logger, cfg)
+}
+
+func NewJobCollector(
+	cache ctrlcache.Cache,
+	emitter SignalEmitter,
+	logger logr.Logger,
+	cfg JobCollectorConfig,
+) *watcher.JobWatcher {
+	return watcher.NewJobWatcher(cache, emitter, logger, cfg)
+}
+
+func NewCronJobCollector(
+	cache ctrlcache.Cache,
+	emitter SignalEmitter,
+	logger logr.Logger,
+	cfg CronJobCollectorConfig,
+) *watcher.CronJobWatcher {
+	return watcher.NewCronJobWatcher(cache, emitter, logger, cfg)
 }

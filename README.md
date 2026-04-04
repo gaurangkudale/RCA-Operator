@@ -34,7 +34,7 @@ More detail lives in [Architecture](docs/concepts/Architecture.md) and [Phase 1 
 
 | Feature | Description |
 |---|---|
-| Native Kubernetes signal collection | Reads pod, event, node, and workload state from Kubernetes |
+| Native Kubernetes signal collection | Reads pod, event, node, and workload state from Kubernetes (Deployments, StatefulSets, DaemonSets, Jobs, CronJobs) |
 | CRD-driven correlation rules | `RCACorrelationRule` CRDs define multi-signal rules — no Go code changes needed |
 | Automatic rule detection | Mines the correlation buffer for recurring signal patterns and auto-creates `RCACorrelationRule` CRDs |
 | Durable incident records | Deduplicates repeated signals into one `IncidentReport` per fingerprint |
