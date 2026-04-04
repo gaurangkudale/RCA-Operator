@@ -53,6 +53,7 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/incidents/", s.handleIncidentDetail)
 	mux.HandleFunc("/api/rules", s.handleRules)
 	mux.HandleFunc("/api/stats", s.handleStats)
+	mux.HandleFunc("/api/timeline", s.handleTimeline)
 
 	srv := &http.Server{
 		Addr:              s.addr,
@@ -396,6 +397,111 @@ func (s *Server) handleIncidentDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, detail)
+}
+
+func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	fingerprint := r.URL.Query().Get("fingerprint")
+	if fingerprint == "" {
+		http.Error(w, "fingerprint query parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := s.client.List(r.Context(), list); err != nil {
+		s.log.Error(err, "Failed to list IncidentReports for timeline")
+		http.Error(w, "failed to list incidents", http.StatusInternalServerError)
+		return
+	}
+
+	// Collect all timeline entries from incidents matching the fingerprint, across
+	// all lifecycle phases (Detecting, Active, Resolved). This gives a unified
+	// chronological view of an incident's full history, including reopens.
+	type fullTimelineEntry struct {
+		Time         *time.Time `json:"time"`
+		Event        string     `json:"event"`
+		Phase        string     `json:"phase"`
+		IncidentName string     `json:"incidentName"`
+		Namespace    string     `json:"namespace"`
+	}
+
+	entries := make([]fullTimelineEntry, 0)
+	for i := range list.Items {
+		item := &list.Items[i]
+		if item.Spec.Fingerprint != fingerprint {
+			continue
+		}
+
+		for _, te := range item.Status.Timeline {
+			t := te.Time.Time
+			entries = append(entries, fullTimelineEntry{
+				Time:         &t,
+				Event:        te.Event,
+				Phase:        item.Status.Phase,
+				IncidentName: item.Name,
+				Namespace:    item.Namespace,
+			})
+		}
+
+		// Add lifecycle transition events that may not be in the timeline.
+		if item.Status.FirstObservedAt != nil {
+			t := item.Status.FirstObservedAt.Time
+			entries = append(entries, fullTimelineEntry{
+				Time:         &t,
+				Event:        "Incident detected",
+				Phase:        reporter.PhaseDetecting,
+				IncidentName: item.Name,
+				Namespace:    item.Namespace,
+			})
+		}
+		if item.Status.ActiveAt != nil {
+			t := item.Status.ActiveAt.Time
+			entries = append(entries, fullTimelineEntry{
+				Time:         &t,
+				Event:        "Incident activated",
+				Phase:        reporter.PhaseActive,
+				IncidentName: item.Name,
+				Namespace:    item.Namespace,
+			})
+		}
+		if resolvedAt := incidentstatus.EffectiveResolvedTime(item.Status); resolvedAt != nil {
+			t := resolvedAt.Time
+			entries = append(entries, fullTimelineEntry{
+				Time:         &t,
+				Event:        "Incident resolved",
+				Phase:        reporter.PhaseResolved,
+				IncidentName: item.Name,
+				Namespace:    item.Namespace,
+			})
+		}
+	}
+
+	// Sort chronologically, oldest first.
+	sort.SliceStable(entries, func(i, j int) bool {
+		if entries[i].Time == nil || entries[j].Time == nil {
+			return entries[i].Time != nil
+		}
+		return entries[i].Time.Before(*entries[j].Time)
+	})
+
+	// Deduplicate entries with the same timestamp and event text.
+	if len(entries) > 1 {
+		deduped := entries[:1]
+		for _, e := range entries[1:] {
+			prev := deduped[len(deduped)-1]
+			if e.Time != nil && prev.Time != nil && e.Time.Equal(*prev.Time) && e.Event == prev.Event && e.IncidentName == prev.IncidentName {
+				continue
+			}
+			deduped = append(deduped, e)
+		}
+		entries = deduped
+	}
+
+	writeJSON(w, entries)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
