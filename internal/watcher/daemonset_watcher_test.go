@@ -19,10 +19,10 @@ func newTestDaemonSetWatcher(namespaces []string) (*DaemonSetWatcher, *recording
 	return w, em
 }
 
-func stalledDaemonSet(namespace, name, uid string, generation int64, desired, ready, updated int32) *appsv1.DaemonSet {
+func stalledDaemonSet(namespace, uid string, generation int64, desired, ready, updated int32) *appsv1.DaemonSet {
 	return &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
+			Name:      "fluentd",
 			Namespace: namespace,
 			UID:       types.UID(uid),
 		},
@@ -56,7 +56,7 @@ func TestDaemonSetWatcher_DetectsStalledRollout(t *testing.T) {
 	w, em := newTestDaemonSetWatcher(nil)
 	w.clock = func() time.Time { return now }
 
-	ds := stalledDaemonSet("production", "fluentd", "uid-1", 5, 3, 1, 1)
+	ds := stalledDaemonSet("production", "uid-1", 5, 3, 1, 1)
 	w.detectStalled(ds)
 
 	if len(em.events) != 1 {
@@ -79,7 +79,7 @@ func TestDaemonSetWatcher_DedupSameGeneration(t *testing.T) {
 	w, em := newTestDaemonSetWatcher(nil)
 	w.clock = func() time.Time { return now }
 
-	ds := stalledDaemonSet("production", "fluentd", "uid-dedup", 4, 3, 1, 1)
+	ds := stalledDaemonSet("production", "uid-dedup", 4, 3, 1, 1)
 	w.detectStalled(ds)
 	w.detectStalled(ds)
 
@@ -94,7 +94,7 @@ func TestDaemonSetWatcher_RecoveryClearsGate(t *testing.T) {
 	w.clock = func() time.Time { return now }
 
 	uid := "uid-recover"
-	stalled := stalledDaemonSet("production", "fluentd", uid, 2, 3, 1, 1)
+	stalled := stalledDaemonSet("production", uid, 2, 3, 1, 1)
 	w.detectStalled(stalled)
 	if len(em.events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(em.events))
@@ -103,7 +103,7 @@ func TestDaemonSetWatcher_RecoveryClearsGate(t *testing.T) {
 	healthy := healthyDaemonSet("production", "fluentd", uid, 2, 3)
 	w.detectStalled(healthy)
 
-	stalled2 := stalledDaemonSet("production", "fluentd", uid, 2, 3, 1, 1)
+	stalled2 := stalledDaemonSet("production", uid, 2, 3, 1, 1)
 	w.detectStalled(stalled2)
 	if len(em.events) != 2 {
 		t.Fatalf("expected 2 events after recovery, got %d", len(em.events))
@@ -122,7 +122,7 @@ func TestDaemonSetWatcher_HealthyNoEvent(t *testing.T) {
 
 func TestDaemonSetWatcher_ZeroDesired_NoEvent(t *testing.T) {
 	w, em := newTestDaemonSetWatcher(nil)
-	ds := stalledDaemonSet("production", "fluentd", "uid-zero", 1, 0, 0, 0)
+	ds := stalledDaemonSet("production", "uid-zero", 1, 0, 0, 0)
 	w.detectStalled(ds)
 
 	if len(em.events) != 0 {
@@ -135,7 +135,7 @@ func TestDaemonSetWatcher_NamespaceFilter(t *testing.T) {
 	w, em := newTestDaemonSetWatcher([]string{"production"})
 	w.clock = func() time.Time { return now }
 
-	ds := stalledDaemonSet("staging", "fluentd", "uid-ns", 1, 3, 0, 0)
+	ds := stalledDaemonSet("staging", "uid-ns", 1, 3, 0, 0)
 	w.onAdd(ds)
 
 	if len(em.events) != 0 {
