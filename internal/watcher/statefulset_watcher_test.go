@@ -19,11 +19,11 @@ func newTestStatefulSetWatcher(namespaces []string) (*StatefulSetWatcher, *recor
 	return w, em
 }
 
-func stalledStatefulSet(namespace, name, uid string, generation int64, desired, ready, updated int32) *appsv1.StatefulSet {
-	replicas := desired
+func stalledStatefulSet(namespace, uid string, generation int64, ready, updated int32) *appsv1.StatefulSet {
+	replicas := int32(3)
 	return &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
+			Name:      "redis",
 			Namespace: namespace,
 			UID:       types.UID(uid),
 		},
@@ -62,7 +62,7 @@ func TestStatefulSetWatcher_DetectsStalledRollout(t *testing.T) {
 	w, em := newTestStatefulSetWatcher(nil)
 	w.clock = func() time.Time { return now }
 
-	sts := stalledStatefulSet("production", "redis", "uid-1", 5, 3, 1, 1)
+	sts := stalledStatefulSet("production", "uid-1", 5, 1, 1)
 	w.detectStalled(sts)
 
 	if len(em.events) != 1 {
@@ -88,7 +88,7 @@ func TestStatefulSetWatcher_DedupSameGeneration(t *testing.T) {
 	w, em := newTestStatefulSetWatcher(nil)
 	w.clock = func() time.Time { return now }
 
-	sts := stalledStatefulSet("production", "redis", "uid-dedup", 4, 3, 1, 1)
+	sts := stalledStatefulSet("production", "uid-dedup", 4, 1, 1)
 	w.detectStalled(sts)
 	w.detectStalled(sts)
 	w.detectStalled(sts)
@@ -105,7 +105,7 @@ func TestStatefulSetWatcher_RecoveryClearsGate(t *testing.T) {
 
 	uid := "uid-recover"
 
-	stalled := stalledStatefulSet("production", "redis", uid, 2, 3, 1, 1)
+	stalled := stalledStatefulSet("production", uid, 2, 1, 1)
 	w.detectStalled(stalled)
 	if len(em.events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(em.events))
@@ -115,7 +115,7 @@ func TestStatefulSetWatcher_RecoveryClearsGate(t *testing.T) {
 	w.detectStalled(healthy)
 
 	// After recovery, a new stall on same generation fires again.
-	stalled2 := stalledStatefulSet("production", "redis", uid, 2, 3, 1, 1)
+	stalled2 := stalledStatefulSet("production", uid, 2, 1, 1)
 	w.detectStalled(stalled2)
 	if len(em.events) != 2 {
 		t.Fatalf("expected 2 events after recovery, got %d", len(em.events))
@@ -137,7 +137,7 @@ func TestStatefulSetWatcher_NamespaceFilter(t *testing.T) {
 	w, em := newTestStatefulSetWatcher([]string{"production"})
 	w.clock = func() time.Time { return now }
 
-	sts := stalledStatefulSet("staging", "redis", "uid-ns", 1, 3, 0, 0)
+	sts := stalledStatefulSet("staging", "uid-ns", 1, 0, 0)
 	w.onAdd(sts)
 
 	if len(em.events) != 0 {

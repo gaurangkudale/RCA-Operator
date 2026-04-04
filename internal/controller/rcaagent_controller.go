@@ -71,20 +71,20 @@ type RCAAgentReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 
-	Cache                ctrlcache.Cache
-	SignalEmitter        collectors.SignalEmitter
-	ManagerContext       context.Context
-	newPodCollector      func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.PodCollectorConfig) podCollector
-	newEventCollector    func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.EventCollectorConfig) eventCollector
-	newWorkloadCollector     func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.WorkloadCollectorConfig) workloadCollector
-	newNodeCollector         func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.NodeCollectorConfig) nodeCollector
-	newStatefulSetCollector  func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.StatefulSetCollectorConfig) statefulSetCollector
-	newDaemonSetCollector    func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.DaemonSetCollectorConfig) daemonSetCollector
-	newJobCollector          func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.JobCollectorConfig) jobCollector
-	newCronJobCollector      func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.CronJobCollectorConfig) cronJobCollector
-	collectorRegistry        map[types.NamespacedName]collectorEntry
-	collectorRegistryM       sync.Mutex
-	nowFn                    func() time.Time
+	Cache                   ctrlcache.Cache
+	SignalEmitter           collectors.SignalEmitter
+	ManagerContext          context.Context
+	newPodCollector         func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.PodCollectorConfig) podCollector
+	newEventCollector       func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.EventCollectorConfig) eventCollector
+	newWorkloadCollector    func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.WorkloadCollectorConfig) workloadCollector
+	newNodeCollector        func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.NodeCollectorConfig) nodeCollector
+	newStatefulSetCollector func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.StatefulSetCollectorConfig) statefulSetCollector
+	newDaemonSetCollector   func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.DaemonSetCollectorConfig) daemonSetCollector
+	newJobCollector         func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.JobCollectorConfig) jobCollector
+	newCronJobCollector     func(ctrlcache.Cache, collectors.SignalEmitter, logr.Logger, collectors.CronJobCollectorConfig) cronJobCollector
+	collectorRegistry       map[types.NamespacedName]collectorEntry
+	collectorRegistryM      sync.Mutex
+	nowFn                   func() time.Time
 }
 
 type podCollector interface {
@@ -432,129 +432,11 @@ func (r *RCAAgentReconciler) ensureCollectorsRunning(ctx context.Context, agent 
 		return fmt.Errorf("failed to start event collector for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
 	}
 
-	// Workload collection is started when either an injected factory is provided
-	// or a real cache is available. When neither is true (e.g. unit tests that
-	// inject pod/event fakes but have no cache) the collector is simply skipped so
-	// test compatibility is preserved without requiring changes to existing tests.
-	workloadFactory := r.newWorkloadCollector
-	if workloadFactory == nil && r.Cache != nil {
-		workloadFactory = func(cache ctrlcache.Cache, emitter collectors.SignalEmitter, logger logr.Logger, cfg collectors.WorkloadCollectorConfig) workloadCollector {
-			return collectors.NewWorkloadCollector(cache, emitter, logger, cfg)
-		}
-	}
-	if workloadFactory != nil {
-		wc := workloadFactory(r.Cache, r.SignalEmitter, log,
-			collectors.WorkloadCollectorConfig{
-				AgentName:       agent.Name,
-				WatchNamespaces: desiredNamespaces,
-			},
-		)
-		if err := wc.Start(collectorCtx); err != nil {
-			cancel()
-			return fmt.Errorf("failed to start workload collector for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
-		}
-	}
-
-	// Node collection monitors corev1.Node objects for NotReady/Pressure conditions.
-	// Same graceful-skip pattern as workload collection: silently skipped when
-	// there is neither an injected factory nor a real cache (unit-test paths).
-	nodeFactory := r.newNodeCollector
-	if nodeFactory == nil && r.Cache != nil {
-		nodeFactory = func(cache ctrlcache.Cache, emitter collectors.SignalEmitter, logger logr.Logger, cfg collectors.NodeCollectorConfig) nodeCollector {
-			return collectors.NewNodeCollector(cache, emitter, logger, cfg)
-		}
-	}
-	if nodeFactory != nil {
-		nc := nodeFactory(r.Cache, r.SignalEmitter, log,
-			collectors.NodeCollectorConfig{
-				AgentName:         agent.Name,
-				IncidentNamespace: agent.Namespace,
-			},
-		)
-		if err := nc.Start(collectorCtx); err != nil {
-			cancel()
-			return fmt.Errorf("failed to start node collector for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
-		}
-	}
-
-	// StatefulSet collector monitors apps/v1 StatefulSets for stalled rollouts.
-	stsFactory := r.newStatefulSetCollector
-	if stsFactory == nil && r.Cache != nil {
-		stsFactory = func(cache ctrlcache.Cache, emitter collectors.SignalEmitter, logger logr.Logger, cfg collectors.StatefulSetCollectorConfig) statefulSetCollector {
-			return collectors.NewStatefulSetCollector(cache, emitter, logger, cfg)
-		}
-	}
-	if stsFactory != nil {
-		sc := stsFactory(r.Cache, r.SignalEmitter, log,
-			collectors.StatefulSetCollectorConfig{
-				AgentName:       agent.Name,
-				WatchNamespaces: desiredNamespaces,
-			},
-		)
-		if err := sc.Start(collectorCtx); err != nil {
-			cancel()
-			return fmt.Errorf("failed to start statefulset collector for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
-		}
-	}
-
-	// DaemonSet collector monitors apps/v1 DaemonSets for stalled rollouts.
-	dsFactory := r.newDaemonSetCollector
-	if dsFactory == nil && r.Cache != nil {
-		dsFactory = func(cache ctrlcache.Cache, emitter collectors.SignalEmitter, logger logr.Logger, cfg collectors.DaemonSetCollectorConfig) daemonSetCollector {
-			return collectors.NewDaemonSetCollector(cache, emitter, logger, cfg)
-		}
-	}
-	if dsFactory != nil {
-		dc := dsFactory(r.Cache, r.SignalEmitter, log,
-			collectors.DaemonSetCollectorConfig{
-				AgentName:       agent.Name,
-				WatchNamespaces: desiredNamespaces,
-			},
-		)
-		if err := dc.Start(collectorCtx); err != nil {
-			cancel()
-			return fmt.Errorf("failed to start daemonset collector for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
-		}
-	}
-
-	// Job collector monitors batch/v1 Jobs for failures.
-	jobFactory := r.newJobCollector
-	if jobFactory == nil && r.Cache != nil {
-		jobFactory = func(cache ctrlcache.Cache, emitter collectors.SignalEmitter, logger logr.Logger, cfg collectors.JobCollectorConfig) jobCollector {
-			return collectors.NewJobCollector(cache, emitter, logger, cfg)
-		}
-	}
-	if jobFactory != nil {
-		jc := jobFactory(r.Cache, r.SignalEmitter, log,
-			collectors.JobCollectorConfig{
-				AgentName:       agent.Name,
-				WatchNamespaces: desiredNamespaces,
-			},
-		)
-		if err := jc.Start(collectorCtx); err != nil {
-			cancel()
-			return fmt.Errorf("failed to start job collector for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
-		}
-	}
-
-	// CronJob collector monitors batch/v1 CronJobs for failed scheduled runs.
-	cjFactory := r.newCronJobCollector
-	if cjFactory == nil && r.Cache != nil {
-		cjFactory = func(cache ctrlcache.Cache, emitter collectors.SignalEmitter, logger logr.Logger, cfg collectors.CronJobCollectorConfig) cronJobCollector {
-			return collectors.NewCronJobCollector(cache, emitter, logger, cfg)
-		}
-	}
-	if cjFactory != nil {
-		cc := cjFactory(r.Cache, r.SignalEmitter, log,
-			collectors.CronJobCollectorConfig{
-				AgentName:       agent.Name,
-				WatchNamespaces: desiredNamespaces,
-			},
-		)
-		if err := cc.Start(collectorCtx); err != nil {
-			cancel()
-			return fmt.Errorf("failed to start cronjob collector for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
-		}
+	// Start optional collectors (workload types + node). Each is silently skipped
+	// when neither an injected factory nor a real cache is available (unit-test paths).
+	if err := r.startOptionalCollectors(collectorCtx, log, agent, desiredNamespaces); err != nil {
+		cancel()
+		return err
 	}
 
 	r.collectorRegistryM.Lock()
@@ -566,6 +448,114 @@ func (r *RCAAgentReconciler) ensureCollectorsRunning(ctx context.Context, agent 
 		"namespace", agent.Namespace,
 		"watchNamespaces", desiredNamespaces,
 	)
+
+	return nil
+}
+
+// startOptionalCollectors starts workload and node collectors that are only
+// available when a real cache is present (or an injected test factory).
+// nolint:gocyclo
+func (r *RCAAgentReconciler) startOptionalCollectors(
+	ctx context.Context,
+	log logr.Logger,
+	agent *rcav1alpha1.RCAAgent,
+	namespaces []string,
+) error {
+	// Workload collection (Deployment rollout stall detection).
+	workloadFactory := r.newWorkloadCollector
+	if workloadFactory == nil && r.Cache != nil {
+		workloadFactory = func(cache ctrlcache.Cache, emitter collectors.SignalEmitter, logger logr.Logger, cfg collectors.WorkloadCollectorConfig) workloadCollector {
+			return collectors.NewWorkloadCollector(cache, emitter, logger, cfg)
+		}
+	}
+	if workloadFactory != nil {
+		wc := workloadFactory(r.Cache, r.SignalEmitter, log,
+			collectors.WorkloadCollectorConfig{AgentName: agent.Name, WatchNamespaces: namespaces},
+		)
+		if err := wc.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start workload collector for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
+		}
+	}
+
+	// Node collection (NotReady/Pressure conditions).
+	nodeFactory := r.newNodeCollector
+	if nodeFactory == nil && r.Cache != nil {
+		nodeFactory = func(cache ctrlcache.Cache, emitter collectors.SignalEmitter, logger logr.Logger, cfg collectors.NodeCollectorConfig) nodeCollector {
+			return collectors.NewNodeCollector(cache, emitter, logger, cfg)
+		}
+	}
+	if nodeFactory != nil {
+		nc := nodeFactory(r.Cache, r.SignalEmitter, log,
+			collectors.NodeCollectorConfig{AgentName: agent.Name, IncidentNamespace: agent.Namespace},
+		)
+		if err := nc.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start node collector for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
+		}
+	}
+
+	// StatefulSet collection (stalled rollouts).
+	stsFactory := r.newStatefulSetCollector
+	if stsFactory == nil && r.Cache != nil {
+		stsFactory = func(cache ctrlcache.Cache, emitter collectors.SignalEmitter, logger logr.Logger, cfg collectors.StatefulSetCollectorConfig) statefulSetCollector {
+			return collectors.NewStatefulSetCollector(cache, emitter, logger, cfg)
+		}
+	}
+	if stsFactory != nil {
+		sc := stsFactory(r.Cache, r.SignalEmitter, log,
+			collectors.StatefulSetCollectorConfig{AgentName: agent.Name, WatchNamespaces: namespaces},
+		)
+		if err := sc.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start statefulset collector for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
+		}
+	}
+
+	// DaemonSet collection (stalled rollouts).
+	dsFactory := r.newDaemonSetCollector
+	if dsFactory == nil && r.Cache != nil {
+		dsFactory = func(cache ctrlcache.Cache, emitter collectors.SignalEmitter, logger logr.Logger, cfg collectors.DaemonSetCollectorConfig) daemonSetCollector {
+			return collectors.NewDaemonSetCollector(cache, emitter, logger, cfg)
+		}
+	}
+	if dsFactory != nil {
+		dc := dsFactory(r.Cache, r.SignalEmitter, log,
+			collectors.DaemonSetCollectorConfig{AgentName: agent.Name, WatchNamespaces: namespaces},
+		)
+		if err := dc.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start daemonset collector for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
+		}
+	}
+
+	// Job collection (failed Jobs).
+	jobFactory := r.newJobCollector
+	if jobFactory == nil && r.Cache != nil {
+		jobFactory = func(cache ctrlcache.Cache, emitter collectors.SignalEmitter, logger logr.Logger, cfg collectors.JobCollectorConfig) jobCollector {
+			return collectors.NewJobCollector(cache, emitter, logger, cfg)
+		}
+	}
+	if jobFactory != nil {
+		jc := jobFactory(r.Cache, r.SignalEmitter, log,
+			collectors.JobCollectorConfig{AgentName: agent.Name, WatchNamespaces: namespaces},
+		)
+		if err := jc.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start job collector for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
+		}
+	}
+
+	// CronJob collection (failed scheduled runs).
+	cjFactory := r.newCronJobCollector
+	if cjFactory == nil && r.Cache != nil {
+		cjFactory = func(cache ctrlcache.Cache, emitter collectors.SignalEmitter, logger logr.Logger, cfg collectors.CronJobCollectorConfig) cronJobCollector {
+			return collectors.NewCronJobCollector(cache, emitter, logger, cfg)
+		}
+	}
+	if cjFactory != nil {
+		cc := cjFactory(r.Cache, r.SignalEmitter, log,
+			collectors.CronJobCollectorConfig{AgentName: agent.Name, WatchNamespaces: namespaces},
+		)
+		if err := cc.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start cronjob collector for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
+		}
+	}
 
 	return nil
 }

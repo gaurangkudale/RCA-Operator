@@ -281,13 +281,13 @@ func (e StalledStatefulSetEvent) DedupKey() string {
 // than desired for an extended period, indicating a stalled rollout or scheduling failure.
 type StalledDaemonSetEvent struct {
 	BaseEvent
-	DaemonSetName        string
-	Revision             int64
+	DaemonSetName          string
+	Revision               int64
 	DesiredNumberScheduled int32
-	NumberReady          int32
+	NumberReady            int32
 	UpdatedNumberScheduled int32
-	Reason               string
-	Message              string
+	Reason                 string
+	Message                string
 }
 
 func (e StalledDaemonSetEvent) Type() EventType       { return EventTypeStalledDaemonSet }
@@ -315,10 +315,10 @@ func (e JobFailedEvent) DedupKey() string {
 // has failed, indicating a broken scheduled task.
 type CronJobFailedEvent struct {
 	BaseEvent
-	CronJobName   string
-	LastJobName   string
-	Reason        string
-	Message       string
+	CronJobName string
+	LastJobName string
+	Reason      string
+	Message     string
 }
 
 func (e CronJobFailedEvent) Type() EventType       { return EventTypeCronJobFailed }
