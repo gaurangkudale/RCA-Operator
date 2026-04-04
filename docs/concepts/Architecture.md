@@ -133,6 +133,28 @@ Notifications are driven from durable incident state, not transient input signal
 
 The dashboard serves a static UI and JSON API from the operator process. It reads `IncidentReport`, `RCAAgent`, and `RCACorrelationRule` resources.
 
+API endpoints:
+
+- `GET /api/incidents` — list with filtering, sorting, and pagination
+- `GET /api/incidents/{namespace}/{name}` — single incident detail
+- `GET /api/stats` — aggregate statistics
+- `GET /api/rules` — correlation rules (with auto-generated indicator)
+- `GET /api/timeline?fingerprint=...` — unified chronological timeline across all lifecycle phases for a fingerprint
+
+See [Dashboard](../features/DASHBOARD.md) for full details.
+
+### Observability
+
+Phase 1 exposes Prometheus metrics that track the full incident pipeline:
+
+- Signal ingestion and deduplication rates
+- Incident lifecycle transitions (detecting, activated, resolved)
+- Active incident gauge
+- Phase transition duration histogram
+- Notification delivery and correlation rule evaluation
+
+See [Metrics Reference](../reference/metrics.md) for the complete list.
+
 ## Production Properties
 
 Phase 1 is production-ready when these properties hold:

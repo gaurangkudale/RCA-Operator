@@ -78,6 +78,7 @@ The checked-in sample is minimal and does not require notification secrets. If y
 | [RCACorrelationRule CRD Reference](docs/reference/rcacorrelationrule-crd.md) | Correlation rule schema and examples |
 | [Auto-Detection](docs/features/auto-detection.md) | Automatic correlation rule detection |
 | [Dashboard](docs/features/DASHBOARD.md) | Dashboard data model and access patterns |
+| [Metrics Reference](docs/reference/metrics.md) | Prometheus metrics exposed by the operator |
 | [RBAC Reference](docs/reference/rbac.md) | Permissions used by the operator |
 | [Local Development](docs/development/local-setup.md) | Run locally against a cluster |
 | [Testing Guide](docs/development/testing.md) | Unit, envtest, and e2e coverage |

@@ -189,6 +189,14 @@ func (r *IncidentReportReconciler) transitionToActive(ctx context.Context, repor
 	if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to transition IncidentReport %s/%s to Active: %w", report.Namespace, report.Name, err)
 	}
+
+	// Phase 1 metrics: record activation, gauge increment, and detecting→active transition duration.
+	metrics.RecordIncidentActivated(report.Spec.AgentRef, report.Status.IncidentType, report.Status.Severity)
+	metrics.IncActiveIncidents(report.Spec.AgentRef, report.Status.IncidentType, report.Status.Severity)
+	if start := incidentstatus.EffectiveStartTime(base.Status); start != nil {
+		metrics.ObserveIncidentTransition("detecting", "active", now.Sub(start.Time).Seconds())
+	}
+
 	if r.Recorder != nil {
 		r.Recorder.Eventf(report, nil, corev1.EventTypeWarning, "IncidentActive", "Activate",
 			"Incident confirmed active type=%s severity=%s", report.Status.IncidentType, report.Status.Severity)
@@ -203,6 +211,20 @@ func (r *IncidentReportReconciler) transitionToResolved(ctx context.Context, rep
 	if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to resolve IncidentReport %s/%s: %w", report.Namespace, report.Name, err)
 	}
+
+	// Phase 1 metrics: record the phase transition duration and update the active gauge.
+	switch base.Status.Phase {
+	case phaseDetecting:
+		if start := incidentstatus.EffectiveStartTime(base.Status); start != nil {
+			metrics.ObserveIncidentTransition("detecting", "resolved", now.Sub(start.Time).Seconds())
+		}
+	case phaseActive:
+		metrics.DecActiveIncidents(report.Spec.AgentRef, report.Status.IncidentType, report.Status.Severity)
+		if base.Status.ActiveAt != nil {
+			metrics.ObserveIncidentTransition("active", "resolved", now.Sub(base.Status.ActiveAt.Time).Seconds())
+		}
+	}
+
 	if r.Recorder != nil {
 		r.Recorder.Eventf(report, nil, corev1.EventTypeNormal, "IncidentResolved", "Resolve",
 			"%s", reason)

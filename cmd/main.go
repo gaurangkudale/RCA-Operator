@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -69,6 +70,7 @@ func main() {
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
 	var enableLeaderElection bool
+	var leaderElectionNamespace string
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
@@ -78,9 +80,12 @@ func main() {
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
+	flag.BoolVar(&enableLeaderElection, "leader-elect", true,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.StringVar(&leaderElectionNamespace, "leader-election-namespace", "",
+		"Namespace for the leader election lease. Required when running outside a cluster (e.g. make run). "+
+			"When empty, the in-cluster namespace is used automatically.")
 	flag.BoolVar(&secureMetrics, "metrics-secure", true,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
 	flag.BoolVar(&enableWebhooks, "enable-webhooks", false,
@@ -194,13 +199,30 @@ func main() {
 		metricsServerOptions.KeyName = metricsCertKey
 	}
 
+	if enableLeaderElection && leaderElectionNamespace == "" {
+		if podNamespace := os.Getenv("POD_NAMESPACE"); podNamespace != "" {
+			leaderElectionNamespace = podNamespace
+			setupLog.Info("Using leader election namespace from POD_NAMESPACE", "namespace", leaderElectionNamespace)
+		} else if _, err := rest.InClusterConfig(); err != nil {
+			// Out-of-cluster runs (for example `make run`) cannot auto-detect a
+			// namespace for the lease object. Default to `default` unless a
+			// namespace is explicitly provided via flag or POD_NAMESPACE.
+			leaderElectionNamespace = "default"
+			setupLog.Info("Defaulting leader election namespace for out-of-cluster run",
+				"namespace", leaderElectionNamespace,
+				"hint", "override with --leader-election-namespace",
+			)
+		}
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                 scheme,
-		Metrics:                metricsServerOptions,
-		WebhookServer:          webhookServer,
-		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "8faf7f69.rca-operator.tech",
+		Scheme:                  scheme,
+		Metrics:                 metricsServerOptions,
+		WebhookServer:           webhookServer,
+		HealthProbeBindAddress:  probeAddr,
+		LeaderElection:          enableLeaderElection,
+		LeaderElectionID:        "8faf7f69.rca-operator.tech",
+		LeaderElectionNamespace: leaderElectionNamespace,
 	})
 	if err != nil {
 		setupLog.Error(err, "Failed to start manager")

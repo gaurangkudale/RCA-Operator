@@ -20,6 +20,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Phase 1 metrics alignment** — all Prometheus metrics now match the Phase 1 architecture spec: `rca_signals_received_total`, `rca_signals_deduplicated_total`, `rca_incidents_detecting_total`, `rca_incidents_activated_total`, `rca_incidents_resolved_total`, `rca_active_incidents` (gauge), `rca_incident_transition_seconds` (histogram); backward-compatible aliases retained for existing dashboards
+- **Timeline API** — `GET /api/timeline?fingerprint=...` returns a unified chronological timeline across all lifecycle phases for a given incident fingerprint, including lifecycle transition events
+- **Leader election namespace flag** — `--leader-election-namespace` flag for explicit control; auto-detects out-of-cluster runs and defaults to `default` namespace
+- **Metrics reference documentation** — new `docs/reference/metrics.md` with all Phase 1, operational, and auto-detection metrics
 - **StatefulSet, DaemonSet, Job, CronJob collectors** — new workload-level signal collectors detect stalled StatefulSet/DaemonSet rollouts, failed Jobs (BackoffLimitExceeded, DeadlineExceeded), and failed CronJob child runs; includes incident resolution support, signal mappings, RBAC markers, and full test coverage
 - **Automatic correlation rule detection** — `internal/autodetect` package mines the correlation buffer for recurring signal co-occurrence patterns and auto-creates `RCACorrelationRule` CRDs when occurrence thresholds are met; includes pattern mining, accumulator, CRD lifecycle management, expiry, startup recovery, Prometheus metrics, and Helm integration (`--enable-autodetect`)
 - **CRD-driven correlation rules** — `RCACorrelationRule` cluster-scoped CRD with dynamic rule loading, template-based summaries, and a dedicated controller that reloads rules on create/update/delete without operator restart
@@ -39,6 +43,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Leader election enabled by default** — `--leader-elect` now defaults to `true` for production HA safety; local development auto-detects out-of-cluster and defaults `--leader-election-namespace` to `default`
 - **All correlation rules are now CRD-driven** — removed all hardcoded Go rules from `internal/correlator/rules.go`
 - Removed legacy correlator rule engine factory (`correlator_rule_engine.go`) — CRD engine is the only active engine
 - Incident types are now self-describing (`CrashLoopBackOff`, `OOMKilled`, `ImagePullBackOff`, `NodeNotReady`, `StalledRollout`) instead of aliases (`OOM`, `Registry`, `NodeFailure`, `BadDeploy`)

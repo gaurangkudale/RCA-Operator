@@ -137,6 +137,10 @@ affinity: {}
 # Use case: Ensure only one active controller manager reconciles at a time.
 leaderElection:
   enabled: true
+  # Namespace for the leader election lease object.
+  # When empty, controller-runtime auto-detects the in-cluster namespace.
+  # Set explicitly if running in a namespace other than the deployment namespace.
+  namespace: ""
 
 # Metrics endpoint configuration
 # Use case: Expose Prometheus-style metrics for monitoring and alerting.

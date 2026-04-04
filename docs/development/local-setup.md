@@ -34,6 +34,25 @@ make run
 
 The operator will reconcile existing `RCAAgent` CRs immediately on startup and load `RCACorrelationRule` CRDs for multi-signal correlation. Controller logs go to stdout.
 
+### Leader Election
+
+Leader election is enabled by default for production safety. When running outside a cluster (e.g. `make run`), the operator auto-detects the out-of-cluster environment and defaults the leader election namespace to `default`.
+
+You can also control this explicitly:
+
+```bash
+# Override the leader election namespace
+make run ARGS="--leader-election-namespace=rca-system"
+
+# Disable leader election entirely for quick local iteration
+make run ARGS="--leader-elect=false"
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--leader-elect` | `true` | Enable/disable leader election |
+| `--leader-election-namespace` | auto-detected | Namespace for the leader election lease. Auto-detected in-cluster; defaults to `default` out-of-cluster |
+
 ### Enable Auto-Detection (Optional)
 
 To test automatic correlation rule detection, pass the flags via `ARGS`:
