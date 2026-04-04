@@ -71,6 +71,7 @@ rules:
   resources:
   - incidentreports/status
   - rcaagents/status
+  - rcacorrelationrules/status
   verbs:
   - get
   - patch
