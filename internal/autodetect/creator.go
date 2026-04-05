@@ -63,6 +63,15 @@ func NewCreator(c client.Client, cfg Config, logger logr.Logger) *Creator {
 // EnsureRule creates or updates an auto-generated RCACorrelationRule CRD for the
 // given pattern. If the rule already exists, only annotations are updated.
 func (c *Creator) EnsureRule(ctx context.Context, rec *PatternRecord) error {
+	if rec == nil {
+		return nil
+	}
+	rec.Pair = NormalizePair(rec.Pair)
+	if !IsValidScopePair(rec.Pair) {
+		c.log.V(1).Info("Skipping invalid auto-rule pair", "pattern", rec.Pair.Key(), "scope", rec.Pair.Scope)
+		return nil
+	}
+
 	name := RuleName(rec.Pair)
 
 	// Check cap.
@@ -104,6 +113,20 @@ func (c *Creator) ExpireStaleRules(ctx context.Context, activePatterns map[strin
 	now := c.nowFn()
 	for i := range rules {
 		rule := &rules[i]
+		pair, ok := pairFromRule(rule)
+		if ok && !IsValidScopePair(pair) {
+			c.log.Info("Deleting invalid auto-generated rule",
+				"rule", rule.Name,
+				"trigger", pair.TriggerType,
+				"condition", pair.ConditionType,
+				"scope", pair.Scope,
+			)
+			if err := c.client.Delete(ctx, rule); err != nil {
+				c.log.Error(err, "Failed to delete invalid auto-rule", "rule", rule.Name)
+			}
+			continue
+		}
+
 		lastSeenStr := rule.Annotations[AnnotationLastSeen]
 		lastSeen, parseErr := time.Parse(time.RFC3339, lastSeenStr)
 		if parseErr != nil {
@@ -136,7 +159,41 @@ func (c *Creator) CountAutoRules(ctx context.Context) (int, error) {
 	return len(rules), nil
 }
 
-// LoadExisting returns all auto-generated rules from the cluster,
+// CleanupInvalidRules deletes all auto-generated rules with invalid scope/type pairings.
+// This is a one-shot cleanup run at detector startup to remove any legacy rules
+// created before scope validation was fully enforced.
+func (c *Creator) CleanupInvalidRules(ctx context.Context) error {
+	rules, err := c.listAutoRules(ctx)
+	if err != nil {
+		return err
+	}
+
+	var deleted int
+	for i := range rules {
+		rule := &rules[i]
+		pair, ok := pairFromRule(rule)
+		if !ok || !IsValidScopePair(pair) {
+			c.log.Info("Deleting invalid auto-rule at startup",
+				"rule", rule.Name,
+				"trigger", pair.TriggerType,
+				"condition", pair.ConditionType,
+				"scope", pair.Scope,
+			)
+			if delErr := c.client.Delete(ctx, rule); delErr != nil {
+				c.log.Error(delErr, "Failed to delete invalid auto-rule", "rule", rule.Name)
+			} else {
+				deleted++
+			}
+		}
+	}
+
+	if deleted > 0 {
+		c.log.Info("Cleaned up invalid auto-rules at startup", "count", deleted)
+	}
+	return nil
+}
+
+// loadExisting returns all auto-generated rules from the cluster,
 // keyed by their pattern-key annotation. Used at startup to seed the accumulator.
 func (c *Creator) LoadExisting(ctx context.Context) (map[string]*PatternRecord, error) {
 	rules, err := c.listAutoRules(ctx)
@@ -166,6 +223,9 @@ func (c *Creator) LoadExisting(ctx context.Context) (map[string]*PatternRecord, 
 			pair.Scope = rule.Spec.Conditions[0].Scope
 		}
 		pair = NormalizePair(pair)
+		if !IsValidScopePair(pair) {
+			continue
+		}
 
 		canonicalKey := pair.Key()
 		// If a canonical record already exists (from the mirror rule), merge by
@@ -251,13 +311,28 @@ func (c *Creator) updateAnnotations(ctx context.Context, rule *rcav1alpha1.RCACo
 	if rule.Annotations == nil {
 		rule.Annotations = make(map[string]string)
 	}
+	rule.Annotations[AnnotationPatternKey] = rec.Pair.Key()
 	rule.Annotations[AnnotationOccurrences] = strconv.Itoa(rec.Occurrences)
 	rule.Annotations[AnnotationLastSeen] = c.nowFn().Format(time.RFC3339)
+	rule.Spec.Fires.Summary = buildAutoSummary(rec.Pair)
 
 	if err := c.client.Update(ctx, rule); err != nil {
 		return fmt.Errorf("updating auto-rule %s: %w", rule.Name, err)
 	}
 	return nil
+}
+
+func pairFromRule(rule *rcav1alpha1.RCACorrelationRule) (EventPair, bool) {
+	if rule == nil {
+		return EventPair{}, false
+	}
+	pair := EventPair{TriggerType: rule.Spec.Trigger.EventType, Scope: "samePod"}
+	if len(rule.Spec.Conditions) == 0 {
+		return EventPair{}, false
+	}
+	pair.ConditionType = rule.Spec.Conditions[0].EventType
+	pair.Scope = rule.Spec.Conditions[0].Scope
+	return NormalizePair(pair), true
 }
 
 func (c *Creator) listAutoRules(ctx context.Context) ([]rcav1alpha1.RCACorrelationRule, error) {
@@ -308,23 +383,23 @@ func higherSeverity(a, b string) string {
 	return b
 }
 
-// buildAutoSummary generates a scope-appropriate summary template for an
-// auto-detected correlation rule.
+// buildAutoSummary generates a human-readable summary for an auto-detected
+// correlation rule without runtime placeholders.
 func buildAutoSummary(pair EventPair) string {
 	switch pair.Scope {
 	case "sameNode":
 		return fmt.Sprintf(
-			"%s correlated with %s on node {{.NodeName}}",
+			"Auto-detected: %s correlated with %s on same node",
 			pair.TriggerType, pair.ConditionType,
 		)
 	case "sameNamespace":
 		return fmt.Sprintf(
-			"%s correlated with %s in namespace {{.Namespace}}",
+			"Auto-detected: %s correlated with %s in same namespace",
 			pair.TriggerType, pair.ConditionType,
 		)
 	default: // samePod
 		return fmt.Sprintf(
-			"%s correlated with %s on pod {{.PodName}} in {{.Namespace}}",
+			"Auto-detected: %s correlated with %s on same pod",
 			pair.TriggerType, pair.ConditionType,
 		)
 	}

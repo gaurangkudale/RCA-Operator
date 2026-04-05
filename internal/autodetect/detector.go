@@ -42,6 +42,9 @@ func (d *Detector) Run(ctx context.Context) {
 		"expiry", d.config.ExpiryDuration,
 	)
 
+	// Clean up any invalid auto-rules at startup (e.g., from before scope validation was added).
+	d.cleanupInvalidRules(ctx)
+
 	ticker := time.NewTicker(d.config.AnalysisInterval)
 	defer ticker.Stop()
 
@@ -123,6 +126,14 @@ func (d *Detector) tick(ctx context.Context) {
 			"activeRules", countAfter,
 			"duration", time.Since(start).String(),
 		)
+	}
+}
+
+// cleanupInvalidRules deletes all auto-rules with invalid scope/type pairings.
+// This ensures rules created before scope validation was added are cleaned up at startup.
+func (d *Detector) cleanupInvalidRules(ctx context.Context) {
+	if err := d.creator.CleanupInvalidRules(ctx); err != nil {
+		d.log.Error(err, "Failed to cleanup invalid auto-rules at startup")
 	}
 }
 

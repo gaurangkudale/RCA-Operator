@@ -62,9 +62,38 @@ var workloadEventTypes = map[string]bool{
 	string(watcher.EventTypeCronJobFailed):      true,
 }
 
+// IsNodeEventType returns true when the event type is a node-level signal.
+func IsNodeEventType(et string) bool {
+	return nodeEventTypes[et]
+}
+
+// IsWorkloadEventType returns true when the event type is a workload-level signal.
+func IsWorkloadEventType(et string) bool {
+	return workloadEventTypes[et]
+}
+
+// IsPodEventType returns true when the event type is a pod-level signal.
+func IsPodEventType(et string) bool {
+	return !IsNodeEventType(et) && !IsWorkloadEventType(et)
+}
+
+// IsValidScopePair validates that pair scope aligns with event-type level.
+func IsValidScopePair(pair EventPair) bool {
+	switch pair.Scope {
+	case "samePod":
+		return IsPodEventType(pair.TriggerType) && IsPodEventType(pair.ConditionType)
+	case "sameNode":
+		return IsNodeEventType(pair.TriggerType) && IsNodeEventType(pair.ConditionType)
+	case "sameNamespace":
+		return IsWorkloadEventType(pair.TriggerType) && IsWorkloadEventType(pair.ConditionType)
+	default:
+		return false
+	}
+}
+
 // isPodEvent returns true for pod-scoped events (not node or workload level).
 func isPodEvent(et string) bool {
-	return !nodeEventTypes[et] && !workloadEventTypes[et]
+	return IsPodEventType(et)
 }
 
 // MinePatterns extracts co-occurring event pairs from a buffer snapshot.
