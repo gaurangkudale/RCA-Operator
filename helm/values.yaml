@@ -20,6 +20,10 @@ fullnameOverride: ""
 # Use case: Bootstrap custom resources during install/upgrade when cluster owners allow chart-managed CRDs.
 crds:
   install: true
+  # Keep CRDs on helm uninstall (prevent deletion of custom resources)
+  # Set to false to delete CRDs and all custom resources when chart is uninstalled
+  # Default is false to avoid orphaned CRDs and resources, but set to true if cluster owners want to manage CRD lifecycle separately from the chart.
+  keep: false
 
 # Service account configuration
 # Use case: Control workload identity and API access for the operator pod.
