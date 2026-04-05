@@ -73,17 +73,19 @@ func TestMinePatterns_SamePod(t *testing.T) {
 
 	result := MinePatterns(entries)
 
-	if len(result.Pairs) != 2 {
-		t.Fatalf("expected 2 pairs (A→B and B→A), got %d", len(result.Pairs))
+	// Canonical pair ordering: one pair per unique combination (no mirror duplicates).
+	if len(result.Pairs) != 1 {
+		t.Fatalf("expected 1 canonical pair, got %d: %+v", len(result.Pairs), result.Pairs)
 	}
 
-	// Both should be samePod scope (tightest).
-	for _, p := range result.Pairs {
-		if p.Scope != "samePod" {
-			t.Errorf("expected samePod scope, got %q for %s→%s", p.Scope, p.TriggerType, p.ConditionType)
-		}
+	p := result.Pairs[0]
+	if p.Scope != "samePod" {
+		t.Errorf("expected samePod scope, got %q", p.Scope)
 	}
-
+	// Trigger should be lexicographically first.
+	if p.TriggerType != "CrashLoopBackOff" || p.ConditionType != "OOMKilled" {
+		t.Errorf("expected CrashLoopBackOff→OOMKilled, got %s→%s", p.TriggerType, p.ConditionType)
+	}
 }
 
 func TestMinePatterns_SameNode(t *testing.T) {
@@ -96,6 +98,7 @@ func TestMinePatterns_SameNode(t *testing.T) {
 	result := MinePatterns(entries)
 
 	// Different pods (one has no pod name), same node → sameNode scope.
+	// Canonical ordering: NodeNotReady < PodEvicted lexicographically.
 	found := false
 	for _, p := range result.Pairs {
 		if p.TriggerType == "NodeNotReady" && p.ConditionType == "PodEvicted" && p.Scope == "sameNode" {

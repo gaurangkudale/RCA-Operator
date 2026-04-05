@@ -1,6 +1,7 @@
 package autodetect
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/gaurangkudale/rca-operator/internal/correlator"
@@ -105,17 +106,18 @@ func emitPairs(groups map[string][]baseEntry, scope string, seen map[string]bool
 			continue
 		}
 
-		// Emit all ordered pairs of distinct event types.
+		// Collect and sort distinct event types so pairs are emitted in
+		// canonical (lexicographic) order. This prevents mirror-image
+		// duplicates: (A,B) and (B,A) collapse into a single pair where
+		// TriggerType < ConditionType.
 		types := make([]string, 0, len(typeSet))
 		for t := range typeSet {
 			types = append(types, t)
 		}
+		sort.Strings(types)
 
 		for i := 0; i < len(types); i++ {
-			for j := 0; j < len(types); j++ {
-				if i == j {
-					continue
-				}
+			for j := i + 1; j < len(types); j++ {
 				trigger := types[i]
 				condition := types[j]
 				pair := EventPair{
