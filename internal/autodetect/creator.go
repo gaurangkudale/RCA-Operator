@@ -216,7 +216,7 @@ func (c *Creator) LoadExisting(ctx context.Context) (map[string]*PatternRecord, 
 		// canonical-order fix are seeded under the correct key.
 		pair := EventPair{
 			TriggerType: rule.Spec.Trigger.EventType,
-			Scope:       "samePod", // default
+			Scope:       ScopeSamePod, // default
 		}
 		if len(rule.Spec.Conditions) > 0 {
 			pair.ConditionType = rule.Spec.Conditions[0].EventType
@@ -326,7 +326,7 @@ func pairFromRule(rule *rcav1alpha1.RCACorrelationRule) (EventPair, bool) {
 	if rule == nil {
 		return EventPair{}, false
 	}
-	pair := EventPair{TriggerType: rule.Spec.Trigger.EventType, Scope: "samePod"}
+	pair := EventPair{TriggerType: rule.Spec.Trigger.EventType, Scope: ScopeSamePod}
 	if len(rule.Spec.Conditions) == 0 {
 		return EventPair{}, false
 	}
@@ -387,17 +387,17 @@ func higherSeverity(a, b string) string {
 // correlation rule without runtime placeholders.
 func buildAutoSummary(pair EventPair) string {
 	switch pair.Scope {
-	case "sameNode":
+	case ScopeSameNode:
 		return fmt.Sprintf(
 			"Auto-detected: %s correlated with %s on same node",
 			pair.TriggerType, pair.ConditionType,
 		)
-	case "sameNamespace":
+	case ScopeSameNamespace:
 		return fmt.Sprintf(
 			"Auto-detected: %s correlated with %s in same namespace",
 			pair.TriggerType, pair.ConditionType,
 		)
-	default: // samePod
+	default: // ScopeSamePod
 		return fmt.Sprintf(
 			"Auto-detected: %s correlated with %s on same pod",
 			pair.TriggerType, pair.ConditionType,

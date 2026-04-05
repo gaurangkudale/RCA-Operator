@@ -9,6 +9,13 @@ import (
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
+const (
+	// Scope constants for co-occurrence patterns.
+	ScopeSamePod       = "samePod"
+	ScopeSameNode      = "sameNode"
+	ScopeSameNamespace = "sameNamespace"
+)
+
 // EventPair represents a co-occurring event pair extracted from a buffer
 // snapshot. TriggerType is lexicographically ≤ ConditionType (canonical order).
 type EventPair struct {
@@ -80,11 +87,11 @@ func IsPodEventType(et string) bool {
 // IsValidScopePair validates that pair scope aligns with event-type level.
 func IsValidScopePair(pair EventPair) bool {
 	switch pair.Scope {
-	case "samePod":
+	case ScopeSamePod:
 		return IsPodEventType(pair.TriggerType) && IsPodEventType(pair.ConditionType)
-	case "sameNode":
+	case ScopeSameNode:
 		return IsNodeEventType(pair.TriggerType) && IsNodeEventType(pair.ConditionType)
-	case "sameNamespace":
+	case ScopeSameNamespace:
 		return IsWorkloadEventType(pair.TriggerType) && IsWorkloadEventType(pair.ConditionType)
 	default:
 		return false
@@ -129,7 +136,7 @@ func MinePatterns(entries []correlator.Entry) MineResult {
 			podGroups[key] = append(podGroups[key], e)
 		}
 	}
-	emitPairs(podGroups, "samePod", seen, &pairs)
+	emitPairs(podGroups, ScopeSamePod, seen, &pairs)
 
 	// ── sameNode: only node-level events ────────────────────────────────
 	nodeGroups := make(map[string][]baseEntry)
@@ -138,7 +145,7 @@ func MinePatterns(entries []correlator.Entry) MineResult {
 			nodeGroups[e.base.NodeName] = append(nodeGroups[e.base.NodeName], e)
 		}
 	}
-	emitPairs(nodeGroups, "sameNode", seen, &pairs)
+	emitPairs(nodeGroups, ScopeSameNode, seen, &pairs)
 
 	// ── sameNamespace: only workload-level events ───────────────────────
 	nsGroups := make(map[string][]baseEntry)
@@ -147,7 +154,7 @@ func MinePatterns(entries []correlator.Entry) MineResult {
 			nsGroups[e.base.Namespace] = append(nsGroups[e.base.Namespace], e)
 		}
 	}
-	emitPairs(nsGroups, "sameNamespace", seen, &pairs)
+	emitPairs(nsGroups, ScopeSameNamespace, seen, &pairs)
 
 	return MineResult{Pairs: pairs}
 }

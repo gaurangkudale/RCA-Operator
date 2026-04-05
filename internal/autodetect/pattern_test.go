@@ -79,7 +79,7 @@ func TestMinePatterns_SamePod(t *testing.T) {
 	}
 
 	p := result.Pairs[0]
-	if p.Scope != "samePod" {
+	if p.Scope != ScopeSamePod {
 		t.Errorf("expected samePod scope, got %q", p.Scope)
 	}
 	// Trigger should be lexicographically first.
@@ -101,7 +101,7 @@ func TestMinePatterns_SameNode(t *testing.T) {
 	// Canonical ordering: NodeNotReady < PodEvicted lexicographically.
 	found := false
 	for _, p := range result.Pairs {
-		if p.TriggerType == "NodeNotReady" && p.ConditionType == "PodEvicted" && p.Scope == "sameNode" {
+		if p.TriggerType == "NodeNotReady" && p.ConditionType == "PodEvicted" && p.Scope == ScopeSameNode {
 			found = true
 		}
 	}
@@ -152,7 +152,7 @@ func TestMinePatterns_TightestScopeWins(t *testing.T) {
 	result := MinePatterns(entries)
 
 	for _, p := range result.Pairs {
-		if p.Scope != "samePod" {
+		if p.Scope != ScopeSamePod {
 			t.Errorf("expected only samePod scope (tightest), got %q for %s→%s", p.Scope, p.TriggerType, p.ConditionType)
 		}
 	}
@@ -181,7 +181,7 @@ func TestMinePatterns_MultiplePairsMultipleScopes(t *testing.T) {
 		scopes[p.TriggerType+":"+p.ConditionType] = p.Scope
 	}
 
-	if s, ok := scopes["CrashLoopBackOff:OOMKilled"]; ok && s != "samePod" {
+	if s, ok := scopes["CrashLoopBackOff:OOMKilled"]; ok && s != ScopeSamePod {
 		t.Errorf("CrashLoopBackOff:OOMKilled expected samePod, got %s", s)
 	}
 	if _, ok := scopes["CrashLoopBackOff:ProbeFailure"]; ok {
