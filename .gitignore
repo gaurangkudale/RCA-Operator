@@ -37,3 +37,6 @@ bin/k8s/
 bin/manager
 bin/controller-gen
 bin/controller-gen-*
+
+# AI 
+.claude/
