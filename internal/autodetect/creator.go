@@ -146,8 +146,7 @@ func (c *Creator) LoadExisting(ctx context.Context) (map[string]*PatternRecord, 
 
 	records := make(map[string]*PatternRecord, len(rules))
 	for _, rule := range rules {
-		patternKey := rule.Annotations[AnnotationPatternKey]
-		if patternKey == "" {
+		if rule.Annotations[AnnotationPatternKey] == "" {
 			continue
 		}
 
@@ -155,7 +154,9 @@ func (c *Creator) LoadExisting(ctx context.Context) (map[string]*PatternRecord, 
 		firstSeen, _ := time.Parse(time.RFC3339, rule.Annotations[AnnotationFirstSeen])
 		lastSeen, _ := time.Parse(time.RFC3339, rule.Annotations[AnnotationLastSeen])
 
-		// Reconstruct EventPair from the rule spec.
+		// Reconstruct EventPair from the rule spec and normalize to canonical
+		// (lexicographic) order. This ensures old rules created before the
+		// canonical-order fix are seeded under the correct key.
 		pair := EventPair{
 			TriggerType: rule.Spec.Trigger.EventType,
 			Scope:       "samePod", // default
@@ -164,8 +165,25 @@ func (c *Creator) LoadExisting(ctx context.Context) (map[string]*PatternRecord, 
 			pair.ConditionType = rule.Spec.Conditions[0].EventType
 			pair.Scope = rule.Spec.Conditions[0].Scope
 		}
+		pair = NormalizePair(pair)
 
-		records[patternKey] = &PatternRecord{
+		canonicalKey := pair.Key()
+		// If a canonical record already exists (from the mirror rule), merge by
+		// keeping the higher occurrence count and wider time window.
+		if existing, ok := records[canonicalKey]; ok {
+			if occ > existing.Occurrences {
+				existing.Occurrences = occ
+			}
+			if firstSeen.Before(existing.FirstSeen) {
+				existing.FirstSeen = firstSeen
+			}
+			if lastSeen.After(existing.LastSeen) {
+				existing.LastSeen = lastSeen
+			}
+			continue
+		}
+
+		records[canonicalKey] = &PatternRecord{
 			Pair:        pair,
 			FirstSeen:   firstSeen,
 			LastSeen:    lastSeen,
@@ -208,10 +226,7 @@ func (c *Creator) createRule(ctx context.Context, name string, rec *PatternRecor
 			Fires: rcav1alpha1.RuleFires{
 				IncidentType: rec.Pair.TriggerType + "-" + rec.Pair.ConditionType,
 				Severity:     severity,
-				Summary: fmt.Sprintf(
-					"Auto-detected: {{.EventType}} correlated with %s on {{.PodName}} in {{.Namespace}}",
-					rec.Pair.ConditionType,
-				),
+				Summary:      buildAutoSummary(rec.Pair),
 			},
 		},
 	}
@@ -291,4 +306,26 @@ func higherSeverity(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// buildAutoSummary generates a scope-appropriate summary template for an
+// auto-detected correlation rule.
+func buildAutoSummary(pair EventPair) string {
+	switch pair.Scope {
+	case "sameNode":
+		return fmt.Sprintf(
+			"%s correlated with %s on node {{.NodeName}}",
+			pair.TriggerType, pair.ConditionType,
+		)
+	case "sameNamespace":
+		return fmt.Sprintf(
+			"%s correlated with %s in namespace {{.Namespace}}",
+			pair.TriggerType, pair.ConditionType,
+		)
+	default: // samePod
+		return fmt.Sprintf(
+			"%s correlated with %s on pod {{.PodName}} in {{.Namespace}}",
+			pair.TriggerType, pair.ConditionType,
+		)
+	}
 }
