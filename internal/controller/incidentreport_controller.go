@@ -175,6 +175,10 @@ func (r *IncidentReportReconciler) reconcileResolved(ctx context.Context, _ logr
 		return ctrl.Result{}, err
 	}
 	if report.Status.Notified {
+		// Re-read to pick up the resourceVersion advanced by recordResolvedMetric's patch.
+		if err := r.Get(ctx, types.NamespacedName{Namespace: report.Namespace, Name: report.Name}, report); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
 		if err := r.sendResolvedNotifications(ctx, report); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -409,16 +413,27 @@ func (r *IncidentReportReconciler) sendOpenNotifications(ctx context.Context, re
 		return fmt.Errorf("notify open incident %s/%s: %w", report.Namespace, report.Name, err)
 	}
 
+	// Patch annotations (metadata sub-resource).
 	base := report.DeepCopy()
 	if report.Annotations == nil {
 		report.Annotations = make(map[string]string)
 	}
 	report.Annotations[notificationOpenSentKey] = annotationTrue
-	report.Status.Notified = true
 	if err := r.Patch(ctx, report, client.MergeFrom(base)); err != nil {
 		return fmt.Errorf("mark open notification metadata for %s/%s: %w", report.Namespace, report.Name, err)
 	}
-	if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
+
+	// Re-read to pick up the new resourceVersion before patching the status
+	// sub-resource. Without this, the status patch conflicts because the
+	// metadata patch already advanced the resourceVersion on the server.
+	if err := r.Get(ctx, types.NamespacedName{Namespace: report.Namespace, Name: report.Name}, report); err != nil {
+		return fmt.Errorf("re-fetch after annotation patch for %s/%s: %w", report.Namespace, report.Name, err)
+	}
+
+	// Patch status sub-resource (separate sub-resource endpoint).
+	statusBase := report.DeepCopy()
+	report.Status.Notified = true
+	if err := r.Status().Patch(ctx, report, client.MergeFrom(statusBase)); err != nil {
 		return fmt.Errorf("mark incident notified for %s/%s: %w", report.Namespace, report.Name, err)
 	}
 	return nil

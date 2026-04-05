@@ -42,6 +42,9 @@ func (d *Detector) Run(ctx context.Context) {
 		"expiry", d.config.ExpiryDuration,
 	)
 
+	// Clean up any invalid auto-rules at startup (e.g., from before scope validation was added).
+	d.cleanupInvalidRules(ctx)
+
 	ticker := time.NewTicker(d.config.AnalysisInterval)
 	defer ticker.Stop()
 
@@ -126,6 +129,14 @@ func (d *Detector) tick(ctx context.Context) {
 	}
 }
 
+// cleanupInvalidRules deletes all auto-rules with invalid scope/type pairings.
+// This ensures rules created before scope validation was added are cleaned up at startup.
+func (d *Detector) cleanupInvalidRules(ctx context.Context) {
+	if err := d.creator.CleanupInvalidRules(ctx); err != nil {
+		d.log.Error(err, "Failed to cleanup invalid auto-rules at startup")
+	}
+}
+
 // seedFromExisting loads previously created auto-rules to prevent duplicates
 // and premature expiry on restart.
 func (d *Detector) seedFromExisting(ctx context.Context) {
@@ -134,8 +145,8 @@ func (d *Detector) seedFromExisting(ctx context.Context) {
 		d.log.Error(err, "Failed to load existing auto-rules for seeding")
 		return
 	}
-	for key, rec := range records {
-		d.accumulator.Seed(key, rec)
+	for _, rec := range records {
+		d.accumulator.Seed(rec)
 	}
 	if len(records) > 0 {
 		d.log.Info("Seeded accumulator from existing auto-rules", "count", len(records))

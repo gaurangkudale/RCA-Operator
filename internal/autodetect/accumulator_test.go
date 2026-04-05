@@ -130,17 +130,48 @@ func TestAccumulator_Seed(t *testing.T) {
 		RuleName:    "auto-a-b-samepod",
 	}
 
-	acc.Seed("A:B:samePod", rec)
+	acc.Seed(rec)
 	if acc.Count() != 1 {
 		t.Errorf("expected 1 pattern after seed, got %d", acc.Count())
 	}
 
 	// Seeding again should not overwrite.
-	rec2 := &PatternRecord{Occurrences: 999}
-	acc.Seed("A:B:samePod", rec2)
+	rec2 := &PatternRecord{
+		Pair:        EventPair{TriggerType: "A", ConditionType: "B", Scope: "samePod"},
+		Occurrences: 999,
+	}
+	acc.Seed(rec2)
 
 	got := acc.All()["A:B:samePod"]
 	if got.Occurrences != 10 {
 		t.Errorf("expected original occurrences=10, got %d", got.Occurrences)
+	}
+}
+
+func TestAccumulator_Seed_MirrorPairDedup(t *testing.T) {
+	acc := NewAccumulator()
+
+	first := &PatternRecord{
+		Pair:        EventPair{TriggerType: "A", ConditionType: "B", Scope: "samePod"},
+		Occurrences: 5,
+	}
+	mirror := &PatternRecord{
+		Pair:        EventPair{TriggerType: "B", ConditionType: "A", Scope: "samePod"},
+		Occurrences: 9,
+	}
+
+	acc.Seed(first)
+	acc.Seed(mirror)
+
+	if acc.Count() != 1 {
+		t.Fatalf("expected 1 pattern after mirror seed dedup, got %d", acc.Count())
+	}
+
+	got := acc.All()["A:B:samePod"]
+	if got == nil {
+		t.Fatal("expected canonical A:B:samePod pattern")
+	}
+	if got.Occurrences != 5 {
+		t.Errorf("expected first seed to be retained with 5 occurrences, got %d", got.Occurrences)
 	}
 }

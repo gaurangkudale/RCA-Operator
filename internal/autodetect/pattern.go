@@ -1,6 +1,7 @@
 package autodetect
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/gaurangkudale/rca-operator/internal/correlator"
@@ -8,12 +9,28 @@ import (
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
+const (
+	// Scope constants for co-occurrence patterns.
+	ScopeSamePod       = "samePod"
+	ScopeSameNode      = "sameNode"
+	ScopeSameNamespace = "sameNamespace"
+)
+
 // EventPair represents a co-occurring event pair extracted from a buffer
-// snapshot. TriggerType precedes or equals ConditionType temporally.
+// snapshot. TriggerType is lexicographically ≤ ConditionType (canonical order).
 type EventPair struct {
 	TriggerType   string // e.g. "CrashLoopBackOff"
 	ConditionType string // e.g. "OOMKilled"
 	Scope         string // "samePod" | "sameNode" | "sameNamespace"
+}
+
+// NormalizePair canonicalizes an EventPair by ensuring lexicographic order
+// for trigger/condition. Scope is preserved.
+func NormalizePair(pair EventPair) EventPair {
+	if pair.ConditionType < pair.TriggerType {
+		pair.TriggerType, pair.ConditionType = pair.ConditionType, pair.TriggerType
+	}
+	return pair
 }
 
 // Key returns a dedup key for this pattern.
@@ -33,10 +50,68 @@ type baseEntry struct {
 	index     int // position in entries for temporal ordering
 }
 
+// nodeEventTypes lists event types that originate at the node level.
+// These should only correlate with other node events at sameNode scope,
+// never with pod-level events (which would create misleading rules).
+var nodeEventTypes = map[string]bool{
+	string(watcher.EventTypeNodeNotReady): true,
+	string(watcher.EventTypeNodePressure): true,
+	string(watcher.EventTypePodEvicted):   true,
+}
+
+// workloadEventTypes lists event types that originate at the workload controller
+// level. These correlate at sameNamespace scope.
+var workloadEventTypes = map[string]bool{
+	string(watcher.EventTypeStalledRollout):     true,
+	string(watcher.EventTypeStalledStatefulSet): true,
+	string(watcher.EventTypeStalledDaemonSet):   true,
+	string(watcher.EventTypeJobFailed):          true,
+	string(watcher.EventTypeCronJobFailed):      true,
+}
+
+// IsNodeEventType returns true when the event type is a node-level signal.
+func IsNodeEventType(et string) bool {
+	return nodeEventTypes[et]
+}
+
+// IsWorkloadEventType returns true when the event type is a workload-level signal.
+func IsWorkloadEventType(et string) bool {
+	return workloadEventTypes[et]
+}
+
+// IsPodEventType returns true when the event type is a pod-level signal.
+func IsPodEventType(et string) bool {
+	return !IsNodeEventType(et) && !IsWorkloadEventType(et)
+}
+
+// IsValidScopePair validates that pair scope aligns with event-type level.
+func IsValidScopePair(pair EventPair) bool {
+	switch pair.Scope {
+	case ScopeSamePod:
+		return IsPodEventType(pair.TriggerType) && IsPodEventType(pair.ConditionType)
+	case ScopeSameNode:
+		return IsNodeEventType(pair.TriggerType) && IsNodeEventType(pair.ConditionType)
+	case ScopeSameNamespace:
+		return IsWorkloadEventType(pair.TriggerType) && IsWorkloadEventType(pair.ConditionType)
+	default:
+		return false
+	}
+}
+
+// isPodEvent returns true for pod-scoped events (not node or workload level).
+func isPodEvent(et string) bool {
+	return IsPodEventType(et)
+}
+
 // MinePatterns extracts co-occurring event pairs from a buffer snapshot.
-// It groups entries by shared scope dimensions and emits ordered pairs
-// where the trigger precedes or equals the condition temporally.
-// Lifecycle events (PodHealthy, PodDeleted) are skipped.
+//
+// Scope rules enforce clean signal boundaries:
+//   - samePod:       only pod-level events (CrashLoop, OOM, ImagePull, Probe, etc.)
+//   - sameNode:      only node-level events (NodeNotReady, NodePressure, PodEvicted)
+//   - sameNamespace: only workload-level events (StalledRollout, JobFailed, etc.)
+//
+// This prevents noisy cross-scope rules like "CrashLoopBackOff + NodeNotReady on sameNode".
+// Lifecycle events (PodHealthy, PodDeleted) are always skipped.
 func MinePatterns(entries []correlator.Entry) MineResult {
 
 	// Extract base info and filter lifecycle events.
@@ -50,51 +125,45 @@ func MinePatterns(entries []correlator.Entry) MineResult {
 		filtered = append(filtered, baseEntry{base: base, eventType: et, index: i})
 	}
 
-	// Track seen pairs to deduplicate within a single tick.
 	seen := make(map[string]bool)
 	var pairs []EventPair
 
-	// Group by samePod (tightest scope).
-	podGroups := make(map[string][]baseEntry) // "ns:pod" → entries
+	// ── samePod: only pod-level events ──────────────────────────────────
+	podGroups := make(map[string][]baseEntry)
 	for _, e := range filtered {
-		if e.base.Namespace != "" && e.base.PodName != "" {
+		if isPodEvent(e.eventType) && e.base.Namespace != "" && e.base.PodName != "" {
 			key := e.base.Namespace + ":" + e.base.PodName
 			podGroups[key] = append(podGroups[key], e)
 		}
 	}
-	podPairKeys := emitPairs(podGroups, "samePod", seen, &pairs)
+	emitPairs(podGroups, ScopeSamePod, seen, &pairs)
 
-	// Group by sameNode (medium scope). Skip pairs already found at samePod.
+	// ── sameNode: only node-level events ────────────────────────────────
 	nodeGroups := make(map[string][]baseEntry)
 	for _, e := range filtered {
-		if e.base.NodeName != "" {
+		if nodeEventTypes[e.eventType] && e.base.NodeName != "" {
 			nodeGroups[e.base.NodeName] = append(nodeGroups[e.base.NodeName], e)
 		}
 	}
-	nodePairKeys := emitPairs(nodeGroups, "sameNode", seen, &pairs)
-	// Merge for namespace filtering.
-	for k := range podPairKeys {
-		nodePairKeys[k] = true
-	}
+	emitPairs(nodeGroups, ScopeSameNode, seen, &pairs)
 
-	// Group by sameNamespace (widest scope). Skip pairs already found at tighter scopes.
+	// ── sameNamespace: only workload-level events ───────────────────────
 	nsGroups := make(map[string][]baseEntry)
 	for _, e := range filtered {
-		if e.base.Namespace != "" {
+		if workloadEventTypes[e.eventType] && e.base.Namespace != "" {
 			nsGroups[e.base.Namespace] = append(nsGroups[e.base.Namespace], e)
 		}
 	}
-	emitPairs(nsGroups, "sameNamespace", seen, &pairs)
+	emitPairs(nsGroups, ScopeSameNamespace, seen, &pairs)
 
 	return MineResult{Pairs: pairs}
 }
 
-// emitPairs generates ordered event pairs within each group.
-// It returns the set of trigger:condition type-pair keys emitted (ignoring scope)
-// so callers can filter wider scopes.
-func emitPairs(groups map[string][]baseEntry, scope string, seen map[string]bool, out *[]EventPair) map[string]bool {
-	typePairKeys := make(map[string]bool)
-
+// emitPairs generates canonically-ordered event pairs within each group.
+// Pairs are sorted lexicographically (TriggerType < ConditionType) to prevent
+// mirror-image duplicates. The seen map prevents the same pair from being
+// emitted more than once across groups.
+func emitPairs(groups map[string][]baseEntry, scope string, seen map[string]bool, out *[]EventPair) {
 	for _, group := range groups {
 		// Collect distinct event types in this group.
 		typeSet := make(map[string]bool)
@@ -105,44 +174,29 @@ func emitPairs(groups map[string][]baseEntry, scope string, seen map[string]bool
 			continue
 		}
 
-		// Emit all ordered pairs of distinct event types.
+		// Sort so pairs are emitted in canonical order.
 		types := make([]string, 0, len(typeSet))
 		for t := range typeSet {
 			types = append(types, t)
 		}
+		sort.Strings(types)
 
 		for i := 0; i < len(types); i++ {
-			for j := 0; j < len(types); j++ {
-				if i == j {
-					continue
-				}
-				trigger := types[i]
-				condition := types[j]
+			for j := i + 1; j < len(types); j++ {
 				pair := EventPair{
-					TriggerType:   trigger,
-					ConditionType: condition,
+					TriggerType:   types[i],
+					ConditionType: types[j],
 					Scope:         scope,
 				}
 				pairKey := pair.Key()
-
-				// Skip if already emitted (at this or tighter scope).
 				if seen[pairKey] {
 					continue
 				}
-
-				// Skip if the same type-pair was found at a tighter scope.
-				typePairKey := trigger + ":" + condition
-				if seen[typePairKey+":samePod"] || (scope == "sameNamespace" && seen[typePairKey+":sameNode"]) {
-					continue
-				}
-
 				seen[pairKey] = true
-				typePairKeys[typePairKey] = true
 				*out = append(*out, pair)
 			}
 		}
 	}
-	return typePairKeys
 }
 
 // RuleName generates a Kubernetes-safe name for an auto-generated rule.

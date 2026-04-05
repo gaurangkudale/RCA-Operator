@@ -73,17 +73,19 @@ func TestMinePatterns_SamePod(t *testing.T) {
 
 	result := MinePatterns(entries)
 
-	if len(result.Pairs) != 2 {
-		t.Fatalf("expected 2 pairs (A→B and B→A), got %d", len(result.Pairs))
+	// Canonical pair ordering: one pair per unique combination (no mirror duplicates).
+	if len(result.Pairs) != 1 {
+		t.Fatalf("expected 1 canonical pair, got %d: %+v", len(result.Pairs), result.Pairs)
 	}
 
-	// Both should be samePod scope (tightest).
-	for _, p := range result.Pairs {
-		if p.Scope != "samePod" {
-			t.Errorf("expected samePod scope, got %q for %s→%s", p.Scope, p.TriggerType, p.ConditionType)
-		}
+	p := result.Pairs[0]
+	if p.Scope != ScopeSamePod {
+		t.Errorf("expected samePod scope, got %q", p.Scope)
 	}
-
+	// Trigger should be lexicographically first.
+	if p.TriggerType != "CrashLoopBackOff" || p.ConditionType != "OOMKilled" {
+		t.Errorf("expected CrashLoopBackOff→OOMKilled, got %s→%s", p.TriggerType, p.ConditionType)
+	}
 }
 
 func TestMinePatterns_SameNode(t *testing.T) {
@@ -96,9 +98,10 @@ func TestMinePatterns_SameNode(t *testing.T) {
 	result := MinePatterns(entries)
 
 	// Different pods (one has no pod name), same node → sameNode scope.
+	// Canonical ordering: NodeNotReady < PodEvicted lexicographically.
 	found := false
 	for _, p := range result.Pairs {
-		if p.TriggerType == "NodeNotReady" && p.ConditionType == "PodEvicted" && p.Scope == "sameNode" {
+		if p.TriggerType == "NodeNotReady" && p.ConditionType == "PodEvicted" && p.Scope == ScopeSameNode {
 			found = true
 		}
 	}
@@ -149,7 +152,7 @@ func TestMinePatterns_TightestScopeWins(t *testing.T) {
 	result := MinePatterns(entries)
 
 	for _, p := range result.Pairs {
-		if p.Scope != "samePod" {
+		if p.Scope != ScopeSamePod {
 			t.Errorf("expected only samePod scope (tightest), got %q for %s→%s", p.Scope, p.TriggerType, p.ConditionType)
 		}
 	}
@@ -161,26 +164,31 @@ func TestMinePatterns_MultiplePairsMultipleScopes(t *testing.T) {
 		// Same pod pair.
 		makeEntry(watcher.EventTypeCrashLoopBackOff, "default", "pod-1", "node-1", now),
 		makeEntry(watcher.EventTypeOOMKilled, "default", "pod-1", "node-1", now.Add(time.Second)),
-		// Different pod, same node — should produce sameNode pairs for new type combos.
+		// Different pod, same node. Pod-level events should still stay in samePod scope.
 		makeEntry(watcher.EventTypeProbeFailure, "default", "pod-2", "node-1", now.Add(2*time.Second)),
 	}
 
 	result := MinePatterns(entries)
 
-	if len(result.Pairs) == 0 {
-		t.Fatal("expected at least one pair")
+	if len(result.Pairs) != 1 {
+		t.Fatalf("expected exactly 1 pair, got %d: %+v", len(result.Pairs), result.Pairs)
 	}
 
-	// CrashLoopBackOff↔OOMKilled should be samePod.
-	// CrashLoopBackOff↔ProbeFailure and OOMKilled↔ProbeFailure should be sameNode
-	// (since pod-1 and pod-2 are different pods but same node).
+	// Only CrashLoopBackOff↔OOMKilled should be emitted at samePod scope.
+	// Pod-level cross-pod events must NOT emit sameNode correlations.
 	scopes := make(map[string]string)
 	for _, p := range result.Pairs {
 		scopes[p.TriggerType+":"+p.ConditionType] = p.Scope
 	}
 
-	if s, ok := scopes["CrashLoopBackOff:OOMKilled"]; ok && s != "samePod" {
+	if s, ok := scopes["CrashLoopBackOff:OOMKilled"]; ok && s != ScopeSamePod {
 		t.Errorf("CrashLoopBackOff:OOMKilled expected samePod, got %s", s)
+	}
+	if _, ok := scopes["CrashLoopBackOff:ProbeFailure"]; ok {
+		t.Error("unexpected CrashLoopBackOff:ProbeFailure pair for pod-level cross-pod events")
+	}
+	if _, ok := scopes["OOMKilled:ProbeFailure"]; ok {
+		t.Error("unexpected OOMKilled:ProbeFailure pair for pod-level cross-pod events")
 	}
 }
 
