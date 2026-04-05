@@ -325,3 +325,36 @@ func TestHigherSeverity(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildAutoSummary_ByScope(t *testing.T) {
+	tests := []struct {
+		name string
+		pair EventPair
+		want string
+	}{
+		{
+			name: "samePod",
+			pair: EventPair{TriggerType: "CrashLoopBackOff", ConditionType: "OOMKilled", Scope: "samePod"},
+			want: "CrashLoopBackOff correlated with OOMKilled on pod {{.PodName}} in {{.Namespace}}",
+		},
+		{
+			name: "sameNode",
+			pair: EventPair{TriggerType: "NodeNotReady", ConditionType: "PodEvicted", Scope: "sameNode"},
+			want: "NodeNotReady correlated with PodEvicted on node {{.NodeName}}",
+		},
+		{
+			name: "sameNamespace",
+			pair: EventPair{TriggerType: "JobFailed", ConditionType: "CronJobFailed", Scope: "sameNamespace"},
+			want: "JobFailed correlated with CronJobFailed in namespace {{.Namespace}}",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildAutoSummary(tt.pair)
+			if got != tt.want {
+				t.Errorf("buildAutoSummary(%+v) = %q, want %q", tt.pair, got, tt.want)
+			}
+		})
+	}
+}

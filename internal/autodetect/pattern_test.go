@@ -164,19 +164,18 @@ func TestMinePatterns_MultiplePairsMultipleScopes(t *testing.T) {
 		// Same pod pair.
 		makeEntry(watcher.EventTypeCrashLoopBackOff, "default", "pod-1", "node-1", now),
 		makeEntry(watcher.EventTypeOOMKilled, "default", "pod-1", "node-1", now.Add(time.Second)),
-		// Different pod, same node — should produce sameNode pairs for new type combos.
+		// Different pod, same node. Pod-level events should still stay in samePod scope.
 		makeEntry(watcher.EventTypeProbeFailure, "default", "pod-2", "node-1", now.Add(2*time.Second)),
 	}
 
 	result := MinePatterns(entries)
 
-	if len(result.Pairs) == 0 {
-		t.Fatal("expected at least one pair")
+	if len(result.Pairs) != 1 {
+		t.Fatalf("expected exactly 1 pair, got %d: %+v", len(result.Pairs), result.Pairs)
 	}
 
-	// CrashLoopBackOff↔OOMKilled should be samePod.
-	// CrashLoopBackOff↔ProbeFailure and OOMKilled↔ProbeFailure should be sameNode
-	// (since pod-1 and pod-2 are different pods but same node).
+	// Only CrashLoopBackOff↔OOMKilled should be emitted at samePod scope.
+	// Pod-level cross-pod events must NOT emit sameNode correlations.
 	scopes := make(map[string]string)
 	for _, p := range result.Pairs {
 		scopes[p.TriggerType+":"+p.ConditionType] = p.Scope
@@ -184,6 +183,12 @@ func TestMinePatterns_MultiplePairsMultipleScopes(t *testing.T) {
 
 	if s, ok := scopes["CrashLoopBackOff:OOMKilled"]; ok && s != "samePod" {
 		t.Errorf("CrashLoopBackOff:OOMKilled expected samePod, got %s", s)
+	}
+	if _, ok := scopes["CrashLoopBackOff:ProbeFailure"]; ok {
+		t.Error("unexpected CrashLoopBackOff:ProbeFailure pair for pod-level cross-pod events")
+	}
+	if _, ok := scopes["OOMKilled:ProbeFailure"]; ok {
+		t.Error("unexpected OOMKilled:ProbeFailure pair for pod-level cross-pod events")
 	}
 }
 

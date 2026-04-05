@@ -17,6 +17,15 @@ type EventPair struct {
 	Scope         string // "samePod" | "sameNode" | "sameNamespace"
 }
 
+// NormalizePair canonicalizes an EventPair by ensuring lexicographic order
+// for trigger/condition. Scope is preserved.
+func NormalizePair(pair EventPair) EventPair {
+	if pair.ConditionType < pair.TriggerType {
+		pair.TriggerType, pair.ConditionType = pair.ConditionType, pair.TriggerType
+	}
+	return pair
+}
+
 // Key returns a dedup key for this pattern.
 func (p EventPair) Key() string {
 	return p.TriggerType + ":" + p.ConditionType + ":" + p.Scope
@@ -46,11 +55,11 @@ var nodeEventTypes = map[string]bool{
 // workloadEventTypes lists event types that originate at the workload controller
 // level. These correlate at sameNamespace scope.
 var workloadEventTypes = map[string]bool{
-	string(watcher.EventTypeStalledRollout):      true,
-	string(watcher.EventTypeStalledStatefulSet):   true,
-	string(watcher.EventTypeStalledDaemonSet):     true,
-	string(watcher.EventTypeJobFailed):            true,
-	string(watcher.EventTypeCronJobFailed):        true,
+	string(watcher.EventTypeStalledRollout):     true,
+	string(watcher.EventTypeStalledStatefulSet): true,
+	string(watcher.EventTypeStalledDaemonSet):   true,
+	string(watcher.EventTypeJobFailed):          true,
+	string(watcher.EventTypeCronJobFailed):      true,
 }
 
 // isPodEvent returns true for pod-scoped events (not node or workload level).

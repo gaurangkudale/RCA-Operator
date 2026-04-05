@@ -134,8 +134,8 @@ func (d *Detector) seedFromExisting(ctx context.Context) {
 		d.log.Error(err, "Failed to load existing auto-rules for seeding")
 		return
 	}
-	for key, rec := range records {
-		d.accumulator.Seed(key, rec)
+	for _, rec := range records {
+		d.accumulator.Seed(rec)
 	}
 	if len(records) > 0 {
 		d.log.Info("Seeded accumulator from existing auto-rules", "count", len(records))

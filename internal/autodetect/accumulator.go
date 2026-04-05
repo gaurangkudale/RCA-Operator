@@ -93,11 +93,18 @@ func (a *Accumulator) All() map[string]*PatternRecord {
 }
 
 // Seed adds a pre-existing pattern record (e.g., from a previously created
-// auto-rule discovered at startup). If a record for the key already exists it
-// is not overwritten.
-func (a *Accumulator) Seed(key string, rec *PatternRecord) {
+// auto-rule discovered at startup). The pair is normalized to canonical order
+// before keying, and if a record already exists it is not overwritten.
+func (a *Accumulator) Seed(rec *PatternRecord) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+
+	if rec == nil {
+		return
+	}
+
+	rec.Pair = NormalizePair(rec.Pair)
+	key := rec.Pair.Key()
 
 	if _, exists := a.patterns[key]; !exists {
 		a.patterns[key] = rec
