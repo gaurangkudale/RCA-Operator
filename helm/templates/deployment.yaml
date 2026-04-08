@@ -52,10 +52,45 @@ spec:
             - --autodetect-interval={{ .Values.autoDetect.interval }}
             - --autodetect-expiry={{ .Values.autoDetect.expiry }}
             {{- end }}
+            {{- if .Values.telemetry.enabled }}
+            - --telemetry-backend={{ .Values.telemetry.backend }}
+            {{- if .Values.telemetry.signoz.endpoint }}
+            - --signoz-endpoint={{ .Values.telemetry.signoz.endpoint }}
+            {{- end }}
+            {{- if .Values.telemetry.jaeger.endpoint }}
+            - --jaeger-endpoint={{ .Values.telemetry.jaeger.endpoint }}
+            {{- end }}
+            {{- if .Values.telemetry.prometheus.endpoint }}
+            - --prometheus-endpoint={{ .Values.telemetry.prometheus.endpoint }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.topology.refreshInterval }}
+            - --topology-refresh-interval={{ .Values.topology.refreshInterval }}
+            {{- end }}
+            {{- if .Values.topology.dependencyWindow }}
+            - --topology-dependency-window={{ .Values.topology.dependencyWindow }}
+            {{- end }}
+            {{- if .Values.ai.enabled }}
+            - --ai-endpoint={{ .Values.ai.endpoint }}
+            - --ai-model={{ .Values.ai.model }}
+            {{- if .Values.ai.secretRef }}
+            - --ai-secret-ref={{ .Values.ai.secretRef }}
+            {{- end }}
+            {{- if .Values.ai.autoInvestigate }}
+            - --ai-auto-investigate=true
+            {{- end }}
+            {{- end }}
           env:
             {{- if .Values.otel.enabled }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.otel.endpoint | quote }}
+            {{- end }}
+            {{- if and .Values.ai.enabled .Values.ai.secretRef }}
+            - name: RCA_AI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ai.secretRef }}
+                  key: apiKey
             {{- end }}
           {{- with .Values.securityContext }}
           securityContext:

@@ -166,6 +166,7 @@ Works with any OpenAI-compatible API (OpenAI, Azure OpenAI, ollama, LiteLLM, vLL
 | [IncidentReport CRD Reference](docs/reference/incidentreport-crd.md) | `IncidentReport` schema and fields |
 | [RCACorrelationRule CRD Reference](docs/reference/rcacorrelationrule-crd.md) | Correlation rule schema and examples |
 | [Auto-Detection](docs/features/auto-detection.md) | Automatic correlation rule detection |
+| [Topology](docs/features/TOPOLOGY.md) | Service topology visualization, testing with OTel Demo |
 | [Dashboard](docs/features/DASHBOARD.md) | Dashboard data model and access patterns |
 | [Metrics Reference](docs/reference/metrics.md) | Prometheus metrics exposed by the operator |
 | [RBAC Reference](docs/reference/rbac.md) | Permissions used by the operator |
