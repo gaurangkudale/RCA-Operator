@@ -130,7 +130,7 @@ After the workflow completes successfully:
    Expected output:
    ```
    NAME                           CHART VERSION   APP VERSION   DESCRIPTION
-   rca-operator/rca-operator      0.1.2           0.0.15         RCA Operator Helm Chart
+   rca-operator/rca-operator      0.0.16           0.0.16         RCA Operator Helm Chart
    ```
 
 3. **Test installation**:
