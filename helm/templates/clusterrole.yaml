@@ -29,12 +29,30 @@ rules:
 - apiGroups:
   - apps
   resources:
+  - daemonsets
   - deployments
   - replicasets
+  - statefulsets
   verbs:
   - get
   - list
   - watch
+- apiGroups:
+  - batch
+  resources:
+  - cronjobs
+  - jobs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
 - apiGroups:
   - rca.rca-operator.tech
   resources:

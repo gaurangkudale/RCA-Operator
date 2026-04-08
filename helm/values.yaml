@@ -7,10 +7,10 @@ replicaCount: 1
 # Controller manager image configuration
 # Use case: Select which RCA Operator image/version is deployed.
 image:
-  repository: ghcr.io/gaurangkudale/rca-operator
+  repository: rca-operator
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion
-  tag: ""
+  tag: "latest"
 
 imagePullSecrets: []
 nameOverride: ""
