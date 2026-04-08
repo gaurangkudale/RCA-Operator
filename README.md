@@ -2,7 +2,7 @@
 
 **RCA Operator for Kubernetes**
 
-*Cluster-native incident detection, durable incident state, CRD-driven correlation rules, notifications, and dashboarding*
+*Cluster-native incident detection, cross-signal correlation, topology visualization, and AI-powered root cause analysis*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)](https://golang.org)
@@ -13,16 +13,17 @@
 
 ## What RCA Operator Does
 
-RCA Operator is a Kubernetes-native incident detection operator that:
+RCA Operator is a Kubernetes-native incident detection and root cause analysis operator that:
 
 - collects failure signals from native Kubernetes APIs (pods, events, nodes, deployments)
 - evaluates CRD-driven correlation rules (`RCACorrelationRule`) to detect multi-signal incidents
 - persists durable incident state in `IncidentReport` CRDs
 - manages incident lifecycle: `Detecting` → `Active` → `Resolved`
+- queries external observability backends (SigNoz, Jaeger, Prometheus) for cross-signal correlation
+- builds interactive service topology maps with blast radius analysis
+- provides AI-powered root cause analysis via LLM-driven investigation
 - notifies humans via Slack and PagerDuty from incident lifecycle state
-- serves a built-in dashboard (light/dark theme) backed only by `IncidentReport` and `RCAAgent` CRDs
-
-The operator avoids AI systems, external databases, and log-scraping dependencies so it stays easy to run and reason about in-cluster.
+- serves a built-in dashboard with topology visualization, metrics, logs, and trace views
 
 ## Architecture
 
@@ -30,7 +31,9 @@ The operator avoids AI systems, external databases, and log-scraping dependencie
 
 More detail lives in [Architecture](docs/concepts/Architecture.md) and [Phase 1 Architecture](docs/phases/PHASE1_ARCHITECTURE.md).
 
-## Current Feature Set
+## Feature Set
+
+### Phase 1 - Kubernetes-Native Incident Detection
 
 | Feature | Description |
 |---|---|
@@ -43,6 +46,52 @@ More detail lives in [Architecture](docs/concepts/Architecture.md) and [Phase 1 
 | Dashboard | Built-in incident dashboard with light/dark theme toggle |
 | Retention | Automatically prunes old resolved incidents |
 | OpenTelemetry | Optional OTLP trace/metric export |
+
+### Phase 2 - Cross-Signal Observability and AI-Powered RCA
+
+| Feature | Description |
+|---|---|
+| Telemetry query layer | Pluggable `TelemetryQuerier` interface with SigNoz, Jaeger, and Prometheus backends |
+| Cross-signal enrichment | Auto-enrich incidents with related error traces and upstream blast radius from telemetry backends |
+| Service topology engine | Builds service dependency DAG from OTel span parent-child relationships |
+| Blast radius analysis | BFS graph traversal to identify all upstream/downstream services affected by an incident |
+| Topology visualization UI | Interactive SVG service graph with status-colored nodes, blast radius overlay, and service detail side panel |
+| Live dashboard streams | Server-Sent Events for real-time topology and correlation signal updates |
+| AI-powered RCA insights | LLM-driven investigation with tool-use pattern (query metrics, search logs, get traces) |
+| PII redaction | Automatic sanitization of telemetry data before sending to LLM |
+
+### Phase 2 Architecture
+
+```
+                    External Observability Stack
+                    (SigNoz / Jaeger + Prometheus)
+                            |
+                   RCA Operator queries via REST/gRPC
+                            |
+    +------ internal/telemetry/ ------+
+    | SigNoz | Jaeger | Prometheus    |   <-- TelemetryQuerier interface
+    +---------------------------------+
+                   |
+    +------ internal/topology/ -------+
+    | ServiceGraph | BlastRadius      |   <-- DAG from OTel span dependencies
+    +---------------------------------+
+                   |
+    +------ internal/rca/ ------------+
+    | Investigator | LLM Client       |   <-- AI-powered root cause analysis
+    +---------------------------------+
+                   |
+         Dashboard REST API + SSE
+    /api/topology  /api/services  /api/stream/*
+```
+
+### Telemetry Backend Support
+
+| Backend | Traces | Metrics | Logs | Topology | Best For |
+|---|---|---|---|---|---|
+| **SigNoz** | REST API | REST API | REST API | Service deps API | Unified stack (recommended) |
+| **Jaeger v2** | HTTP/gRPC query | N/A | N/A | `/api/dependencies` | Existing Jaeger clusters |
+| **Prometheus** | N/A | PromQL API | N/A | N/A | Metrics only |
+| **Composite** | Jaeger | Prometheus | (Loki) | Jaeger | Fragmented stacks |
 
 ## Quick Install
 
@@ -64,6 +113,27 @@ kubectl apply -f config/samples/rca_v1alpha1_rcaagent.yaml
 
 The checked-in sample is minimal and does not require notification secrets. If you enable notifications, create the referenced Slack and PagerDuty secrets first.
 
+### Enable Telemetry Integration (Phase 2)
+
+```bash
+helm install rca-operator rca-operator/rca-operator \
+  --namespace rca-system --create-namespace \
+  --set telemetry.enabled=true \
+  --set telemetry.backend=signoz \
+  --set telemetry.signoz.endpoint=http://signoz-query-service:8080
+```
+
+Or with Jaeger + Prometheus (composite mode):
+
+```bash
+helm install rca-operator rca-operator/rca-operator \
+  --namespace rca-system --create-namespace \
+  --set telemetry.enabled=true \
+  --set telemetry.backend=composite \
+  --set telemetry.jaeger.endpoint=http://jaeger-query:16686 \
+  --set telemetry.prometheus.endpoint=http://prometheus:9090
+```
+
 ## Documentation
 
 | Section | Description |
@@ -83,6 +153,7 @@ The checked-in sample is minimal and does not require notification secrets. If y
 | [Local Development](docs/development/local-setup.md) | Run locally against a cluster |
 | [Testing Guide](docs/development/testing.md) | Unit, envtest, and e2e coverage |
 | [Fixtures](test/fixtures/README.md) | Manual scenarios for incident testing |
+| [Phase 2 Architecture](docs/phases/PHASE2_ARCHITECTURE.md) | Cross-signal correlation, topology, and AI-powered RCA |
 | [Helm Chart Setup](docs/HELM_PAGES_SETUP.md) | Helm repo publishing to GitHub Pages |
 | [Helm Upgrade Guide](docs/HELM_UPGRADE.md) | CRD upgrade and migration steps |
 

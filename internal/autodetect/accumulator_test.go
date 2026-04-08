@@ -24,6 +24,7 @@ func TestAccumulator_Record(t *testing.T) {
 	rec := all["CrashLoopBackOff:OOMKilled:samePod"]
 	if rec == nil {
 		t.Fatal("expected pattern not found")
+		return
 	}
 	if rec.Occurrences != 1 {
 		t.Errorf("expected 1 occurrence, got %d", rec.Occurrences)
@@ -170,6 +171,7 @@ func TestAccumulator_Seed_MirrorPairDedup(t *testing.T) {
 	got := acc.All()["A:B:samePod"]
 	if got == nil {
 		t.Fatal("expected canonical A:B:samePod pattern")
+		return
 	}
 	if got.Occurrences != 5 {
 		t.Errorf("expected first seed to be retained with 5 occurrences, got %d", got.Occurrences)

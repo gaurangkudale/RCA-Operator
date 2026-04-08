@@ -42,11 +42,14 @@ import (
 	"github.com/gaurangkudale/rca-operator/internal/autodetect"
 	"github.com/gaurangkudale/rca-operator/internal/collectors"
 	"github.com/gaurangkudale/rca-operator/internal/controller"
+	"github.com/gaurangkudale/rca-operator/internal/correlator"
 	"github.com/gaurangkudale/rca-operator/internal/dashboard"
 	"github.com/gaurangkudale/rca-operator/internal/engine"
 	"github.com/gaurangkudale/rca-operator/internal/notify"
 	rcaotel "github.com/gaurangkudale/rca-operator/internal/otel"
 	"github.com/gaurangkudale/rca-operator/internal/rulengine"
+	"github.com/gaurangkudale/rca-operator/internal/telemetry"
+	"github.com/gaurangkudale/rca-operator/internal/topology"
 	rcawebhook "github.com/gaurangkudale/rca-operator/internal/webhook"
 	// +kubebuilder:scaffold:imports
 )
@@ -115,6 +118,25 @@ func main() {
 		"How often to analyze the buffer for patterns.")
 	flag.DurationVar(&autoDetectExpiry, "autodetect-expiry", time.Hour,
 		"Duration without observation before an auto-generated rule expires.")
+
+	var telemetryBackend string
+	var signozEndpoint string
+	var jaegerEndpoint string
+	var prometheusEndpoint string
+	var topologyRefreshInterval time.Duration
+	var topologyDependencyWindow time.Duration
+	flag.StringVar(&telemetryBackend, "telemetry-backend", "",
+		"Telemetry backend type: signoz, jaeger, or composite. Empty disables telemetry queries.")
+	flag.StringVar(&signozEndpoint, "signoz-endpoint", "",
+		"SigNoz query service URL (e.g. http://signoz-query-service:8080). Used when telemetry-backend=signoz.")
+	flag.StringVar(&jaegerEndpoint, "jaeger-endpoint", "",
+		"Jaeger query HTTP API URL (e.g. http://jaeger-query:16686). Used when telemetry-backend=jaeger or composite.")
+	flag.StringVar(&prometheusEndpoint, "prometheus-endpoint", "",
+		"Prometheus HTTP API URL (e.g. http://prometheus:9090). Used when telemetry-backend=composite.")
+	flag.DurationVar(&topologyRefreshInterval, "topology-refresh-interval", 30*time.Second,
+		"How often to refresh the topology graph cache.")
+	flag.DurationVar(&topologyDependencyWindow, "topology-dependency-window", 15*time.Minute,
+		"Time window for querying service dependencies.")
 
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
@@ -251,26 +273,9 @@ func main() {
 	}
 	engine.RegisterRuleEngineFactory(crdFactory)
 
-	// --- Signal channel + Incident Engine ---
+	// --- Signal channel ---
 	signals := make(chan collectors.Signal, 1024)
 	signalEmitter := collectors.NewChannelSignalEmitter(signals, ctrl.Log)
-	incidentEngine, err := engine.NewIncidentEngine(
-		mgr.GetClient(),
-		signals,
-		ctrl.Log,
-		engine.WithContext(managerCtx),
-		engine.WithEventRecorder(mgr.GetEventRecorder("rca-incident-engine")),
-	)
-	if err != nil {
-		setupLog.Error(err, "Failed to create incident engine")
-		os.Exit(1)
-	}
-	setupLog.Info("Incident engine created", "ruleEngine", incidentEngine.RuleEngineName(),
-		"loadedRules", crdFactory.Engine.RuleCount())
-	if err := mgr.Add(incidentEngine); err != nil {
-		setupLog.Error(err, "Failed to add incident engine")
-		os.Exit(1)
-	}
 
 	// --- Auto-Detection ---
 	if enableAutoDetect && crdFactory.Engine != nil {
@@ -291,9 +296,79 @@ func main() {
 		)
 	}
 
-	dashboardServer := dashboard.NewServer(mgr.GetClient(), dashboardAddr, ctrl.Log)
+	// --- Telemetry Querier ---
+	var querier telemetry.TelemetryQuerier
+	switch telemetryBackend {
+	case "signoz":
+		if signozEndpoint != "" {
+			querier = telemetry.NewSigNozClient(signozEndpoint, nil)
+			setupLog.Info("Telemetry backend: SigNoz", "endpoint", signozEndpoint)
+		}
+	case "jaeger":
+		if jaegerEndpoint != "" {
+			querier = telemetry.NewJaegerClient(jaegerEndpoint, nil)
+			setupLog.Info("Telemetry backend: Jaeger", "endpoint", jaegerEndpoint)
+		}
+	case "composite":
+		var traces, metrics telemetry.TelemetryQuerier
+		if jaegerEndpoint != "" {
+			traces = telemetry.NewJaegerClient(jaegerEndpoint, nil)
+			setupLog.Info("Composite: traces via Jaeger", "endpoint", jaegerEndpoint)
+		}
+		if prometheusEndpoint != "" {
+			metrics = telemetry.NewPrometheusClient(prometheusEndpoint, nil)
+			setupLog.Info("Composite: metrics via Prometheus", "endpoint", prometheusEndpoint)
+		}
+		querier = telemetry.NewCompositeQuerier(traces, metrics, nil)
+		setupLog.Info("Telemetry backend: Composite")
+	}
+	if querier == nil {
+		querier = &telemetry.NoopQuerier{}
+	}
+
+	// --- Topology Cache ---
+	topoBuilder := topology.NewBuilder(querier, ctrl.Log.WithName("topology"))
+	topoCache := topology.NewCache(topoBuilder, ctrl.Log.WithName("topology-cache"),
+		topology.WithTTL(topologyRefreshInterval),
+		topology.WithDependencyWindow(topologyDependencyWindow),
+	)
+	if telemetryBackend != "" {
+		topoCache.StartBackgroundRefresh(managerCtx)
+		setupLog.Info("Topology cache started",
+			"refreshInterval", topologyRefreshInterval,
+			"dependencyWindow", topologyDependencyWindow,
+		)
+	}
+
+	dashboardServer := dashboard.NewServer(mgr.GetClient(), dashboardAddr, ctrl.Log,
+		dashboard.WithTelemetryQuerier(querier),
+		dashboard.WithTopologyCache(topoCache),
+	)
 	if err := mgr.Add(dashboardServer); err != nil {
 		setupLog.Error(err, "Failed to add dashboard server")
+		os.Exit(1)
+	}
+
+	// --- Cross-Signal Enricher + Incident Engine ---
+	crossSignalEnricher := correlator.NewCrossSignalEnricher(
+		querier, topoCache, mgr.GetClient(), ctrl.Log,
+	)
+	incidentEngine, err := engine.NewIncidentEngine(
+		mgr.GetClient(),
+		signals,
+		ctrl.Log,
+		engine.WithContext(managerCtx),
+		engine.WithEventRecorder(mgr.GetEventRecorder("rca-incident-engine")),
+		engine.WithCrossSignalEnricher(crossSignalEnricher),
+	)
+	if err != nil {
+		setupLog.Error(err, "Failed to create incident engine")
+		os.Exit(1)
+	}
+	setupLog.Info("Incident engine created", "ruleEngine", incidentEngine.RuleEngineName(),
+		"loadedRules", crdFactory.Engine.RuleCount())
+	if err := mgr.Add(incidentEngine); err != nil {
+		setupLog.Error(err, "Failed to add incident engine")
 		os.Exit(1)
 	}
 

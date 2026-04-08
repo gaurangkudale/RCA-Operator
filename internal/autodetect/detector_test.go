@@ -122,6 +122,7 @@ func TestDetector_SeedsFromExisting(t *testing.T) {
 	rec := all["A:B:samePod"]
 	if rec == nil {
 		t.Fatal("expected A:B:samePod in accumulator")
+		return
 	}
 	if rec.RuleName != "auto-a-b-samepod" {
 		t.Errorf("expected RuleName=auto-a-b-samepod, got %s", rec.RuleName)

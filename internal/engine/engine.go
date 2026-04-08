@@ -138,6 +138,14 @@ func WithEventRecorder(recorder events.EventRecorder) Option {
 	}
 }
 
+// WithCrossSignalEnricher attaches a cross-signal enricher that queries
+// external telemetry backends to enrich incidents with traces and blast radius.
+func WithCrossSignalEnricher(e *correlator.CrossSignalEnricher) Option {
+	return func(opts *incidentEngineOptions) {
+		opts.consumerOptions = append(opts.consumerOptions, correlator.WithCrossSignalEnricher(e))
+	}
+}
+
 // IncidentEngine is the runtime bridge from collected signals to durable
 // incident state.
 type IncidentEngine struct {
