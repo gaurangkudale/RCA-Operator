@@ -878,6 +878,11 @@ select { font-family: inherit; }
       h+='<div><div class="section-title">Quick Actions</div>';
       h+='<div class="card" style="cursor:pointer" onclick="window._topoViewTraces(\''+esc(topoSelectedNode)+'\')"><span class="cmd-num">\u{1F50D}</span><code class="cmd-code">View Recent Traces</code></div>';
       h+='<div class="card" style="cursor:pointer" onclick="window._topoViewLogs(\''+esc(topoSelectedNode)+'\')"><span class="cmd-num">\u{1F4DC}</span><code class="cmd-code">View Recent Logs</code></div>';
+      if(sn.incidents&&sn.incidents.length>0){
+        sn.incidents.forEach(function(inc){
+          h+='<div class="card" style="cursor:pointer" onclick="window._topoInvestigate(\''+esc(inc.namespace)+'\',\''+esc(inc.name)+'\')"><span class="cmd-num">\u{1F916}</span><code class="cmd-code">AI Investigate: '+esc(inc.name)+'</code></div>';
+        });
+      }
       h+='</div>';
 
       h+='</div></div>';
@@ -941,6 +946,16 @@ select { font-family: inherit; }
         (data||[]).forEach(function(l){msg+='\n  ['+l.severity+'] '+l.body});
         alert(msg||'No logs found');
       }).catch(function(){alert('Failed to fetch logs')});
+  };
+  window._topoInvestigate=function(ns,name){
+    if(!confirm('Trigger AI investigation for '+ns+'/'+name+'?'))return;
+    fetch('/api/investigate/'+encodeURIComponent(ns)+'/'+encodeURIComponent(name),{method:'POST'})
+      .then(function(r){
+        if(!r.ok)return r.text().then(function(t){throw new Error(t)});
+        return r.json();
+      }).then(function(data){
+        alert('AI Investigation started for '+ns+'/'+name+'.\nStatus: '+(data.status||'unknown'));
+      }).catch(function(e){alert('Investigation failed: '+e.message)});
   };
 
   /* ── Render ────────────────────────────────── */
@@ -1245,6 +1260,48 @@ select { font-family: inherit; }
     var body=inc.summary||inc.message||(inc.correlatedSignals&&inc.correlatedSignals.length?inc.correlatedSignals[0]:'Phase 1 records signals, affected resources, and timeline for quick investigation.');
     h+='<div class="evidence-body">'+esc(body)+'</div></div></div>';
 
+    /* AI RCA */
+    if(inc.rca){
+      h+='<div><div class="section-title">\u{1F916} AI Root Cause Analysis</div>';
+      h+='<div class="evidence-card" style="border-left:3px solid var(--accent)">';
+      h+='<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:6px">'+esc(inc.rca.rootCause)+'</div>';
+      if(inc.rca.confidence)h+='<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">Confidence: '+esc(inc.rca.confidence)+' \u00b7 '+(inc.rca.investigatedAt?absTime(inc.rca.investigatedAt):'')+'</div>';
+      if(inc.rca.evidence&&inc.rca.evidence.length){
+        h+='<div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin:6px 0 4px">Evidence</div>';
+        inc.rca.evidence.forEach(function(e){h+='<div class="card" style="font-size:11px">'+esc(e)+'</div>'});
+      }
+      if(inc.rca.playbook&&inc.rca.playbook.length){
+        h+='<div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin:6px 0 4px">Playbook</div>';
+        inc.rca.playbook.forEach(function(cmd,i){
+          h+='<div class="card"><span class="cmd-num">'+(i+1)+'.</span><code class="cmd-code">'+esc(cmd)+'</code>';
+          h+='<button class="copy-btn" onclick="window._copy(this,\''+esc(cmd.replace(/'/g,"\\'"))+'\')">copy</button></div>';
+        });
+      }
+      h+='</div></div>';
+    } else if(inc.phase==='Active'){
+      h+='<div><div class="section-title">\u{1F916} AI Root Cause Analysis</div>';
+      h+='<div class="card" style="cursor:pointer" onclick="window._investigate(\''+esc(inc.namespace)+'\',\''+esc(inc.name)+'\')">';
+      h+='<span class="cmd-num">\u{1F916}</span><code class="cmd-code">Trigger AI Investigation</code></div></div>';
+    }
+
+    /* Related Traces */
+    if(inc.relatedTraces&&inc.relatedTraces.length){
+      h+='<div><div class="section-title">Related Traces ('+inc.relatedTraces.length+')</div>';
+      inc.relatedTraces.forEach(function(t){
+        h+='<div class="card"><code class="cmd-code" style="font-size:11px">'+esc(t)+'</code>';
+        h+='<button class="copy-btn" onclick="window._copy(this,\''+esc(t)+'\')">copy</button></div>';
+      });
+      h+='</div>';
+    }
+
+    /* Blast Radius */
+    if(inc.blastRadius&&inc.blastRadius.length){
+      h+='<div><div class="section-title">Blast Radius ('+inc.blastRadius.length+' services)</div>';
+      h+='<div style="display:flex;flex-wrap:wrap;gap:4px">';
+      inc.blastRadius.forEach(function(s){h+='<span class="topo-blast-tag">'+esc(s)+'</span>'});
+      h+='</div></div>';
+    }
+
     /* Conditions */
     h+='<div><div class="section-title">Status Conditions</div>';
     [{type:'Available',status:inc.phase==='Active'?'True':inc.phase==='Resolved'?'False':'Unknown',
@@ -1372,6 +1429,16 @@ select { font-family: inherit; }
     }
   };
   window._close=function(){selectedKey=null;renderIncidents();renderDetail()};
+  window._investigate=function(ns,name){
+    if(!confirm('Trigger AI investigation for '+ns+'/'+name+'?'))return;
+    fetch('/api/investigate/'+encodeURIComponent(ns)+'/'+encodeURIComponent(name),{method:'POST'})
+      .then(function(r){
+        if(!r.ok)return r.text().then(function(t){throw new Error(t)});
+        return r.json();
+      }).then(function(data){
+        alert('AI Investigation started.\nStatus: '+(data.status||'unknown'));
+      }).catch(function(e){alert('Investigation failed: '+e.message)});
+  };
   window._f=function(type,val){
     if(filters[type]===val&&val!=='all')filters[type]='all';else filters[type]=val;
     render();

@@ -128,6 +128,8 @@ status:
 | `GET` | `/api/services/{name}/metrics` | Sparkline data for a service |
 | `GET` | `/api/services/{name}/traces` | Recent traces for a service |
 | `GET` | `/api/services/{name}/logs` | Recent logs for a service |
+| `GET` | `/api/investigate/{ns}/{name}` | Get existing AI RCA result for an incident |
+| `POST` | `/api/investigate/{ns}/{name}` | Trigger AI investigation for an incident |
 | `SSE` | `/api/stream/topology` | Live topology graph updates |
 | `SSE` | `/api/stream/correlation` | Live correlation signal stream |
 
@@ -141,6 +143,10 @@ status:
 | `--prometheus-endpoint` | (empty) | Prometheus HTTP API URL |
 | `--topology-refresh-interval` | `30s` | How often to refresh the topology graph cache |
 | `--topology-dependency-window` | `15m` | Time window for querying service dependencies |
+| `--ai-endpoint` | (empty) | OpenAI-compatible API endpoint. Empty disables AI investigation. |
+| `--ai-model` | `gpt-4o` | LLM model name for AI investigation |
+| `--ai-secret-ref` | (empty) | Kubernetes Secret name containing API key (key: `apiKey`) |
+| `--ai-auto-investigate` | `false` | Auto-trigger AI investigation on Active incidents |
 
 ## Helm Values
 
@@ -176,7 +182,7 @@ topology:
 | M1: Telemetry Query Layer + Topology | **Done** | `internal/telemetry/`, `internal/topology/`, CRD extensions, dashboard API endpoints |
 | M2: Dashboard Topology Visualization | **Done** | Interactive SVG topology view, SSE hub, service detail panel with metrics/blast radius |
 | M3: Cross-Signal Enrichment | **Done** | `CrossSignalEnricher` in correlator, auto-populates `RelatedTraces` + `BlastRadius` on incidents |
-| M4: AI/LLM Investigation | Planned | `internal/rca/` with OpenAI-compatible LLM client |
+| M4: AI/LLM Investigation | **Done** | `internal/rca/` with OpenAI-compatible LLM client, tool-use agentic pattern, PII redaction, `/api/investigate` endpoint |
 | M5: OTel Instrumentation + Helm | Planned | Enhanced span instrumentation, finalize Helm chart |
 
 ## Recommended Stack

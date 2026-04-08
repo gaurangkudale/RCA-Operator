@@ -84,6 +84,8 @@ See [examples/dashboard](../../examples/dashboard) for more example configuratio
 | `GET /api/services/{name}/metrics` | RED metrics (Rate, Errors, Duration) + CPU/Memory for a service |
 | `GET /api/services/{name}/traces` | Recent traces for a service. Supports `limit` query param |
 | `GET /api/services/{name}/logs` | Recent logs for a service. Supports `limit`, `severity` query params |
+| `GET /api/investigate/{ns}/{name}` | Get existing AI RCA result for an incident |
+| `POST /api/investigate/{ns}/{name}` | Trigger AI-powered root cause investigation for an incident |
 | `SSE /api/stream/topology` | Server-Sent Events stream for live topology updates |
 | `SSE /api/stream/correlation` | Server-Sent Events stream for live correlation signal updates |
 

@@ -81,7 +81,7 @@ More detail lives in [Architecture](docs/concepts/Architecture.md) and [Phase 1 
     +---------------------------------+
                    |
          Dashboard REST API + SSE
-    /api/topology  /api/services  /api/stream/*
+    /api/topology  /api/services  /api/investigate  /api/stream/*
 ```
 
 ### Telemetry Backend Support
@@ -133,6 +133,25 @@ helm install rca-operator rca-operator/rca-operator \
   --set telemetry.jaeger.endpoint=http://jaeger-query:16686 \
   --set telemetry.prometheus.endpoint=http://prometheus:9090
 ```
+
+### Enable AI-Powered RCA (Phase 2)
+
+```bash
+# Create a Secret with your OpenAI API key
+kubectl create secret generic openai-api-key \
+  --from-literal=apiKey=sk-... \
+  -n rca-system
+
+helm install rca-operator rca-operator/rca-operator \
+  --namespace rca-system --create-namespace \
+  --set ai.enabled=true \
+  --set ai.endpoint=https://api.openai.com/v1 \
+  --set ai.model=gpt-4o \
+  --set ai.secretRef=openai-api-key \
+  --set ai.autoInvestigate=true
+```
+
+Works with any OpenAI-compatible API (OpenAI, Azure OpenAI, ollama, LiteLLM, vLLM).
 
 ## Documentation
 

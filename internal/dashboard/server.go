@@ -17,6 +17,7 @@ import (
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 	"github.com/gaurangkudale/rca-operator/internal/incidentstatus"
+	"github.com/gaurangkudale/rca-operator/internal/rca"
 	"github.com/gaurangkudale/rca-operator/internal/reporter"
 	"github.com/gaurangkudale/rca-operator/internal/telemetry"
 	"github.com/gaurangkudale/rca-operator/internal/topology"
@@ -25,12 +26,13 @@ import (
 // Server serves the incident dashboard UI and its REST API.
 // It implements manager.Runnable so it can be registered with mgr.Add().
 type Server struct {
-	client    client.Client
-	addr      string
-	log       logr.Logger
-	querier   telemetry.TelemetryQuerier
-	topoCache *topology.Cache
-	sseHub    *SSEHub
+	client       client.Client
+	addr         string
+	log          logr.Logger
+	querier      telemetry.TelemetryQuerier
+	topoCache    *topology.Cache
+	sseHub       *SSEHub
+	investigator *rca.Investigator
 }
 
 // ServerOption configures the dashboard server.
@@ -44,6 +46,11 @@ func WithTelemetryQuerier(q telemetry.TelemetryQuerier) ServerOption {
 // WithTopologyCache sets the topology cache for the topology API endpoint.
 func WithTopologyCache(c *topology.Cache) ServerOption {
 	return func(s *Server) { s.topoCache = c }
+}
+
+// WithInvestigator sets the AI investigator for the investigate API endpoint.
+func WithInvestigator(inv *rca.Investigator) ServerOption {
+	return func(s *Server) { s.investigator = inv }
 }
 
 // NewServer returns a dashboard server that will listen on addr.
@@ -88,6 +95,9 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/topology/blast", s.handleBlastRadius)
 	mux.HandleFunc("/api/services", s.handleServices)
 	mux.HandleFunc("/api/services/", s.handleServiceDetail)
+
+	// AI investigation
+	mux.HandleFunc("/api/investigate/", s.handleInvestigate)
 
 	// SSE live streams
 	mux.HandleFunc("/api/stream/topology", func(w http.ResponseWriter, r *http.Request) {
@@ -857,5 +867,58 @@ func (s *Server) handleServiceDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		http.Error(w, "service not found", http.StatusNotFound)
+	}
+}
+
+func (s *Server) handleInvestigate(w http.ResponseWriter, r *http.Request) {
+	// Path: /api/investigate/{namespace}/{name}
+	path := strings.TrimPrefix(r.URL.Path, "/api/investigate/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		http.Error(w, "path must be /api/investigate/{namespace}/{name}", http.StatusBadRequest)
+		return
+	}
+	ns, name := parts[0], parts[1]
+
+	if s.investigator == nil {
+		http.Error(w, "AI investigation is not configured. Set --ai-endpoint to enable.", http.StatusServiceUnavailable)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		// Return existing RCA result from the IncidentReport.
+		report := &rcav1alpha1.IncidentReport{}
+		key := client.ObjectKey{Namespace: ns, Name: name}
+		if err := s.client.Get(r.Context(), key, report); err != nil {
+			http.Error(w, "incident not found", http.StatusNotFound)
+			return
+		}
+		if report.Status.RCA == nil {
+			writeJSON(w, map[string]string{"status": "not_investigated"})
+			return
+		}
+		writeJSON(w, report.Status.RCA)
+
+	case http.MethodPost:
+		// Trigger a new AI investigation.
+		report := &rcav1alpha1.IncidentReport{}
+		key := client.ObjectKey{Namespace: ns, Name: name}
+		if err := s.client.Get(r.Context(), key, report); err != nil {
+			http.Error(w, "incident not found", http.StatusNotFound)
+			return
+		}
+		// Run investigation asynchronously.
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if err := s.investigator.Investigate(ctx, report); err != nil {
+				s.log.Error(err, "AI investigation failed", "incident", key)
+			}
+		}()
+		writeJSON(w, map[string]string{"status": "investigating"})
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }

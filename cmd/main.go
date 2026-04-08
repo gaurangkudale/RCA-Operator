@@ -47,6 +47,7 @@ import (
 	"github.com/gaurangkudale/rca-operator/internal/engine"
 	"github.com/gaurangkudale/rca-operator/internal/notify"
 	rcaotel "github.com/gaurangkudale/rca-operator/internal/otel"
+	"github.com/gaurangkudale/rca-operator/internal/rca"
 	"github.com/gaurangkudale/rca-operator/internal/rulengine"
 	"github.com/gaurangkudale/rca-operator/internal/telemetry"
 	"github.com/gaurangkudale/rca-operator/internal/topology"
@@ -137,6 +138,19 @@ func main() {
 		"How often to refresh the topology graph cache.")
 	flag.DurationVar(&topologyDependencyWindow, "topology-dependency-window", 15*time.Minute,
 		"Time window for querying service dependencies.")
+
+	var aiEndpoint string
+	var aiModel string
+	var aiSecretName string
+	var aiAutoInvestigate bool
+	flag.StringVar(&aiEndpoint, "ai-endpoint", "",
+		"OpenAI-compatible API endpoint for AI-powered RCA (e.g. https://api.openai.com/v1). Empty disables AI.")
+	flag.StringVar(&aiModel, "ai-model", "gpt-4o",
+		"LLM model name for AI investigation.")
+	flag.StringVar(&aiSecretName, "ai-secret-ref", "",
+		"Name of Kubernetes Secret containing the AI API key (must have key 'apiKey').")
+	flag.BoolVar(&aiAutoInvestigate, "ai-auto-investigate", false,
+		"Automatically trigger AI investigation when incidents become Active.")
 
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
@@ -328,9 +342,32 @@ func main() {
 
 	// --- Topology Cache ---
 	topoBuilder := topology.NewBuilder(querier, ctrl.Log.WithName("topology"))
+	k8sClient := mgr.GetClient()
 	topoCache := topology.NewCache(topoBuilder, ctrl.Log.WithName("topology-cache"),
 		topology.WithTTL(topologyRefreshInterval),
 		topology.WithDependencyWindow(topologyDependencyWindow),
+		topology.WithIncidentsFn(func() []topology.IncidentRef {
+			var list rcav1alpha1.IncidentReportList
+			if err := k8sClient.List(context.Background(), &list); err != nil {
+				return nil
+			}
+			var refs []topology.IncidentRef
+			for i := range list.Items {
+				inc := &list.Items[i]
+				if inc.Status.Phase == "Resolved" {
+					continue
+				}
+				refs = append(refs, topology.IncidentRef{
+					Name:         inc.Name,
+					Namespace:    inc.Namespace,
+					Severity:     inc.Status.Severity,
+					Phase:        inc.Status.Phase,
+					IncidentType: inc.Spec.IncidentType,
+					Summary:      inc.Status.Summary,
+				})
+			}
+			return refs
+		}),
 	)
 	if telemetryBackend != "" {
 		topoCache.StartBackgroundRefresh(managerCtx)
@@ -340,10 +377,30 @@ func main() {
 		)
 	}
 
-	dashboardServer := dashboard.NewServer(mgr.GetClient(), dashboardAddr, ctrl.Log,
+	// --- AI Investigator ---
+	var investigator *rca.Investigator
+	if aiEndpoint != "" {
+		apiKey := os.Getenv("RCA_AI_API_KEY")
+		if apiKey == "" && aiSecretName != "" {
+			setupLog.Info("AI API key not in env; will read from Secret at runtime", "secretRef", aiSecretName)
+		}
+		llmClient := rca.NewLLMClient(aiEndpoint, apiKey, aiModel)
+		investigator = rca.NewInvestigator(llmClient, querier, k8sClient, ctrl.Log)
+		setupLog.Info("AI investigator enabled",
+			"endpoint", aiEndpoint,
+			"model", aiModel,
+			"autoInvestigate", aiAutoInvestigate,
+		)
+	}
+
+	dashOpts := []dashboard.ServerOption{
 		dashboard.WithTelemetryQuerier(querier),
 		dashboard.WithTopologyCache(topoCache),
-	)
+	}
+	if investigator != nil {
+		dashOpts = append(dashOpts, dashboard.WithInvestigator(investigator))
+	}
+	dashboardServer := dashboard.NewServer(k8sClient, dashboardAddr, ctrl.Log, dashOpts...)
 	if err := mgr.Add(dashboardServer); err != nil {
 		setupLog.Error(err, "Failed to add dashboard server")
 		os.Exit(1)
