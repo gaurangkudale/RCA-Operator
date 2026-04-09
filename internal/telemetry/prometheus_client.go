@@ -76,7 +76,7 @@ func (c *PrometheusClient) QueryMetric(ctx context.Context, query string, start,
 
 	var resp promQueryRangeResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("prometheus QueryMetric unmarshal: %w", err)
+		return nil, fmt.Errorf("prometheus QueryMetric unmarshal: failed to parse response as JSON: %w (response: %s)", err, truncateResponseBody(body))
 	}
 
 	if resp.Status != "success" {
@@ -193,6 +193,18 @@ func (c *PrometheusClient) doGet(ctx context.Context, path string, params url.Va
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Validate that response is JSON, not HTML error page
+	// HTML responses typically start with '<' character
+	if len(body) > 0 && body[0] == '<' {
+		return nil, fmt.Errorf("received HTML response instead of JSON (status %d): %s", resp.StatusCode, string(body[:minInt(len(body), 200)]))
+	}
+
+	// Check Content-Type header matches JSON
+	contentType := resp.Header.Get("Content-Type")
+	if contentType != "" && !containsSubstring(contentType, "application/json", "text/plain") {
+		return nil, fmt.Errorf("unexpected Content-Type: %s (expected application/json)", contentType)
 	}
 
 	return body, nil

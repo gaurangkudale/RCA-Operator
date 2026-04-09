@@ -64,7 +64,7 @@ func (c *JaegerClient) FindTracesByService(ctx context.Context, service string, 
 
 	var resp jaegerTracesResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("jaeger FindTracesByService unmarshal: %w", err)
+		return nil, fmt.Errorf("jaeger FindTracesByService unmarshal: failed to parse response as JSON: %w (response: %s)", err, truncateResponseBody(body))
 	}
 
 	return resp.toTraceSummaries(), nil
@@ -78,7 +78,7 @@ func (c *JaegerClient) GetTrace(ctx context.Context, traceID string) (*Trace, er
 
 	var resp jaegerTracesResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("jaeger GetTrace unmarshal: %w", err)
+		return nil, fmt.Errorf("jaeger GetTrace unmarshal: failed to parse response as JSON: %w (response: %s)", err, truncateResponseBody(body))
 	}
 
 	if len(resp.Data) == 0 {
@@ -106,7 +106,7 @@ func (c *JaegerClient) FindErrorTraces(ctx context.Context, service string, wind
 
 	var resp jaegerTracesResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("jaeger FindErrorTraces unmarshal: %w", err)
+		return nil, fmt.Errorf("jaeger FindErrorTraces unmarshal: failed to parse response as JSON: %w (response: %s)", err, truncateResponseBody(body))
 	}
 
 	return resp.toTraceSummaries(), nil
@@ -142,7 +142,7 @@ func (c *JaegerClient) GetDependencies(ctx context.Context, window time.Duration
 
 	var resp jaegerDependenciesResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("jaeger GetDependencies unmarshal: %w", err)
+		return nil, fmt.Errorf("jaeger GetDependencies unmarshal: failed to parse response as JSON: %w (response: %s)", err, truncateResponseBody(body))
 	}
 
 	edges := make([]DependencyEdge, 0, len(resp.Data))
@@ -200,8 +200,22 @@ func (c *JaegerClient) doGet(ctx context.Context, path string, params url.Values
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 	}
 
+	// Validate that response is JSON, not HTML error page
+	// HTML responses typically start with '<' character
+	if len(body) > 0 && body[0] == '<' {
+		return nil, fmt.Errorf("received HTML response instead of JSON (status %d): %s", resp.StatusCode, string(body[:minInt(len(body), 200)]))
+	}
+
+	// Check Content-Type header matches JSON
+	contentType := resp.Header.Get("Content-Type")
+	if contentType != "" && !containsSubstring(contentType, "application/json", "text/plain") {
+		return nil, fmt.Errorf("unexpected Content-Type: %s (expected application/json)", contentType)
+	}
+
 	return body, nil
 }
+
+// Helper function declarations (now in utils.go)
 
 // --- Jaeger response types ---
 

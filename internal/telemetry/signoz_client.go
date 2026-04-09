@@ -64,7 +64,7 @@ func (c *SigNozClient) FindTracesByService(ctx context.Context, service string, 
 
 	var resp signozTracesResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("signoz FindTracesByService unmarshal: %w", err)
+		return nil, fmt.Errorf("signoz FindTracesByService unmarshal: failed to parse response as JSON: %w (response: %s)", err, truncateResponseBody(body))
 	}
 
 	return resp.toTraceSummaries(), nil
@@ -78,7 +78,7 @@ func (c *SigNozClient) GetTrace(ctx context.Context, traceID string) (*Trace, er
 
 	var resp signozTraceDetailResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("signoz GetTrace unmarshal: %w", err)
+		return nil, fmt.Errorf("signoz GetTrace unmarshal: failed to parse response as JSON: %w (response: %s)", err, truncateResponseBody(body))
 	}
 
 	return resp.toTrace(traceID), nil
@@ -102,7 +102,7 @@ func (c *SigNozClient) FindErrorTraces(ctx context.Context, service string, wind
 
 	var resp signozTracesResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("signoz FindErrorTraces unmarshal: %w", err)
+		return nil, fmt.Errorf("signoz FindErrorTraces unmarshal: failed to parse response as JSON: %w (response: %s)", err, truncateResponseBody(body))
 	}
 
 	return resp.toTraceSummaries(), nil
@@ -122,7 +122,7 @@ func (c *SigNozClient) QueryMetric(ctx context.Context, query string, start, end
 
 	var resp signozMetricResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("signoz QueryMetric unmarshal: %w", err)
+		return nil, fmt.Errorf("signoz QueryMetric unmarshal: failed to parse response as JSON: %w (response: %s)", err, truncateResponseBody(body))
 	}
 
 	return resp.toMetricSeries(), nil
@@ -144,7 +144,7 @@ func (c *SigNozClient) GetServiceMetrics(ctx context.Context, service string, wi
 
 	var services []signozServiceOverview
 	if err := json.Unmarshal(body, &services); err != nil {
-		return nil, fmt.Errorf("signoz GetServiceMetrics unmarshal: %w", err)
+		return nil, fmt.Errorf("signoz GetServiceMetrics unmarshal: failed to parse response as JSON: %w (response: %s)", err, truncateResponseBody(body))
 	}
 
 	for _, svc := range services {
@@ -192,7 +192,7 @@ func (c *SigNozClient) SearchLogs(ctx context.Context, filter LogFilter) ([]LogE
 
 	var resp signozLogsResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("signoz SearchLogs unmarshal: %w", err)
+		return nil, fmt.Errorf("signoz SearchLogs unmarshal: failed to parse response as JSON: %w (response: %s)", err, truncateResponseBody(body))
 	}
 
 	return resp.toLogEntries(), nil
@@ -210,7 +210,7 @@ func (c *SigNozClient) GetDependencies(ctx context.Context, window time.Duration
 
 	var deps []signozDependency
 	if err := json.Unmarshal(body, &deps); err != nil {
-		return nil, fmt.Errorf("signoz GetDependencies unmarshal: %w", err)
+		return nil, fmt.Errorf("signoz GetDependencies unmarshal: failed to parse response as JSON: %w (response: %s)", err, truncateResponseBody(body))
 	}
 
 	edges := make([]DependencyEdge, 0, len(deps))
@@ -278,6 +278,18 @@ func (c *SigNozClient) doGet(ctx context.Context, path string, params url.Values
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Validate that response is JSON, not HTML error page
+	// HTML responses typically start with '<' character
+	if len(body) > 0 && body[0] == '<' {
+		return nil, fmt.Errorf("received HTML response instead of JSON (status %d): %s", resp.StatusCode, string(body[:minInt(len(body), 200)]))
+	}
+
+	// Check Content-Type header matches JSON
+	contentType := resp.Header.Get("Content-Type")
+	if contentType != "" && !containsSubstring(contentType, "application/json", "text/plain") {
+		return nil, fmt.Errorf("unexpected Content-Type: %s (expected application/json)", contentType)
 	}
 
 	return body, nil
