@@ -20,13 +20,13 @@ import "time"
 
 // TraceSummary is a lightweight representation of a trace for listing.
 type TraceSummary struct {
-	TraceID     string        `json:"traceID"`
-	RootService string        `json:"rootService"`
-	RootSpan    string        `json:"rootSpan"`
-	StartTime   time.Time     `json:"startTime"`
-	Duration    time.Duration `json:"duration"`
-	SpanCount   int           `json:"spanCount"`
-	HasError    bool          `json:"hasError"`
+	TraceID     string    `json:"traceID"`
+	RootService string    `json:"rootService"`
+	RootSpan    string    `json:"rootSpan"`
+	StartTime   time.Time `json:"startTime"`
+	Duration    float64   `json:"duration"` // milliseconds (for frontend fmtDur compatibility)
+	SpanCount   int       `json:"spanCount"`
+	HasError    bool      `json:"hasError"`
 }
 
 // Trace is a full distributed trace containing all its spans.
@@ -43,7 +43,7 @@ type Span struct {
 	OperationName string            `json:"operationName"`
 	ServiceName   string            `json:"serviceName"`
 	StartTime     time.Time         `json:"startTime"`
-	Duration      time.Duration     `json:"duration"`
+	Duration      float64           `json:"duration"` // milliseconds
 	StatusCode    SpanStatusCode    `json:"statusCode"`
 	StatusMessage string            `json:"statusMessage,omitempty"`
 	Tags          map[string]string `json:"tags,omitempty"`
@@ -79,14 +79,15 @@ type Datapoint struct {
 
 // ServiceMetrics contains key metrics for a service over a time window.
 type ServiceMetrics struct {
-	ServiceName string  `json:"serviceName"`
-	RequestRate float64 `json:"requestRate"` // req/s
-	ErrorRate   float64 `json:"errorRate"`   // errors/s
-	P50Latency  float64 `json:"p50Latency"`  // ms
-	P95Latency  float64 `json:"p95Latency"`  // ms
-	P99Latency  float64 `json:"p99Latency"`  // ms
-	CPUUsage    float64 `json:"cpuUsage"`    // cores
-	MemoryUsage float64 `json:"memoryUsage"` // bytes
+	ServiceName       string  `json:"serviceName"`
+	RequestRate       float64 `json:"requestRate"`       // req/s
+	ErrorRate         float64 `json:"errorRate"`         // errors/s
+	P50Latency        float64 `json:"p50Latency"`        // ms
+	P95Latency        float64 `json:"p95Latency"`        // ms
+	P99Latency        float64 `json:"p99Latency"`        // ms
+	CPUUsage          float64 `json:"cpuUsage"`          // cores
+	MemoryUsage       float64 `json:"memoryUsage"`       // bytes
+	ActiveConnections float64 `json:"activeConnections"` // count
 }
 
 // LogEntry represents a single log line from the observability backend.

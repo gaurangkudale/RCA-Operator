@@ -310,7 +310,7 @@ func (r *signozTracesResponse) toTraceSummaries() []TraceSummary {
 			RootService: t.RootServiceName,
 			RootSpan:    t.RootSpanName,
 			StartTime:   time.Unix(0, t.StartTimeUnix),
-			Duration:    time.Duration(t.DurationNano),
+			Duration:    float64(t.DurationNano) / 1e6, // ns → ms
 			SpanCount:   t.SpanCount,
 			HasError:    t.HasError,
 		})
@@ -348,7 +348,7 @@ func (r *signozTraceDetailResponse) toTrace(traceID string) *Trace {
 			OperationName: s.OperationName,
 			ServiceName:   s.ServiceName,
 			StartTime:     time.Unix(0, s.StartTimeUnix),
-			Duration:      time.Duration(s.DurationNano),
+			Duration:      float64(s.DurationNano) / 1e6, // ns → ms
 			StatusCode:    SpanStatusCode(s.StatusCode),
 			StatusMessage: s.StatusMessage,
 			Tags:          s.Tags,
