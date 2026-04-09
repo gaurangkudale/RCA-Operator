@@ -209,11 +209,50 @@ type IncidentReportStatus struct {
 	// +listType=atomic
 	Timeline []TimelineEvent `json:"timeline,omitempty"`
 
+	// rca holds AI-generated root cause analysis results.
+	// +optional
+	RCA *RCAResult `json:"rca,omitempty"`
+
+	// relatedTraces lists W3C trace IDs correlated with this incident.
+	// +optional
+	// +listType=atomic
+	RelatedTraces []string `json:"relatedTraces,omitempty"`
+
+	// blastRadius lists downstream services impacted by this incident.
+	// +optional
+	// +listType=atomic
+	BlastRadius []string `json:"blastRadius,omitempty"`
+
 	// conditions represent the current state of the IncidentReport resource.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// RCAResult holds AI-generated root cause analysis output.
+type RCAResult struct {
+	// rootCause is the AI-determined root cause summary.
+	// +optional
+	RootCause string `json:"rootCause,omitempty"`
+
+	// confidence is the AI's confidence level (0.0-1.0).
+	// +optional
+	Confidence string `json:"confidence,omitempty"`
+
+	// playbook is a list of suggested remediation steps.
+	// +optional
+	// +listType=atomic
+	Playbook []string `json:"playbook,omitempty"`
+
+	// evidence lists the telemetry evidence the AI used.
+	// +optional
+	// +listType=atomic
+	Evidence []string `json:"evidence,omitempty"`
+
+	// investigatedAt is when the AI investigation was performed.
+	// +optional
+	InvestigatedAt *metav1.Time `json:"investigatedAt,omitempty"`
 }
 
 // +kubebuilder:object:root=true

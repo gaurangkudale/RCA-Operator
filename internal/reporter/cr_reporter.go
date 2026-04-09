@@ -22,6 +22,7 @@ import (
 	"github.com/gaurangkudale/rca-operator/internal/incident"
 	"github.com/gaurangkudale/rca-operator/internal/incidentstatus"
 	"github.com/gaurangkudale/rca-operator/internal/metrics"
+	rcaotel "github.com/gaurangkudale/rca-operator/internal/otel"
 )
 
 const (
@@ -106,6 +107,8 @@ func (r *Reporter) EnsureIncident(
 }
 
 func (r *Reporter) EnsureSignal(ctx context.Context, input incident.Input) error {
+	ctx, span := rcaotel.StartIncidentSpan(ctx, input.IncidentType, input.DedupKey)
+	defer span.End()
 	if input.AgentRef == "" {
 		input.AgentRef = "unknown-agent"
 	}

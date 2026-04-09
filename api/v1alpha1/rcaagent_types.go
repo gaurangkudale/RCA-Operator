@@ -61,6 +61,15 @@ type RCAAgentSpec struct {
 	// SignalMappings allows overriding the default event-type → incident-type mapping.
 	// +optional
 	SignalMappings []SignalMappingConfig `json:"signalMappings,omitempty"`
+
+	// Telemetry configures connections to external observability backends
+	// for cross-signal incident correlation (traces, metrics, logs).
+	// +optional
+	Telemetry *TelemetryConfig `json:"telemetry,omitempty"`
+
+	// AI configures AI/LLM-driven root cause analysis.
+	// +optional
+	AI *AIConfig `json:"ai,omitempty"`
 }
 
 // OTelConfig holds OpenTelemetry export settings.
@@ -104,6 +113,85 @@ type SignalMappingConfig struct {
 	// +kubebuilder:validation:Enum=Pod;Workload;Namespace;Cluster
 	// +optional
 	Scope string `json:"scope,omitempty"`
+}
+
+// TelemetryConfig configures connections to external observability backends.
+type TelemetryConfig struct {
+	// Backend selects the telemetry backend type.
+	// "signoz" uses SigNoz as a unified traces+logs+metrics backend.
+	// "jaeger" uses Jaeger for traces (combine with Prometheus for metrics).
+	// "composite" delegates to separate backends per signal type.
+	// +kubebuilder:validation:Enum=signoz;jaeger;composite
+	// +kubebuilder:default=composite
+	// +optional
+	Backend string `json:"backend,omitempty"`
+
+	// SigNoz holds SigNoz query service configuration.
+	// +optional
+	SigNoz *SigNozConfig `json:"signoz,omitempty"`
+
+	// Jaeger holds Jaeger query API configuration.
+	// +optional
+	Jaeger *JaegerConfig `json:"jaeger,omitempty"`
+
+	// Prometheus holds Prometheus query API configuration.
+	// +optional
+	Prometheus *PrometheusConfig `json:"prometheus,omitempty"`
+}
+
+// SigNozConfig holds SigNoz-specific connection settings.
+type SigNozConfig struct {
+	// Endpoint is the SigNoz query service URL (e.g. "http://signoz-query-service:8080").
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Endpoint string `json:"endpoint"`
+}
+
+// JaegerConfig holds Jaeger query API connection settings.
+type JaegerConfig struct {
+	// Endpoint is the Jaeger query HTTP API URL (e.g. "http://jaeger-query:16686").
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Endpoint string `json:"endpoint"`
+
+	// GRPCEndpoint is the Jaeger gRPC query endpoint (e.g. "jaeger-query:16685").
+	// +optional
+	GRPCEndpoint string `json:"grpcEndpoint,omitempty"`
+}
+
+// PrometheusConfig holds Prometheus query API connection settings.
+type PrometheusConfig struct {
+	// Endpoint is the Prometheus HTTP API URL (e.g. "http://prometheus:9090").
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Endpoint string `json:"endpoint"`
+}
+
+// AIConfig configures AI/LLM-driven root cause analysis.
+type AIConfig struct {
+	// Enabled toggles AI-driven RCA analysis.
+	// +kubebuilder:default=false
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// Endpoint is the OpenAI-compatible API endpoint (e.g. "https://api.openai.com/v1").
+	// +optional
+	Endpoint string `json:"endpoint,omitempty"`
+
+	// Model is the LLM model name (e.g. "gpt-4o", "llama3").
+	// +optional
+	Model string `json:"model,omitempty"`
+
+	// SecretRef is the name of the Secret containing the API key.
+	// The secret must have a key named "apiKey".
+	// +optional
+	SecretRef string `json:"secretRef,omitempty"`
+
+	// AutoInvestigate triggers AI analysis automatically when an incident
+	// transitions to Active phase.
+	// +kubebuilder:default=false
+	// +optional
+	AutoInvestigate bool `json:"autoInvestigate,omitempty"`
 }
 
 // NotificationsConfig defines where to send RCAAgent notifications.

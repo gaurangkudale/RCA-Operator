@@ -10,7 +10,7 @@ image:
   repository: ghcr.io/gaurangkudale/rca-operator
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion
-  tag: ""
+  tag: "latest"
 
 imagePullSecrets: []
 nameOverride: ""
@@ -85,6 +85,50 @@ autoDetect:
   maxRules: 20
   interval: 60s
   expiry: 1h
+
+# Telemetry backend configuration (Phase 2)
+# Use case: Connect to external observability backends for cross-signal correlation and topology.
+#
+# Backend options:
+#   "signoz"         - Unified: SigNoz provides traces, metrics, logs, and topology.
+#   "jaeger"         - Traces + topology only. No metrics or logs.
+#   "composite"      - Jaeger (traces+topology) + Prometheus (metrics). No logs.
+#   "full-composite" - Jaeger (traces+topology) + Prometheus (metrics) + SigNoz (logs).
+#                      Use this when you run all four systems together.
+#
+# OTel self-instrumentation (otel.*) works alongside any backend choice independently.
+telemetry:
+  enabled: false
+  backend: ""
+  signoz:
+    # SigNoz query service URL (e.g. "http://signoz-query-service:8080")
+    endpoint: ""
+  jaeger:
+    # Jaeger query HTTP API URL (e.g. "http://jaeger-query:16686")
+    # If Jaeger uses a base path (OTel Demo): "http://jaeger-query:16686/jaeger/ui"
+    endpoint: ""
+  prometheus:
+    # Prometheus HTTP API URL (e.g. "http://prometheus:9090")
+    endpoint: ""
+
+# Topology visualization configuration (Phase 2)
+# Use case: Control service dependency graph refresh frequency and lookback window.
+topology:
+  refreshInterval: 30s
+  dependencyWindow: 15m
+
+# AI-powered root cause analysis (Phase 2)
+# Use case: Enable LLM-driven investigation of active incidents.
+ai:
+  enabled: false
+  # OpenAI-compatible API endpoint (e.g. "https://api.openai.com/v1")
+  endpoint: ""
+  # LLM model name
+  model: "gpt-4o"
+  # Kubernetes Secret name containing API key (must have key "apiKey")
+  secretRef: ""
+  # Auto-trigger investigation when incidents become Active
+  autoInvestigate: false
 
 # Admission webhooks
 # Use case: Validate/default RCA custom resources before they are persisted.

@@ -17,24 +17,59 @@ import (
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 	"github.com/gaurangkudale/rca-operator/internal/incidentstatus"
+	"github.com/gaurangkudale/rca-operator/internal/rca"
 	"github.com/gaurangkudale/rca-operator/internal/reporter"
+	"github.com/gaurangkudale/rca-operator/internal/telemetry"
+	"github.com/gaurangkudale/rca-operator/internal/topology"
 )
 
 // Server serves the incident dashboard UI and its REST API.
 // It implements manager.Runnable so it can be registered with mgr.Add().
 type Server struct {
-	client client.Client
-	addr   string
-	log    logr.Logger
+	client       client.Client
+	addr         string
+	log          logr.Logger
+	querier      telemetry.TelemetryQuerier
+	topoCache    *topology.Cache
+	sseHub       *SSEHub
+	investigator *rca.Investigator
+}
+
+// ServerOption configures the dashboard server.
+type ServerOption func(*Server)
+
+// WithTelemetryQuerier sets the telemetry querier for trace/metric/log API endpoints.
+func WithTelemetryQuerier(q telemetry.TelemetryQuerier) ServerOption {
+	return func(s *Server) { s.querier = q }
+}
+
+// WithTopologyCache sets the topology cache for the topology API endpoint.
+func WithTopologyCache(c *topology.Cache) ServerOption {
+	return func(s *Server) { s.topoCache = c }
+}
+
+// WithInvestigator sets the AI investigator for the investigate API endpoint.
+func WithInvestigator(inv *rca.Investigator) ServerOption {
+	return func(s *Server) { s.investigator = inv }
 }
 
 // NewServer returns a dashboard server that will listen on addr.
-func NewServer(c client.Client, addr string, logger logr.Logger) *Server {
-	return &Server{
+func NewServer(c client.Client, addr string, logger logr.Logger, opts ...ServerOption) *Server {
+	s := &Server{
 		client: c,
 		addr:   addr,
 		log:    logger.WithName("dashboard"),
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	s.sseHub = NewSSEHub(s.log)
+	return s
+}
+
+// SSEHub returns the SSE hub for broadcasting events from outside the dashboard.
+func (s *Server) SSEHub() *SSEHub {
+	return s.sseHub
 }
 
 // Start implements manager.Runnable. It blocks until ctx is cancelled.
@@ -54,6 +89,23 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/rules", s.handleRules)
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/timeline", s.handleTimeline)
+
+	// Phase 2: Topology and telemetry endpoints
+	mux.HandleFunc("/api/topology", s.handleTopology)
+	mux.HandleFunc("/api/topology/blast", s.handleBlastRadius)
+	mux.HandleFunc("/api/services", s.handleServices)
+	mux.HandleFunc("/api/services/", s.handleServiceDetail)
+
+	// AI investigation
+	mux.HandleFunc("/api/investigate/", s.handleInvestigate)
+
+	// SSE live streams
+	mux.HandleFunc("/api/stream/topology", func(w http.ResponseWriter, r *http.Request) {
+		s.sseHub.ServeHTTP(w, r, "topology")
+	})
+	mux.HandleFunc("/api/stream/correlation", func(w http.ResponseWriter, r *http.Request) {
+		s.sseHub.ServeHTTP(w, r, "correlation")
+	})
 
 	srv := &http.Server{
 		Addr:              s.addr,
@@ -641,5 +693,232 @@ func severityRank(severity string) int {
 		return 2
 	default:
 		return 1
+	}
+}
+
+// ── Phase 2: Topology & Telemetry Handlers ──────────────────────────────────
+
+func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.topoCache == nil {
+		writeJSON(w, map[string]any{"nodes": map[string]any{}, "edges": []any{}})
+		return
+	}
+
+	graph, err := s.topoCache.Get(r.Context())
+	if err != nil {
+		s.log.Error(err, "Failed to get topology graph")
+		http.Error(w, "failed to get topology", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, graph)
+}
+
+func (s *Server) handleBlastRadius(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	service := r.URL.Query().Get("service")
+	if service == "" {
+		http.Error(w, "service query parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	if s.topoCache == nil {
+		writeJSON(w, []string{})
+		return
+	}
+
+	graph, err := s.topoCache.Get(r.Context())
+	if err != nil {
+		s.log.Error(err, "Failed to get topology graph for blast radius")
+		http.Error(w, "failed to get topology", http.StatusInternalServerError)
+		return
+	}
+
+	affected := topology.ComputeBlastRadius(graph, service)
+	if affected == nil {
+		affected = []string{}
+	}
+	writeJSON(w, affected)
+}
+
+func (s *Server) handleServices(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.topoCache == nil {
+		writeJSON(w, []any{})
+		return
+	}
+
+	graph, err := s.topoCache.Get(r.Context())
+	if err != nil {
+		s.log.Error(err, "Failed to get topology graph for services")
+		http.Error(w, "failed to get topology", http.StatusInternalServerError)
+		return
+	}
+
+	type serviceEntry struct {
+		Name   string                 `json:"name"`
+		Status telemetry.HealthStatus `json:"status"`
+		Icon   string                 `json:"icon,omitempty"`
+	}
+	services := make([]serviceEntry, 0, len(graph.Nodes))
+	for _, node := range graph.Nodes {
+		services = append(services, serviceEntry{
+			Name:   node.Name,
+			Status: node.Status,
+			Icon:   node.Icon,
+		})
+	}
+	writeJSON(w, services)
+}
+
+func (s *Server) handleServiceDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract service name and sub-resource from path: /api/services/{name}/{sub}
+	path := strings.TrimPrefix(r.URL.Path, "/api/services/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) == 0 || parts[0] == "" {
+		http.Error(w, "path must be /api/services/{name} or /api/services/{name}/{sub}", http.StatusBadRequest)
+		return
+	}
+	serviceName := parts[0]
+	subResource := ""
+	if len(parts) == 2 {
+		subResource = parts[1]
+	}
+
+	if s.querier == nil {
+		writeJSON(w, map[string]any{})
+		return
+	}
+
+	switch subResource {
+	case "metrics":
+		metrics, err := s.querier.GetServiceMetrics(r.Context(), serviceName, 15*time.Minute)
+		if err != nil {
+			s.log.Error(err, "Failed to get service metrics", "service", serviceName)
+			http.Error(w, "failed to get metrics", http.StatusInternalServerError)
+			return
+		}
+		if metrics == nil {
+			metrics = &telemetry.ServiceMetrics{ServiceName: serviceName}
+		}
+		writeJSON(w, metrics)
+
+	case "traces":
+		end := time.Now()
+		start := end.Add(-15 * time.Minute)
+		limit := parsePositiveInt(r.URL.Query().Get("limit"), 20)
+		traces, err := s.querier.FindTracesByService(r.Context(), serviceName, start, end, limit)
+		if err != nil {
+			s.log.Error(err, "Failed to get traces", "service", serviceName)
+			http.Error(w, "failed to get traces", http.StatusInternalServerError)
+			return
+		}
+		if traces == nil {
+			traces = []telemetry.TraceSummary{}
+		}
+		writeJSON(w, traces)
+
+	case "logs":
+		end := time.Now()
+		start := end.Add(-15 * time.Minute)
+		limit := parsePositiveInt(r.URL.Query().Get("limit"), 100)
+		severity := r.URL.Query().Get("severity")
+		logs, err := s.querier.SearchLogs(r.Context(), telemetry.LogFilter{
+			ServiceName: serviceName,
+			Severity:    severity,
+			Start:       start,
+			End:         end,
+			Limit:       limit,
+		})
+		if err != nil {
+			s.log.Error(err, "Failed to get logs", "service", serviceName)
+			http.Error(w, "failed to get logs", http.StatusInternalServerError)
+			return
+		}
+		if logs == nil {
+			logs = []telemetry.LogEntry{}
+		}
+		writeJSON(w, logs)
+
+	default:
+		// Return service overview from topology
+		if s.topoCache != nil {
+			graph, err := s.topoCache.Get(r.Context())
+			if err == nil {
+				if node, ok := graph.Nodes[serviceName]; ok {
+					writeJSON(w, node)
+					return
+				}
+			}
+		}
+		http.Error(w, "service not found", http.StatusNotFound)
+	}
+}
+
+func (s *Server) handleInvestigate(w http.ResponseWriter, r *http.Request) {
+	// Path: /api/investigate/{namespace}/{name}
+	path := strings.TrimPrefix(r.URL.Path, "/api/investigate/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		http.Error(w, "path must be /api/investigate/{namespace}/{name}", http.StatusBadRequest)
+		return
+	}
+	ns, name := parts[0], parts[1]
+
+	if s.investigator == nil {
+		http.Error(w, "AI investigation is not configured. Set --ai-endpoint to enable.", http.StatusServiceUnavailable)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		// Return existing RCA result from the IncidentReport.
+		report := &rcav1alpha1.IncidentReport{}
+		key := client.ObjectKey{Namespace: ns, Name: name}
+		if err := s.client.Get(r.Context(), key, report); err != nil {
+			http.Error(w, "incident not found", http.StatusNotFound)
+			return
+		}
+		if report.Status.RCA == nil {
+			writeJSON(w, map[string]string{"status": "not_investigated"})
+			return
+		}
+		writeJSON(w, report.Status.RCA)
+
+	case http.MethodPost:
+		// Trigger a new AI investigation.
+		report := &rcav1alpha1.IncidentReport{}
+		key := client.ObjectKey{Namespace: ns, Name: name}
+		if err := s.client.Get(r.Context(), key, report); err != nil {
+			http.Error(w, "incident not found", http.StatusNotFound)
+			return
+		}
+		// Run investigation asynchronously.
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if err := s.investigator.Investigate(ctx, report); err != nil {
+				s.log.Error(err, "AI investigation failed", "incident", key)
+			}
+		}()
+		writeJSON(w, map[string]string{"status": "investigating"})
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }

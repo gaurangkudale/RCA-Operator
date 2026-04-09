@@ -14,6 +14,7 @@ import (
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 	"github.com/gaurangkudale/rca-operator/internal/incident"
 	"github.com/gaurangkudale/rca-operator/internal/metrics"
+	rcaotel "github.com/gaurangkudale/rca-operator/internal/otel"
 	"github.com/gaurangkudale/rca-operator/internal/reporter"
 	"github.com/gaurangkudale/rca-operator/internal/signals"
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
@@ -51,6 +52,9 @@ type Consumer struct {
 	// Signal processing pipeline (Phase 1)
 	normalizer *signals.Normalizer
 	enricher   *signals.Enricher
+
+	// Cross-signal enrichment (Phase 2)
+	crossSignal *CrossSignalEnricher
 }
 
 func NewConsumer(c client.Client, events <-chan watcher.CorrelatorEvent, logger logr.Logger, opts ...Option) *Consumer {
@@ -96,6 +100,18 @@ func (c *Consumer) Run(ctx context.Context) {
 }
 
 func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEvent) error {
+	// Instrument each signal with an OTel span — safe no-op when OTel is disabled.
+	var ns, pod string
+	if ev, ok := event.(interface {
+		GetNamespace() string
+		GetPodName() string
+	}); ok {
+		ns = ev.GetNamespace()
+		pod = ev.GetPodName()
+	}
+	ctx, span := rcaotel.StartSignalSpan(ctx, string(event.Type()), ns, pod)
+	defer span.End()
+
 	if c.ruleEngine != nil {
 		c.ruleEngine.Add(event)
 	}
@@ -162,7 +178,69 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 		}
 	}
 
-	return c.rep.EnsureSignal(ctx, input)
+	if err := c.rep.EnsureSignal(ctx, input); err != nil {
+		return err
+	}
+
+	// Phase 2: Cross-signal enrichment (best-effort, non-blocking).
+	// Runs after the incident exists so the enricher can look it up and
+	// write RelatedTraces + BlastRadius to its status.
+	if c.crossSignal != nil {
+		go c.enrichIncidentAsync(ctx, input)
+	}
+
+	return nil
+}
+
+// enrichIncidentAsync performs cross-signal enrichment in the background.
+// It finds the open incident for the given input and enriches it with
+// traces and blast radius from telemetry backends.
+func (c *Consumer) enrichIncidentAsync(ctx context.Context, input incident.Input) {
+	// Use a short timeout so enrichment doesn't hang forever.
+	enrichCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	fingerprint := input.Fingerprint()
+	fingerprintHash := incident.FingerprintHash(fingerprint)
+
+	// Find the open incident by fingerprint hash label.
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := c.client.List(enrichCtx, list,
+		client.InNamespace(input.Namespace),
+		client.MatchingLabels{reporter.LabelFingerprintHash: fingerprintHash},
+	); err != nil {
+		c.log.V(1).Info("cross-signal: failed to list incidents", "error", err)
+		return
+	}
+
+	// Find the first non-resolved incident.
+	var target *rcav1alpha1.IncidentReport
+	for i := range list.Items {
+		if list.Items[i].Status.Phase != phaseResolved {
+			target = &list.Items[i]
+			break
+		}
+	}
+	if target == nil {
+		return
+	}
+
+	result := c.crossSignal.Enrich(enrichCtx, target)
+	if len(result.RelatedTraces) == 0 && len(result.BlastRadius) == 0 {
+		return
+	}
+
+	key := client.ObjectKeyFromObject(target)
+	if err := c.crossSignal.PersistEnrichment(enrichCtx, key, result); err != nil {
+		c.log.V(1).Info("cross-signal: failed to persist enrichment",
+			"incident", key, "error", err)
+	} else {
+		c.log.Info("cross-signal enrichment applied",
+			"incident", key,
+			"relatedTraces", len(result.RelatedTraces),
+			"blastRadius", len(result.BlastRadius),
+		)
+	}
 }
 
 func (c *Consumer) consolidateRegistryDuplicates(ctx context.Context) error {

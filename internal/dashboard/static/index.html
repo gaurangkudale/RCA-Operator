@@ -452,10 +452,49 @@ select { font-family: inherit; }
 }
 .data-row:hover { background: var(--bg-hover); }
 
+/* ── Topology View ──────────────────────────────── */
+.topo-container { flex: 1; display: flex; overflow: hidden; position: relative; }
+.topo-svg { flex: 1; cursor: grab; }
+.topo-svg:active { cursor: grabbing; }
+.topo-svg .node-group { cursor: pointer; }
+.topo-svg .node-circle { stroke-width: 2; transition: filter 0.15s; }
+.topo-svg .node-group:hover .node-circle { filter: brightness(1.2); }
+.topo-svg .node-label { font-family: var(--font-sans); font-size: 11px; font-weight: 600; fill: var(--text-primary); pointer-events: none; }
+.topo-svg .node-sublabel { font-family: var(--font-mono); font-size: 9px; fill: var(--text-tertiary); pointer-events: none; }
+.topo-svg .node-icon { font-size: 14px; pointer-events: none; }
+.topo-svg .edge-line { stroke-width: 1.5; fill: none; }
+.topo-svg .edge-line.status-active { stroke: var(--border-strong); }
+.topo-svg .edge-line.status-warning { stroke: var(--amber); stroke-dasharray: 6 3; }
+.topo-svg .edge-line.status-critical { stroke: var(--red); stroke-dasharray: 4 2; }
+.topo-svg .edge-label { font-family: var(--font-mono); font-size: 9px; fill: var(--text-tertiary); }
+
+.topo-side { width: 320px; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--bg-raised); overflow-y: auto; animation: slideIn 0.15s ease-out; }
+.topo-side-head { padding: 16px; border-bottom: 1px solid var(--border); }
+.topo-side-title { font-size: 16px; font-weight: 700; color: var(--text-primary); }
+.topo-side-subtitle { font-size: 11px; color: var(--text-tertiary); margin-top: 4px; }
+.topo-side-body { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+.topo-side-close { position: absolute; top: 12px; right: 12px; width: 28px; height: 28px; border-radius: var(--radius-sm); border: 1px solid var(--border) !important; background: var(--bg-input) !important; color: var(--text-secondary); display: flex; align-items: center; justify-content: center; font-size: 16px; }
+.topo-side-close:hover { background: var(--bg-hover) !important; color: var(--text-primary); }
+
+.topo-metric { display: flex; align-items: baseline; gap: 8px; padding: 6px 0; }
+.topo-metric-label { font-size: 10px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-tertiary); min-width: 80px; }
+.topo-metric-val { font-family: var(--font-mono); font-size: 14px; font-weight: 600; }
+
+.topo-blast-tag { display: inline-block; padding: 3px 8px; border-radius: var(--radius-sm); font-size: 11px; font-weight: 500; background: var(--red-soft); color: var(--red); margin: 2px; }
+
+.topo-legend { position: absolute; bottom: 12px; left: 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px 14px; display: flex; gap: 16px; font-size: 10px; color: var(--text-tertiary); }
+.topo-legend-item { display: flex; align-items: center; gap: 5px; }
+.topo-legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+.topo-controls { position: absolute; top: 12px; right: 12px; display: flex; gap: 4px; }
+.topo-btn { width: 32px; height: 32px; border-radius: var(--radius-sm); border: 1px solid var(--border) !important; background: var(--bg-card) !important; color: var(--text-secondary); display: flex; align-items: center; justify-content: center; font-size: 16px; }
+.topo-btn:hover { background: var(--bg-hover) !important; color: var(--text-primary); }
+
 @media (max-width: 980px) {
   .sidebar { display: none; }
   .header { flex-wrap: wrap; height: auto; padding: 10px 16px; }
   .nav { order: 3; width: 100%; }
+  .topo-side { width: 260px; }
 }
 </style>
 </head>
@@ -468,9 +507,10 @@ select { font-family: inherit; }
       <div class="logo">
         <img src="/images/logo.png" alt="RCA Operator" class="logo-img">
       </div>
-      <span class="version">v0.0.15</span>
+      <span class="version">v0.0.16</span>
       <nav class="nav" id="nav">
         <div class="nav-item active" data-tab="incidents" onclick="window._tab('incidents')">Incidents</div>
+        <div class="nav-item" data-tab="topology" onclick="window._tab('topology')">Topology</div>
         <div class="nav-item" data-tab="rules" onclick="window._tab('rules')">Rules</div>
         <div class="nav-item" data-tab="agents" onclick="window._tab('agents')">Agents</div>
         <div class="nav-item" data-tab="namespaces" onclick="window._tab('namespaces')">Namespaces</div>
@@ -519,8 +559,8 @@ select { font-family: inherit; }
 <script>
 (function(){
   /* ── State ─────────────────────────────────── */
-  var incidents=[], stats={}, rules=[];
-  var activeTab='incidents', selectedKey=null, signalsOpen=true;
+  var incidents=[], stats={}, rules=[], topoGraph=null, topoBlast=[];
+  var activeTab='incidents', selectedKey=null, signalsOpen=true, topoSelectedNode=null;
   var filters={phase:'all',ns:'all',sev:'all',type:'all'};
   var connected=false;
   var themeKey='rca-theme';
@@ -627,6 +667,7 @@ select { font-family: inherit; }
       incidents=res[0]||[];stats=res[1]||{};rules=res[2]||[];connected=true;
       document.getElementById('conn-dot').innerHTML=pulseDot('var(--green)',8);
       render();
+      fetchTopology();
     }).catch(function(){
       connected=false;
       document.getElementById('conn-dot').innerHTML='<span style="width:8px;height:8px;border-radius:50%;background:var(--red);display:inline-block"></span>';
@@ -653,11 +694,276 @@ select { font-family: inherit; }
     });
   }
 
+  /* ── Topology ──────────────────────────────── */
+  function fetchTopology(){
+    fetch('/api/topology').then(function(r){return r.json()}).then(function(data){
+      topoGraph=data;if(activeTab==='topology')renderTopology();
+    }).catch(function(){});
+  }
+
+  function fetchBlastRadius(svc){
+    fetch('/api/topology/blast?service='+encodeURIComponent(svc)).then(function(r){return r.json()}).then(function(data){
+      topoBlast=data||[];if(activeTab==='topology')renderTopology();
+    }).catch(function(){});
+  }
+
+  var ICON_MAP={globe:'\u{1F310}',database:'\u{1F5C4}',mail:'\u{1F4E8}','shield-check':'\u{1F6E1}','credit-card':'\u{1F4B3}',monitor:'\u{1F5A5}',server:'\u{2699}'};
+  var STATUS_FILL={healthy:'var(--green)',warning:'var(--amber)',critical:'var(--red)',unknown:'var(--text-tertiary)'};
+  var STATUS_BG={healthy:'var(--green-soft)',warning:'var(--amber-soft)',critical:'var(--red-soft)',unknown:'var(--bg-hover)'};
+
+  function layoutNodes(nodes){
+    var names=Object.keys(nodes||{});if(!names.length)return{};
+    var positions={};var cols={};
+    // Simple layered layout: group by dependency depth
+    // For now use a force-like grid layout
+    var perRow=Math.ceil(Math.sqrt(names.length));
+    var spacingX=180,spacingY=140,padX=120,padY=80;
+    names.sort().forEach(function(name,i){
+      var row=Math.floor(i/perRow);var col=i%perRow;
+      positions[name]={x:padX+col*spacingX,y:padY+row*spacingY};
+    });
+    return positions;
+  }
+
+  function renderTopology(){
+    var el=document.getElementById('list-pane');
+    document.getElementById('detail-panel').style.display='none';
+    el.className='list-pane full';
+
+    if(!topoGraph||!topoGraph.nodes||Object.keys(topoGraph.nodes).length===0){
+      el.innerHTML='<div class="topo-container"><div class="empty-state" style="margin:auto">'+
+        '<div class="empty-state-title">No topology data available</div>'+
+        '<div class="empty-state-sub">Connect a telemetry backend (SigNoz, Jaeger) to see the service dependency graph</div></div></div>';
+      return;
+    }
+
+    var nodes=topoGraph.nodes;var edges=topoGraph.edges||[];
+    var positions=layoutNodes(nodes);
+    var names=Object.keys(nodes);
+    var perRow=Math.ceil(Math.sqrt(names.length));
+    var svgW=Math.max(600,perRow*180+200);
+    var svgH=Math.max(400,Math.ceil(names.length/perRow)*140+160);
+
+    var blastSet={};(topoBlast||[]).forEach(function(s){blastSet[s]=true});
+
+    var h='<div class="topo-container">';
+    h+='<svg class="topo-svg" id="topo-svg" viewBox="0 0 '+svgW+' '+svgH+'" xmlns="http://www.w3.org/2000/svg">';
+
+    // Defs for markers
+    h+='<defs><marker id="arrow-active" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto">';
+    h+='<path d="M0,0 L10,3 L0,6" fill="var(--border-strong)"/></marker>';
+    h+='<marker id="arrow-warning" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto">';
+    h+='<path d="M0,0 L10,3 L0,6" fill="var(--amber)"/></marker>';
+    h+='<marker id="arrow-critical" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto">';
+    h+='<path d="M0,0 L10,3 L0,6" fill="var(--red)"/></marker></defs>';
+
+    // Edges
+    edges.forEach(function(e){
+      var src=positions[e.source];var tgt=positions[e.target];
+      if(!src||!tgt)return;
+      var status=e.status||'active';
+      var markerId='arrow-'+status;
+      // Shorten line to not overlap node circles
+      var dx=tgt.x-src.x,dy=tgt.y-src.y;
+      var dist=Math.sqrt(dx*dx+dy*dy);
+      if(dist<1)return;
+      var r=28; // node radius
+      var sx=src.x+dx/dist*r,sy=src.y+dy/dist*r;
+      var tx=tgt.x-dx/dist*(r+8),ty=tgt.y-dy/dist*(r+8);
+      h+='<line class="edge-line status-'+esc(status)+'" x1="'+sx+'" y1="'+sy+'" x2="'+tx+'" y2="'+ty+'" marker-end="url(#'+markerId+')"/>';
+      // Edge label (call count)
+      if(e.callCount>0){
+        var mx=(sx+tx)/2,my=(sy+ty)/2;
+        h+='<text class="edge-label" x="'+mx+'" y="'+(my-5)+'" text-anchor="middle">'+e.callCount+' calls</text>';
+      }
+    });
+
+    // Nodes
+    names.sort().forEach(function(name){
+      var node=nodes[name];var pos=positions[name];if(!pos)return;
+      var status=node.status||'unknown';
+      var fill=STATUS_FILL[status]||STATUS_FILL.unknown;
+      var bg=STATUS_BG[status]||STATUS_BG.unknown;
+      var isSel=topoSelectedNode===name;
+      var isBlast=blastSet[name];
+      var icon=ICON_MAP[node.icon]||ICON_MAP.server;
+      var r=isSel?32:26;
+
+      h+='<g class="node-group" onclick="window._topoSelect(\''+esc(name)+'\')" transform="translate('+pos.x+','+pos.y+')">';
+      // Blast radius glow
+      if(isBlast){
+        h+='<circle r="'+(r+8)+'" fill="none" stroke="var(--red)" stroke-width="2" stroke-dasharray="4 3" opacity="0.6"/>';
+      }
+      // Selected ring
+      if(isSel){
+        h+='<circle r="'+(r+4)+'" fill="none" stroke="var(--accent)" stroke-width="2"/>';
+      }
+      // Main circle
+      h+='<circle class="node-circle" r="'+r+'" fill="'+bg+'" stroke="'+fill+'"/>';
+      // Icon
+      h+='<text class="node-icon" text-anchor="middle" dominant-baseline="central" y="-2">'+icon+'</text>';
+      // Label
+      h+='<text class="node-label" text-anchor="middle" y="'+(r+16)+'">'+esc(name)+'</text>';
+      // Status sublabel
+      if(node.incidents&&node.incidents.length>0){
+        h+='<text class="node-sublabel" text-anchor="middle" y="'+(r+28)+'">'+node.incidents.length+' incident'+(node.incidents.length>1?'s':'')+'</text>';
+      } else if(node.metrics&&node.metrics.requestRate>0){
+        h+='<text class="node-sublabel" text-anchor="middle" y="'+(r+28)+'">'+Math.round(node.metrics.requestRate)+' req/s</text>';
+      }
+      h+='</g>';
+    });
+
+    h+='</svg>';
+
+    // Legend
+    h+='<div class="topo-legend">';
+    h+='<div class="topo-legend-item"><span class="topo-legend-dot" style="background:var(--green)"></span> Healthy</div>';
+    h+='<div class="topo-legend-item"><span class="topo-legend-dot" style="background:var(--amber)"></span> Warning</div>';
+    h+='<div class="topo-legend-item"><span class="topo-legend-dot" style="background:var(--red)"></span> Critical</div>';
+    h+='<div class="topo-legend-item"><span class="topo-legend-dot" style="background:var(--text-tertiary)"></span> Unknown</div>';
+    h+='</div>';
+
+    // Controls
+    h+='<div class="topo-controls">';
+    h+='<button class="topo-btn" onclick="window._topoRefresh()" title="Refresh">\u21BB</button>';
+    h+='</div>';
+
+    // Side panel
+    if(topoSelectedNode&&nodes[topoSelectedNode]){
+      var sn=nodes[topoSelectedNode];
+      var sm=sn.metrics;
+      h+='<div class="topo-side" style="position:relative">';
+      h+='<div class="topo-side-head">';
+      h+='<div class="topo-side-title">'+(ICON_MAP[sn.icon]||ICON_MAP.server)+' '+esc(topoSelectedNode)+'</div>';
+      h+='<div class="topo-side-subtitle">Status: <span style="color:'+STATUS_FILL[sn.status||'unknown']+'">'+esc(sn.status||'unknown')+'</span></div>';
+      h+='<button class="topo-side-close" onclick="window._topoSelect(null)">\u00d7</button>';
+      h+='</div>';
+      h+='<div class="topo-side-body">';
+
+      // Metrics
+      h+='<div><div class="section-title">Metrics</div>';
+      if(sm){
+        h+='<div class="topo-metric"><span class="topo-metric-label">Req Rate</span><span class="topo-metric-val" style="color:var(--accent)">'+sm.requestRate.toFixed(1)+'/s</span></div>';
+        h+='<div class="topo-metric"><span class="topo-metric-label">Error Rate</span><span class="topo-metric-val" style="color:'+(sm.errorRate>1?'var(--red)':'var(--green)')+'">'+sm.errorRate.toFixed(2)+'%</span></div>';
+        h+='<div class="topo-metric"><span class="topo-metric-label">P99 Latency</span><span class="topo-metric-val" style="color:'+(sm.p99Latency>500?'var(--amber)':'var(--text-primary)')+'">'+sm.p99Latency.toFixed(0)+'ms</span></div>';
+        if(sm.cpuUsage>0)h+='<div class="topo-metric"><span class="topo-metric-label">CPU</span><span class="topo-metric-val">'+sm.cpuUsage.toFixed(1)+'%</span></div>';
+        if(sm.memUsage>0)h+='<div class="topo-metric"><span class="topo-metric-label">Memory</span><span class="topo-metric-val">'+(sm.memUsage/1024/1024).toFixed(0)+' MB</span></div>';
+      } else {
+        h+='<div style="font-size:12px;color:var(--text-tertiary)">No metrics available</div>';
+      }
+      h+='</div>';
+
+      // Incidents
+      if(sn.incidents&&sn.incidents.length>0){
+        h+='<div><div class="section-title">Active Incidents</div>';
+        sn.incidents.forEach(function(inc){
+          h+='<div class="card"><span class="sev sm sev-'+esc(inc.severity)+'">'+esc(inc.severity)+'</span>';
+          h+='<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:500;color:var(--text-primary)">'+esc(inc.name)+'</div>';
+          h+='<div style="font-size:10px;color:var(--text-tertiary)">'+esc(inc.incidentType)+' \u00b7 '+esc(inc.phase)+'</div></div></div>';
+        });
+        h+='</div>';
+      }
+
+      // Blast Radius
+      if(topoBlast&&topoBlast.length>0){
+        h+='<div><div class="section-title">Blast Radius ('+topoBlast.length+' services)</div>';
+        h+='<div style="display:flex;flex-wrap:wrap;gap:2px">';
+        topoBlast.forEach(function(s){
+          h+='<span class="topo-blast-tag">'+esc(s)+'</span>';
+        });
+        h+='</div></div>';
+      }
+
+      // Quick links
+      h+='<div><div class="section-title">Quick Actions</div>';
+      h+='<div class="card" style="cursor:pointer" onclick="window._topoViewTraces(\''+esc(topoSelectedNode)+'\')"><span class="cmd-num">\u{1F50D}</span><code class="cmd-code">View Recent Traces</code></div>';
+      h+='<div class="card" style="cursor:pointer" onclick="window._topoViewLogs(\''+esc(topoSelectedNode)+'\')"><span class="cmd-num">\u{1F4DC}</span><code class="cmd-code">View Recent Logs</code></div>';
+      if(sn.incidents&&sn.incidents.length>0){
+        sn.incidents.forEach(function(inc){
+          h+='<div class="card" style="cursor:pointer" onclick="window._topoInvestigate(\''+esc(inc.namespace)+'\',\''+esc(inc.name)+'\')"><span class="cmd-num">\u{1F916}</span><code class="cmd-code">AI Investigate: '+esc(inc.name)+'</code></div>';
+        });
+      }
+      h+='</div>';
+
+      h+='</div></div>';
+    }
+
+    h+='</div>';
+    el.innerHTML=h;
+
+    // Enable SVG drag/pan
+    initTopoPan();
+  }
+
+  function initTopoPan(){
+    var svg=document.getElementById('topo-svg');if(!svg)return;
+    var viewBox=svg.viewBox.baseVal;
+    var isPanning=false,startX,startY;
+    svg.addEventListener('mousedown',function(e){
+      if(e.target.closest('.node-group'))return;
+      isPanning=true;startX=e.clientX;startY=e.clientY;
+    });
+    svg.addEventListener('mousemove',function(e){
+      if(!isPanning)return;
+      var dx=(e.clientX-startX)*viewBox.width/svg.clientWidth;
+      var dy=(e.clientY-startY)*viewBox.height/svg.clientHeight;
+      viewBox.x-=dx;viewBox.y-=dy;
+      startX=e.clientX;startY=e.clientY;
+    });
+    svg.addEventListener('mouseup',function(){isPanning=false});
+    svg.addEventListener('mouseleave',function(){isPanning=false});
+    svg.addEventListener('wheel',function(e){
+      e.preventDefault();
+      var scale=e.deltaY>0?1.1:0.9;
+      var cx=viewBox.x+viewBox.width/2;
+      var cy=viewBox.y+viewBox.height/2;
+      viewBox.width*=scale;viewBox.height*=scale;
+      viewBox.x=cx-viewBox.width/2;
+      viewBox.y=cy-viewBox.height/2;
+    },{passive:false});
+  }
+
+  window._topoSelect=function(name){
+    if(name===topoSelectedNode)name=null;
+    topoSelectedNode=name;
+    topoBlast=[];
+    if(name)fetchBlastRadius(name);
+    else renderTopology();
+  };
+  window._topoRefresh=function(){fetchTopology()};
+  window._topoViewTraces=function(svc){
+    fetch('/api/services/'+encodeURIComponent(svc)+'/traces?limit=10')
+      .then(function(r){return r.json()}).then(function(data){
+        var msg='Recent traces for '+svc+':\n';
+        (data||[]).forEach(function(t){msg+='\n  '+t.traceID+' ('+t.serviceName+', '+(t.hasError?'ERROR':'OK')+')'});
+        alert(msg||'No traces found');
+      }).catch(function(){alert('Failed to fetch traces')});
+  };
+  window._topoViewLogs=function(svc){
+    fetch('/api/services/'+encodeURIComponent(svc)+'/logs?limit=20')
+      .then(function(r){return r.json()}).then(function(data){
+        var msg='Recent logs for '+svc+':\n';
+        (data||[]).forEach(function(l){msg+='\n  ['+l.severity+'] '+l.body});
+        alert(msg||'No logs found');
+      }).catch(function(){alert('Failed to fetch logs')});
+  };
+  window._topoInvestigate=function(ns,name){
+    if(!confirm('Trigger AI investigation for '+ns+'/'+name+'?'))return;
+    fetch('/api/investigate/'+encodeURIComponent(ns)+'/'+encodeURIComponent(name),{method:'POST'})
+      .then(function(r){
+        if(!r.ok)return r.text().then(function(t){throw new Error(t)});
+        return r.json();
+      }).then(function(data){
+        alert('AI Investigation started for '+ns+'/'+name+'.\nStatus: '+(data.status||'unknown'));
+      }).catch(function(e){alert('Investigation failed: '+e.message)});
+  };
+
   /* ── Render ────────────────────────────────── */
   function render(){
     renderHeader();renderMetrics();renderNamespaces();renderSeverity();
     renderAgents();renderRuleEngine();renderToolbar();
     if(activeTab==='incidents'){renderIncidents();renderDetail()}
+    else if(activeTab==='topology'){renderTopology()}
     else if(activeTab==='rules'){renderRulesTab()}
     else if(activeTab==='agents'){renderAgentsTab()}
     else if(activeTab==='namespaces'){renderNsTab()}
@@ -752,6 +1058,14 @@ select { font-family: inherit; }
 
   function renderToolbar(){
     var el=document.getElementById('toolbar');
+    if(activeTab==='topology'){
+      var nodeCount=topoGraph&&topoGraph.nodes?Object.keys(topoGraph.nodes).length:0;
+      var edgeCount=topoGraph&&topoGraph.edges?topoGraph.edges.length:0;
+      el.innerHTML='<span class="filter-label">Service Topology</span><span class="toolbar-spacer"></span>'+
+        '<span class="toolbar-meta">'+nodeCount+' services \u00b7 '+edgeCount+' edges</span>'+
+        '<span class="toolbar-kbd">scroll to zoom \u00b7 drag to pan \u00b7 click node for details</span>';
+      return;
+    }
     var types={};incidents.forEach(function(i){if(i.incidentType)types[i.incidentType]=true});
     var typeList=Object.keys(types);var f=getFiltered();
     var h='<div class="filter-group"><span class="filter-label">Phase</span>';
@@ -946,6 +1260,48 @@ select { font-family: inherit; }
     var body=inc.summary||inc.message||(inc.correlatedSignals&&inc.correlatedSignals.length?inc.correlatedSignals[0]:'Phase 1 records signals, affected resources, and timeline for quick investigation.');
     h+='<div class="evidence-body">'+esc(body)+'</div></div></div>';
 
+    /* AI RCA */
+    if(inc.rca){
+      h+='<div><div class="section-title">\u{1F916} AI Root Cause Analysis</div>';
+      h+='<div class="evidence-card" style="border-left:3px solid var(--accent)">';
+      h+='<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:6px">'+esc(inc.rca.rootCause)+'</div>';
+      if(inc.rca.confidence)h+='<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">Confidence: '+esc(inc.rca.confidence)+' \u00b7 '+(inc.rca.investigatedAt?absTime(inc.rca.investigatedAt):'')+'</div>';
+      if(inc.rca.evidence&&inc.rca.evidence.length){
+        h+='<div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin:6px 0 4px">Evidence</div>';
+        inc.rca.evidence.forEach(function(e){h+='<div class="card" style="font-size:11px">'+esc(e)+'</div>'});
+      }
+      if(inc.rca.playbook&&inc.rca.playbook.length){
+        h+='<div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin:6px 0 4px">Playbook</div>';
+        inc.rca.playbook.forEach(function(cmd,i){
+          h+='<div class="card"><span class="cmd-num">'+(i+1)+'.</span><code class="cmd-code">'+esc(cmd)+'</code>';
+          h+='<button class="copy-btn" onclick="window._copy(this,\''+esc(cmd.replace(/'/g,"\\'"))+'\')">copy</button></div>';
+        });
+      }
+      h+='</div></div>';
+    } else if(inc.phase==='Active'){
+      h+='<div><div class="section-title">\u{1F916} AI Root Cause Analysis</div>';
+      h+='<div class="card" style="cursor:pointer" onclick="window._investigate(\''+esc(inc.namespace)+'\',\''+esc(inc.name)+'\')">';
+      h+='<span class="cmd-num">\u{1F916}</span><code class="cmd-code">Trigger AI Investigation</code></div></div>';
+    }
+
+    /* Related Traces */
+    if(inc.relatedTraces&&inc.relatedTraces.length){
+      h+='<div><div class="section-title">Related Traces ('+inc.relatedTraces.length+')</div>';
+      inc.relatedTraces.forEach(function(t){
+        h+='<div class="card"><code class="cmd-code" style="font-size:11px">'+esc(t)+'</code>';
+        h+='<button class="copy-btn" onclick="window._copy(this,\''+esc(t)+'\')">copy</button></div>';
+      });
+      h+='</div>';
+    }
+
+    /* Blast Radius */
+    if(inc.blastRadius&&inc.blastRadius.length){
+      h+='<div><div class="section-title">Blast Radius ('+inc.blastRadius.length+' services)</div>';
+      h+='<div style="display:flex;flex-wrap:wrap;gap:4px">';
+      inc.blastRadius.forEach(function(s){h+='<span class="topo-blast-tag">'+esc(s)+'</span>'});
+      h+='</div></div>';
+    }
+
     /* Conditions */
     h+='<div><div class="section-title">Status Conditions</div>';
     [{type:'Available',status:inc.phase==='Active'?'True':inc.phase==='Resolved'?'False':'Unknown',
@@ -1052,7 +1408,7 @@ select { font-family: inherit; }
       '<span>'+(connected?'Connected':'Disconnected')+'</span>'+
       '<span class="status-sep"></span><span>Polling 10s</span>'+
       '<span class="status-sep"></span><span>'+f.length+'/'+incidents.length+' shown</span>'+
-      '<div style="flex:1"></div><span>RCA Operator v0.0.15</span>';
+      '<div style="flex:1"></div><span>RCA Operator v0.0.16</span>';
   }
 
   /* ── Event Handlers ────────────────────────── */
@@ -1073,6 +1429,16 @@ select { font-family: inherit; }
     }
   };
   window._close=function(){selectedKey=null;renderIncidents();renderDetail()};
+  window._investigate=function(ns,name){
+    if(!confirm('Trigger AI investigation for '+ns+'/'+name+'?'))return;
+    fetch('/api/investigate/'+encodeURIComponent(ns)+'/'+encodeURIComponent(name),{method:'POST'})
+      .then(function(r){
+        if(!r.ok)return r.text().then(function(t){throw new Error(t)});
+        return r.json();
+      }).then(function(data){
+        alert('AI Investigation started.\nStatus: '+(data.status||'unknown'));
+      }).catch(function(e){alert('Investigation failed: '+e.message)});
+  };
   window._f=function(type,val){
     if(filters[type]===val&&val!=='all')filters[type]='all';else filters[type]=val;
     render();

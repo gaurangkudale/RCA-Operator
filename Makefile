@@ -59,7 +59,7 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: manifests generate fmt vet setup-envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test -race -count=1 -timeout=5m $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
 # TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
@@ -150,6 +150,11 @@ docker-build: ## Build docker image with the manager.
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
+
+KIND_CLUSTER_NAME ?= kind
+.PHONY: kind-load
+kind-load: docker-build ## Build and load the docker image into the Kind cluster.
+	kind load docker-image ${IMG} --name ${KIND_CLUSTER_NAME}
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
