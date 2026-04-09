@@ -106,9 +106,9 @@ func TestBuilder_BuildGraph(t *testing.T) {
 		t.Errorf("expected 1 incident on payment-svc, got %d", len(paymentNode.Incidents))
 	}
 
-	// Gateway should be healthy (no incidents)
-	if gateway.Status != telemetry.HealthStatusHealthy {
-		t.Errorf("expected api-gateway to be healthy, got %s", gateway.Status)
+	// Gateway should be warning: no incidents, but its outbound calls to payment-svc have 5% error rate
+	if gateway.Status != telemetry.HealthStatusWarning {
+		t.Errorf("expected api-gateway to be warning (outbound calls failing), got %s", gateway.Status)
 	}
 }
 

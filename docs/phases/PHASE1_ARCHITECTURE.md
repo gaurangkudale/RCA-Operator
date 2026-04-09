@@ -137,34 +137,41 @@ The UI should not reconstruct incidents from raw events. It should render the al
 
 Keep the Kubebuilder single-group layout. Do not move scaffolded API/controller locations.
 
-Add or reshape internals around these packages:
+Internals are organized around these packages:
 
 ```text
 internal/
-  collectors/
-    node/
-    pod/
-    workload/
-    event/
-    ownership/
+  watcher/
+    pod_watcher.go
+    node_watcher.go
+    deployment_watcher.go
+    event_watcher.go
+  correlator/
+    consumer.go        -- event loop, signal routing
+    correlator.go      -- multi-signal rule engine
+    rules.go           -- named correlation rules (Rule1–Rule5)
+    anomaly.go         -- single-signal anomaly detection
   engine/
-    incident/
-    fingerprint/
-    lifecycle/
-    resolver/
+    engine.go          -- incident fingerprinting and lifecycle engine
   reporter/
-    incidentreport/
+    cr_reporter.go     -- all IncidentReport CR writes (single writer)
   dashboard/
+    server.go          -- REST API server
+    static/
+      index.html       -- embedded UI
   controller/
+    rcaagent_controller.go
 ```
 
-Recommended responsibility split:
+Responsibility split:
 
-- `collectors/*`: convert Kubernetes resources into normalized signals
-- `engine/fingerprint`: compute canonical identity for an issue
-- `engine/lifecycle`: maintain `Detecting -> Active -> Resolved`
-- `engine/resolver`: decide when an active incident is cleared
-- `reporter`: persist only the final normalized incident state into `IncidentReport`
+- `watcher/*`: convert Kubernetes resources into normalized signals via channel-based event fan-out
+- `correlator/consumer.go`: routes events to anomaly detector and correlator; calls reporter
+- `correlator/correlator.go` + `rules.go`: multi-signal sliding-window rules for cross-pod/node correlations
+- `correlator/anomaly.go`: single-signal incident detection (CrashLoop, OOMKilled, ImagePull, etc.)
+- `engine/engine.go`: incident fingerprinting, lifecycle transitions (`Detecting → Active → Resolved`)
+- `reporter/cr_reporter.go`: single writer for all `IncidentReport` CR create/update/resolve operations
+- `dashboard/server.go`: REST API reads only `IncidentReport` and `RCAAgent` CRs
 
 ## Signal Model
 

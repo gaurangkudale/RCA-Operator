@@ -14,6 +14,16 @@ It does not query Pods, Nodes, Events, Deployments, or any external datastore di
 
 ## What It Shows
 
+The dashboard uses an icon-based sidebar with seven views. The active view is highlighted in the sidebar.
+
+### Topology View (default)
+- interactive SVG service dependency graph with draggable/zoomable canvas
+- status-colored nodes (healthy/warning/critical/unknown) with service icons
+- animated edges showing call relationships with error rate indicators; edge color reflects health (green/yellow/red)
+- node status propagates from edge error rates: if service-to-service calls are failing, the target node turns critical even without a K8s-level incident
+- click any node to open a side panel showing: metrics (request rate, error rate, P99 latency, CPU, memory, active connections), active incidents, blast radius analysis, and quick links to traces and logs
+- legend showing health status color coding
+
 ### Incidents View
 - current incident phase and severity
 - summary, reason, and message
@@ -24,12 +34,31 @@ It does not query Pods, Nodes, Events, Deployments, or any external datastore di
 - loaded correlation rules
 - notification status (sent/pending)
 
-### Topology View (Phase 2)
-- interactive SVG service dependency graph with draggable/zoomable canvas
-- status-colored nodes (healthy/warning/critical/unknown) with service icons
-- animated edges showing call relationships with error rate indicators
-- click any node to see: metrics (request rate, error rate, P99 latency, CPU, memory), active incidents, blast radius analysis, and quick links to traces/logs
-- legend showing health status color coding
+### Metrics View (Phase 2)
+- per-service RED metrics: request rate, error rate, P99 latency
+- infrastructure metrics: CPU usage, memory usage, active connections
+- data sourced from Prometheus (requires `telemetry.prometheus.endpoint` in Helm values)
+- shows `—` for metrics when the telemetry backend is unavailable
+
+### Logs View (Phase 2)
+- unified log stream for a selected service
+- filters by severity (error/warn/info)
+- sourced from SigNoz logs API when configured; falls back to Kubernetes pod logs (tail of the most recent pod matching the service name)
+- each log entry shows timestamp, severity badge, and message body
+
+### Traces View (Phase 2)
+- recent distributed traces for a selected service
+- table shows trace ID, root span, duration (in ms), span count, start time, and error badge
+- sourced from Jaeger or SigNoz depending on configured backend
+- click a trace ID to view in the configured Jaeger/SigNoz UI
+
+### Rules View
+- table of all `RCACorrelationRule` CRs with name, confidence, and auto-generated flag
+- shows which rules are active and their priority
+
+### Agents View
+- table of `RCAAgent` CRs with status, monitored namespaces, and configuration summary
+- aggregate stats: active/detecting/resolved incident counts
 
 ## Theme
 
