@@ -225,11 +225,24 @@ func TestMatchesService(t *testing.T) {
 		incNS    string
 		expected bool
 	}{
+		// Exact match
 		{"exact match", "payment-svc", "", "payment-svc", "", true},
-		{"prefix match", "payment-svc", "", "payment-svc-abc123", "", true},
+		// Node name is prefix of incident name (Jaeger "payment" → incident "payment-crash-abc")
+		{"node prefix of incident", "payment", "", "payment-crash-abc123", "", true},
+		// Incident name is prefix of node name (incident "payment" → Jaeger "payment-svc")
+		{"incident prefix of node", "payment-svc", "", "payment", "", true},
+		// Old bug: incident "payment-svc-abc123" should match node "payment-svc"
+		{"node prefix of long incident", "payment-svc", "", "payment-svc-abc123", "", true},
+		// Must NOT match if names share prefix but separator is missing
+		{"node prefix no separator", "pay", "", "payment", "", false},
+		// Different services
 		{"no match", "payment-svc", "", "auth-svc", "", false},
+		// Namespace guard — only fires when both sides have a non-empty namespace
 		{"namespace mismatch", "payment-svc", "prod", "payment-svc", "staging", false},
 		{"namespace match", "payment-svc", "prod", "payment-svc-crash", "prod", true},
+		// Node has no namespace (common for trace-derived nodes) — never filtered
+		{"node no namespace skips guard", "cart", "", "cart-crash", "production", true},
+		// Short incident name
 		{"short incident name", "payment-svc", "", "pay", "", false},
 	}
 	for _, tt := range tests {

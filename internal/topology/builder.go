@@ -130,13 +130,41 @@ func computeNodeStatus(node *ServiceNode) telemetry.HealthStatus {
 }
 
 // matchesService returns true if the incident likely affects this service node.
+//
+// Matching strategy (in priority order):
+//  1. Namespace guard: if both sides have a namespace set and they differ → no match.
+//     NOTE: topology nodes built from Jaeger/SigNoz do not carry a namespace, so this
+//     guard only fires when the node was explicitly created with a namespace.
+//  2. Exact name match (most precise).
+//  3. Node name is a prefix of the incident name — handles the common case where the
+//     Jaeger service is "payment" and the incident is named "payment-crash-abc123".
+//  4. Incident name is a prefix of the node name — handles the inverse (service registered
+//     as "payment-svc" matching an incident on pod "payment").
 func matchesService(node *ServiceNode, inc IncidentRef) bool {
-	// Match by namespace + name prefix (e.g. incident for "payment-svc-abc123" matches node "payment-svc")
+	// Namespace guard: only applies when both sides carry a non-empty namespace.
 	if inc.Namespace != "" && node.Namespace != "" && inc.Namespace != node.Namespace {
 		return false
 	}
-	// Simple substring match -- the incident name typically contains the service/pod name
-	return len(inc.Name) >= len(node.Name) && inc.Name[:len(node.Name)] == node.Name
+
+	nodeName := node.Name
+	incName := inc.Name
+
+	// Exact match.
+	if nodeName == incName {
+		return true
+	}
+
+	// Node name is a prefix of the incident name: "payment" matches "payment-crash-abc"
+	if len(incName) > len(nodeName) && incName[:len(nodeName)] == nodeName && incName[len(nodeName)] == '-' {
+		return true
+	}
+
+	// Incident name is a prefix of the node name: "payment" matches "payment-svc"
+	if len(nodeName) > len(incName) && nodeName[:len(incName)] == incName && nodeName[len(incName)] == '-' {
+		return true
+	}
+
+	return false
 }
 
 // classifyEdgeStatus determines edge health from dependency metrics.
