@@ -1,1819 +1,1463 @@
 <!DOCTYPE html>
-<html lang="en" class="bg-slate-950 text-slate-200">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RCA Operator - Unified Command Center</title>
+    <title>RCA Operator</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
-        /* Base App Styling */
-        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: 'Inter', system-ui, sans-serif; }
+        *, *::before, *::after { box-sizing: border-box; }
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: 'Inter', system-ui, sans-serif; background: #020817; color: #cbd5e1; }
         .font-mono { font-family: 'JetBrains Mono', monospace; }
-        
-        /* Custom Scrollbars */
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #475569; }
-        .custom-scrollbar::-webkit-scrollbar { height: 4px; }
 
-        /* Minimalist Canvas Grid Background */
+        /* Scrollbars */
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #334155; }
+
+        /* Canvas grid */
         .canvas-bg {
-            background-size: 30px 30px;
-            background-image: 
-                linear-gradient(to right, rgba(51, 65, 85, 0.1) 1px, transparent 1px),
-                linear-gradient(to bottom, rgba(51, 65, 85, 0.1) 1px, transparent 1px);
+            background-color: #020817;
+            background-image: linear-gradient(rgba(51,65,85,0.08) 1px, transparent 1px),
+                              linear-gradient(90deg, rgba(51,65,85,0.08) 1px, transparent 1px);
+            background-size: 32px 32px;
         }
 
-        /* SVG Edges */
-        .edge-path { stroke: #334155; stroke-width: 2px; fill: none; transition: stroke 0.3s; }
+        /* SVG edges */
+        .edge-path { stroke: #1e293b; stroke-width: 2; fill: none; transition: stroke 0.3s; }
+        .edge-path.healthy { stroke: #10b981; }
+        .edge-path.warning { stroke: #f59e0b; stroke-dasharray: 5 4; animation: flow 2s linear infinite; }
+        .edge-path.critical { stroke: #ef4444; stroke-width: 2.5; stroke-dasharray: 7 5; animation: flow 1s linear infinite; }
         .edge-path.active { stroke: #10b981; }
-        .edge-path.warning { stroke: #eab308; stroke-dasharray: 4 4; animation: flow 2s linear infinite; }
-        .edge-path.critical { stroke: #ef4444; stroke-width: 3px; stroke-dasharray: 6 6; animation: flow 1s linear infinite; }
-        @keyframes flow { to { stroke-dashoffset: -12; } }
+        @keyframes flow { to { stroke-dashoffset: -18; } }
 
-        /* Draggable Nodes (Simplified & Cleaner) */
-        .topology-node { position: absolute; transform: translate(-50%, -50%); cursor: grab; user-select: none; z-index: 10; transition: transform 0.1s;}
-        .topology-node:active { cursor: grabbing; transform: translate(-50%, -50%) scale(1.05); }
-        .topology-node.selected { z-index: 50; }
-        .topology-node.selected .node-circle { border-color: #818cf8; box-shadow: 0 0 0 4px rgba(129, 140, 248, 0.2); }
+        /* Topology nodes */
+        .topo-node { position: absolute; transform: translate(-50%, -50%); cursor: grab; user-select: none; z-index: 10; }
+        .topo-node:active { cursor: grabbing; }
+        .topo-node.selected .node-ring { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.25); }
 
-        /* Sparklines */
-        .sparkline-container { display: flex; align-items: flex-end; gap: 2px; height: 30px; }
-        .spark-bar { width: 4px; background: #3b82f6; border-radius: 1px 1px 0 0; transition: height 0.2s; }
-        .spark-bar.danger { background: #ef4444; }
-        .spark-bar.warn { background: #eab308; }
+        /* Sparkline bars */
+        .spark-bar { border-radius: 2px 2px 0 0; transition: height 0.3s; min-height: 3px; }
 
-        /* Slide Panel Animations */
-        .slide-panel { transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-        .panel-open { transform: translateX(0); }
-        .panel-closed { transform: translateX(100%); }
+        /* Slide panels */
+        .slide-right { transition: transform 0.25s cubic-bezier(0.4,0,0.2,1); }
+        .open { transform: translateX(0); }
+        .closed { transform: translateX(100%); }
 
-        /* Sidebar Active State */
-        .nav-btn.active { background-color: rgba(99, 102, 241, 0.1); color: #818cf8; border-left: 3px solid #818cf8; }
-        .nav-btn { border-left: 3px solid transparent; }
+        /* Nav */
+        .nav-item { border-left: 2px solid transparent; transition: all 0.15s; }
+        .nav-item.active { border-left-color: #6366f1; background: rgba(99,102,241,0.1); color: #a5b4fc; }
+        .nav-item:not(.active):hover { background: rgba(255,255,255,0.04); }
 
-        /* Detail Row Selection */
-        .inc-row.selected { background-color: rgba(99, 102, 241, 0.1); border-left: 3px solid #818cf8; }
-        .inc-row { border-left: 3px solid transparent; transition: all 0.2s; }
+        /* Incident row */
+        .inc-row { border-left: 2px solid transparent; transition: all 0.15s; }
+        .inc-row.sel { border-left-color: #6366f1; background: rgba(99,102,241,0.07); }
+        .inc-row:hover:not(.sel) { background: rgba(255,255,255,0.03); }
 
-        /* Toast Animation */
-        #toast { transition: bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s; }
+        /* Log line */
+        .log-line { font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.6; padding: 1px 0; border-bottom: 1px solid rgba(30,41,59,0.4); }
+        .log-line.FATAL, .log-line.ERROR { background: rgba(239,68,68,0.06); }
+        .log-line.WARN { background: rgba(245,158,11,0.04); }
+
+        /* Metric bar chart */
+        .metric-bar-wrap { display: flex; align-items: flex-end; gap: 3px; height: 64px; }
+        .metric-bar { flex: 1; border-radius: 2px 2px 0 0; transition: height 0.3s; }
+
+        /* Trace row */
+        .trace-row { transition: background 0.1s; }
+        .trace-row:hover { background: rgba(255,255,255,0.03); }
+
+        /* Pulse dot */
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+        .pulse-dot { animation: pulse 1.5s ease-in-out infinite; }
+
+        /* Toast */
+        #toast { transition: bottom 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.3s; }
+
+        /* Timeline connector line */
+        .tl-line { position: absolute; top: 28px; left: 0; right: 0; height: 1px; background: #1e293b; z-index: 0; }
     </style>
 </head>
-<body class="flex h-screen bg-slate-950 overflow-hidden text-slate-300">
+<body class="flex h-screen overflow-hidden">
 
-    <!-- Global Slim Sidebar -->
-    <aside class="w-16 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-4 gap-2 shrink-0 z-50 shadow-xl">
-        <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-600/20 mb-4 cursor-pointer" onclick="showToast('RCA Operator Dashboard connected')">
-            <i data-lucide="radar" class="text-white w-6 h-6"></i>
-        </div>
-        
-        <button onclick="switchTab('topology')" id="nav-topology" class="nav-btn active w-full flex justify-center text-slate-500 hover:text-slate-300 py-3 hover:bg-slate-800/50 transition-colors group relative">
-            <i data-lucide="network" class="w-5 h-5"></i>
-            <span class="absolute left-14 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">Topology</span>
-        </button>
-        
-        <button onclick="switchTab('incidents')" id="nav-incidents" class="nav-btn w-full flex justify-center text-slate-500 hover:text-slate-300 py-3 hover:bg-slate-800/50 transition-colors group relative">
-            <i data-lucide="alert-triangle" class="w-5 h-5"></i>
-            <div class="absolute top-2 right-3.5 w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-            <span class="absolute left-14 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">Incidents</span>
-        </button>
-        
-        <button onclick="switchTab('metrics')" id="nav-metrics" class="nav-btn w-full flex justify-center text-slate-500 hover:text-slate-300 py-3 hover:bg-slate-800/50 transition-colors group relative">
-            <i data-lucide="activity" class="w-5 h-5"></i>
-            <span class="absolute left-14 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">Metrics</span>
-        </button>
-        
-        <button onclick="switchTab('logs')" id="nav-logs" class="nav-btn w-full flex justify-center text-slate-500 hover:text-slate-300 py-3 hover:bg-slate-800/50 transition-colors group relative">
-            <i data-lucide="file-text" class="w-5 h-5"></i>
-            <span class="absolute left-14 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">Logs</span>
-        </button>
-
-        <div class="w-8 h-px bg-slate-800 my-2"></div>
-
-        <button onclick="switchTab('rules')" id="nav-rules" class="nav-btn w-full flex justify-center text-slate-500 hover:text-slate-300 py-3 hover:bg-slate-800/50 transition-colors group relative">
-            <i data-lucide="file-code-2" class="w-5 h-5"></i>
-            <span class="absolute left-14 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">RCA Rules</span>
-        </button>
-
-        <button onclick="switchTab('agents')" id="nav-agents" class="nav-btn w-full flex justify-center text-slate-500 hover:text-slate-300 py-3 hover:bg-slate-800/50 transition-colors group relative">
-            <i data-lucide="cpu" class="w-5 h-5"></i>
-            <span class="absolute left-14 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">RCA Agents</span>
-        </button>
-        
-        <div class="mt-auto w-full">
-            <button onclick="showToast('Settings panel opening...')" class="w-full flex justify-center text-slate-500 hover:text-slate-300 py-3 hover:bg-slate-800/50 transition-colors">
-                <i data-lucide="settings" class="w-5 h-5"></i>
-            </button>
-        </div>
-    </aside>
-
-    <!-- Main Workspace -->
-    <main class="flex-grow flex flex-col relative min-w-0 h-full">
-        
-        <!-- Top Navigation / Context Bar -->
-        <header class="h-14 bg-slate-900/90 backdrop-blur border-b border-slate-800 flex items-center justify-between px-6 shrink-0 z-40">
-            <div class="flex items-center gap-4">
-                <div class="flex items-center gap-2 text-sm font-medium">
-                    <span class="text-slate-400 hover:text-white cursor-pointer transition-colors">prod-cluster-01</span>
-                    <i data-lucide="chevron-right" class="w-4 h-4 text-slate-600"></i>
-                    <span class="text-slate-200 cursor-pointer">payment-system</span>
-                </div>
-                <div class="h-4 w-px bg-slate-700"></div>
-                <div id="active-incident-pill" class="flex items-center gap-2 bg-red-500/10 border border-red-500/30 text-red-400 px-3 py-1 rounded-md text-xs font-bold tracking-wide shadow-[0_0_15px_rgba(239,68,68,0.15)] cursor-pointer hover:bg-red-500/20 transition-colors" onclick="switchTab('incidents')">
-                    <span class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-                    <span id="active-incident-text">ACTIVE INCIDENT</span>
-                </div>
-            </div>
-            <div class="flex items-center gap-4">
-                <div class="flex items-center gap-4 text-xs font-mono hidden md:flex text-slate-400">
-                    <div class="flex items-center gap-1.5"><i data-lucide="server" class="w-3.5 h-3.5 text-emerald-400"></i> <span id="hdr-services">0 Services</span></div>
-                    <div class="flex items-center gap-1.5"><i data-lucide="box" class="w-3.5 h-3.5 text-emerald-400"></i> <span id="hdr-agents">0 Agents</span></div>
-                    <div class="flex items-center gap-1.5"><i data-lucide="shield-alert" class="w-3.5 h-3.5 text-red-400"></i> <span id="hdr-failing">0 Failing</span></div>
-                </div>
-                <div class="h-6 w-px bg-slate-700 mx-2 hidden sm:block"></div>
-                <button onclick="exportReport()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 shadow-sm">
-                    <i data-lucide="download" class="w-3.5 h-3.5"></i> Export
-                </button>
-            </div>
-        </header>
-
-        <!-- VIEWS CONTAINER -->
-        <div class="flex-grow flex flex-col relative overflow-hidden">
-            
-            <!-- ================= VIEW: TOPOLOGY ================= -->
-            <div id="view-topology" class="absolute inset-0 flex flex-col z-10 transition-opacity duration-300">
-                <div class="flex-grow relative canvas-bg" id="canvas-container">
-                    
-                    <!-- HUD Controls -->
-                    <div class="absolute top-4 left-4 z-20 bg-slate-900 border border-slate-800 p-1.5 rounded-lg shadow-sm flex gap-1">
-                        <button class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"><i data-lucide="zoom-in" class="w-4 h-4"></i></button>
-                        <button class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"><i data-lucide="zoom-out" class="w-4 h-4"></i></button>
-                        <div class="w-px h-5 bg-slate-700 my-auto mx-1"></div>
-                        <button class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors" onclick="resetLayout()" title="Reset Layout"><i data-lucide="move" class="w-4 h-4"></i></button>
-                    </div>
-
-                    <svg id="edges-layer" class="absolute inset-0 w-full h-full pointer-events-none z-0"></svg>
-                    <div id="nodes-layer" class="absolute inset-0 w-full h-full z-10"></div>
-                </div>
-
-                <!-- Topology Side Panel -->
-                <aside id="topology-panel" class="w-80 bg-slate-900 border-l border-slate-800 shadow-2xl flex flex-col shrink-0 absolute right-0 top-0 bottom-0 z-50 slide-panel panel-closed">
-                    <div class="p-4 border-b border-slate-800 flex justify-between items-start bg-slate-900">
-                        <div class="flex items-center gap-3">
-                            <div id="topo-panel-icon" class="w-10 h-10 rounded-lg bg-slate-950 border border-slate-700 flex items-center justify-center">
-                                <i data-lucide="box" class="w-5 h-5 text-slate-300"></i>
-                            </div>
-                            <div>
-                                <h2 id="topo-panel-title" class="text-sm font-bold text-white tracking-tight">Service</h2>
-                                <p id="topo-panel-type" class="text-[10px] text-slate-500 font-mono uppercase tracking-wider mt-0.5">Deployment</p>
-                            </div>
-                        </div>
-                        <button onclick="closeTopologyPanel()" class="text-slate-500 hover:text-white transition-colors p-1">
-                            <i data-lucide="x" class="w-4 h-4"></i>
-                        </button>
-                    </div>
-
-                    <div class="flex-grow overflow-y-auto p-4 space-y-6">
-                        <div id="topo-rca-box" class="hidden bg-red-500/10 border border-red-500/30 rounded-lg p-3">
-                            <h4 class="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
-                                <i data-lucide="brain-circuit" class="w-3.5 h-3.5"></i> Detected Anomaly
-                            </h4>
-                            <p class="text-xs text-slate-300 leading-relaxed" id="topo-rca-text"></p>
-                            <button onclick="switchTab('incidents')" class="mt-3 w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-medium py-1.5 rounded transition-colors flex items-center justify-center gap-1.5">
-                                View Details <i data-lucide="arrow-right" class="w-3 h-3"></i>
-                            </button>
-                        </div>
-
-                        <div>
-                            <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Live Telemetry</h3>
-                            <div class="grid grid-cols-2 gap-2">
-                                <div class="bg-slate-950 border border-slate-800 p-2.5 rounded-lg">
-                                    <div class="flex justify-between items-center mb-2">
-                                        <span class="text-[10px] text-slate-400 flex items-center gap-1 font-medium"><i data-lucide="cpu" class="w-3 h-3 text-blue-400"></i> CPU</span>
-                                        <span id="topo-cpu-val" class="text-xs font-bold text-white font-mono">--%</span>
-                                    </div>
-                                    <div class="sparkline-container" id="topo-spark-cpu"></div>
-                                </div>
-                                <div class="bg-slate-950 border border-slate-800 p-2.5 rounded-lg">
-                                    <div class="flex justify-between items-center mb-2">
-                                        <span class="text-[10px] text-slate-400 flex items-center gap-1 font-medium"><i data-lucide="hard-drive" class="w-3 h-3 text-purple-400"></i> MEM</span>
-                                        <span id="topo-mem-val" class="text-xs font-bold text-white font-mono">--%</span>
-                                    </div>
-                                    <div class="sparkline-container" id="topo-spark-mem"></div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div>
-                            <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Resource Status</h3>
-                            <div class="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs font-mono space-y-2">
-                                <div class="flex justify-between pb-2 border-b border-slate-800/50">
-                                    <span class="text-slate-500">Replicas</span>
-                                    <span class="text-slate-300"><span id="topo-k8s-desired">5</span> Desired / <span id="topo-k8s-current" class="text-emerald-400 font-bold">5 Current</span></span>
-                                </div>
-                                <div class="flex justify-between pb-2 border-b border-slate-800/50">
-                                    <span class="text-slate-500">Restarts</span>
-                                    <span class="text-slate-300 font-bold" id="topo-k8s-restarts">0</span>
-                                </div>
-                                <div class="flex justify-between">
-                                    <span class="text-slate-500">Age</span>
-                                    <span class="text-slate-300">14d 6h</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </aside>
-            </div>
-
-            <!-- ================= VIEW: INCIDENTS ================= -->
-            <div id="view-incidents" class="absolute inset-0 hidden flex z-10 bg-slate-950">
-                <!-- Left: Incident List -->
-                <div class="w-full md:w-[400px] flex-shrink-0 border-r border-slate-800 flex flex-col bg-slate-950/50">
-                    <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
-                        <h2 class="font-bold text-white flex items-center gap-2 text-sm"><i data-lucide="alert-triangle" class="w-4 h-4 text-red-400"></i> Active Incidents</h2>
-                        <span id="incidents-total" class="text-xs bg-slate-800 text-slate-300 px-2 py-0.5 rounded font-mono">0 Total</span>
-                    </div>
-                    <div class="flex-grow overflow-y-auto" id="incident-list-container"></div>
-                </div>
-
-                <!-- Right: Detailed RCA Split Pane -->
-                <div id="incident-detail-pane" class="flex-grow bg-slate-900 flex flex-col hidden overflow-hidden relative">
-                    <div class="p-6 border-b border-slate-800 bg-slate-900/80 backdrop-blur z-10 shrink-0 flex justify-between items-start">
-                        <div>
-                            <div class="flex items-center gap-2 mb-2">
-                                <span id="inc-det-sev" class="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider font-mono">P1</span>
-                                <span id="inc-det-phase" class="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider font-mono flex items-center gap-1.5"><div class="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></div> Active</span>
-                                <span class="px-2 py-0.5 bg-slate-800 text-slate-400 rounded text-[9px] font-mono" id="inc-det-type">OOMKilled</span>
-                            </div>
-                            <h2 id="inc-det-title" class="text-xl font-bold text-white tracking-tight mb-1">payment-svc</h2>
-                            <p class="text-xs text-slate-400 font-mono" id="inc-det-meta">payment-system • INC-9931</p>
-                        </div>
-                        <div class="text-right">
-                            <div class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1">Time Elapsed</div>
-                            <div class="text-lg font-mono font-bold text-amber-400" id="inc-det-dur">12m 45s</div>
-                        </div>
-                    </div>
-
-                    <div class="flex-grow overflow-y-auto p-6 space-y-6">
-                        <section>
-                            <h3 class="text-[10px] font-bold text-purple-400 uppercase tracking-widest mb-2 flex items-center gap-1.5"><i data-lucide="brain-circuit" class="w-3.5 h-3.5"></i> Operator Summary</h3>
-                            <div class="bg-purple-500/5 border border-purple-500/20 rounded-lg p-4 shadow-sm">
-                                <p class="text-xs text-slate-300 leading-relaxed" id="inc-det-summary">Automated analysis has detected a memory leak resulting in OOMKilled evictions.</p>
-                            </div>
-                        </section>
-
-                        <section>
-                            <h3 class="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-2 flex items-center gap-1.5"><i data-lucide="terminal-square" class="w-3.5 h-3.5"></i> Playbook</h3>
-                            <div class="bg-slate-950 border border-slate-800 rounded-lg p-2 space-y-1.5" id="inc-det-playbook">
-                                <!-- Injected via JS -->
-                            </div>
-                        </section>
-
-                        <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                            <section>
-                                <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Affected Resources</h3>
-                                <div class="space-y-1.5" id="inc-det-resources"></div>
-                            </section>
-
-                            <section>
-                                <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Conditions</h3>
-                                <div class="bg-slate-950 border border-slate-800 rounded-lg overflow-hidden text-xs">
-                                    <div class="p-2.5 border-b border-slate-800 flex items-start gap-2">
-                                        <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-500 mt-0.5"></i>
-                                        <div>
-                                            <div class="font-bold text-slate-200">Signals Correlated <span class="font-mono text-[9px] bg-slate-800 px-1 rounded text-slate-400 ml-1">True</span></div>
-                                        </div>
-                                    </div>
-                                    <div class="p-2.5 flex items-start gap-2">
-                                        <i data-lucide="bell-ring" class="w-3.5 h-3.5 text-emerald-500 mt-0.5"></i>
-                                        <div>
-                                            <div class="font-bold text-slate-200">Alert Dispatched <span class="font-mono text-[9px] bg-slate-800 px-1 rounded text-slate-400 ml-1">True</span></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </section>
-                        </div>
-                    </div>
-                </div>
-                
-                <div id="incident-empty-pane" class="flex-grow flex flex-col items-center justify-center bg-slate-900 text-slate-500">
-                    <i data-lucide="shield-alert" class="w-12 h-12 mb-3 opacity-20"></i>
-                    <p class="font-medium text-sm">Select an incident to view details.</p>
-                </div>
-            </div>
-
-            <!-- ================= VIEW: METRICS ================= -->
-            <div id="view-metrics" class="absolute inset-0 hidden flex flex-col p-6 overflow-y-auto bg-slate-950 z-10">
-                <div class="flex justify-between items-end mb-6">
-                    <div>
-                        <h2 class="text-xl font-bold text-white tracking-tight">Service Metrics</h2>
-                        <p class="text-slate-400 text-xs mt-1">Live telemetry for the selected service</p>
-                    </div>
-                    <div id="metrics-controls" class="flex items-center gap-2"></div>
-                </div>
-                <div id="metrics-cards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
-            </div>
-
-            <!-- ================= VIEW: LOGS ================= -->
-            <div id="view-logs" class="absolute inset-0 hidden flex flex-col p-6 bg-slate-950 z-10">
-                <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-xl font-bold text-white flex items-center gap-2"><i data-lucide="terminal" class="w-5 h-5 text-indigo-400"></i> Unified Log Stream</h2>
-                    <div id="logs-controls" class="flex items-center gap-2"></div>
-                </div>
-                <div class="flex-grow bg-[#0B1120] border border-slate-800 rounded-xl overflow-hidden flex flex-col shadow-inner">
-                    <div class="h-8 bg-slate-900 border-b border-slate-800 flex items-center px-4 gap-2 shrink-0">
-                        <div class="w-2.5 h-2.5 rounded-full bg-red-500/50"></div>
-                        <div class="w-2.5 h-2.5 rounded-full bg-yellow-500/50"></div>
-                        <div class="w-2.5 h-2.5 rounded-full bg-emerald-500/50"></div>
-                        <span class="text-[10px] text-slate-500 font-mono ml-2">tail -f /var/log/containers/*.log</span>
-                    </div>
-                    <div id="logs-stream" class="flex-grow p-4 overflow-y-auto font-mono text-[11px] space-y-1"></div>
-                </div>
-            </div>
-
-            <!-- ================= VIEW: RULES ================= -->
-            <div id="view-rules" class="absolute inset-0 hidden flex flex-col p-6 bg-slate-950 overflow-y-auto z-10">
-                <div class="flex justify-between items-end mb-6">
-                    <div>
-                        <h2 class="text-xl font-bold text-white">RCA Rules</h2>
-                        <p class="text-slate-400 text-xs mt-1">Correlation logic definitions.</p>
-                    </div>
-                </div>
-                <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
-                    <table class="w-full text-left text-sm text-slate-400">
-                        <thead class="text-[10px] text-slate-500 uppercase bg-slate-950/80 border-b border-slate-800">
-                            <tr>
-                                <th class="px-4 py-3 font-bold">Rule Name</th>
-                                <th class="px-4 py-3 font-bold">Trigger</th>
-                                <th class="px-4 py-3 font-bold">Severity</th>
-                                <th class="px-4 py-3 font-bold">Conditions</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-800/50" id="rules-table-body"></tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- ================= VIEW: AGENTS ================= -->
-            <div id="view-agents" class="absolute inset-0 hidden flex flex-col p-6 bg-slate-950 overflow-y-auto z-10">
-                <div class="flex justify-between items-end mb-6">
-                    <div>
-                        <h2 class="text-xl font-bold text-white">RCA Agents</h2>
-                        <p class="text-slate-400 text-xs mt-1">Telemetry collector status.</p>
-                    </div>
-                </div>
-                <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
-                    <table class="w-full text-left text-sm text-slate-400">
-                        <thead class="text-[10px] text-slate-500 uppercase bg-slate-950/80 border-b border-slate-800">
-                            <tr>
-                                <th class="px-4 py-3 font-bold">Agent Name</th>
-                                <th class="px-4 py-3 font-bold">Namespaces</th>
-                                <th class="px-4 py-3 font-bold">Status</th>
-                                <th class="px-4 py-3 font-bold text-right">Last Sync</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-800/50" id="agents-table-body"></tbody>
-                    </table>
-                </div>
-            </div>
-
-        </div> <!-- END VIEWS CONTAINER -->
-
-        <!-- Persistent Correlation Stream (Bottom Panel) -->
-        <div class="h-48 bg-slate-900 border-t border-slate-800 shrink-0 flex flex-col z-40 shadow-[0_-5px_20px_rgba(0,0,0,0.3)] relative">
-            <div class="flex items-center justify-between px-6 py-2 border-b border-slate-800 bg-slate-950/80 backdrop-blur z-20">
-                <h3 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-                    <i data-lucide="git-commit" class="w-3.5 h-3.5 text-indigo-400"></i> Live Correlation Stream
-                </h3>
-            </div>
-            <div class="flex-grow overflow-x-auto overflow-y-hidden bg-slate-900 relative pl-4 py-4 custom-scrollbar" id="timeline-container">
-                <div class="absolute top-[40px] left-0 right-0 h-[1px] bg-slate-800 z-0"></div>
-                <div class="flex gap-4 min-w-max items-start h-full px-2 relative z-10" id="stream-timeline"></div>
-            </div>
-        </div>
-
-    </main>
-
-    <!-- Global Toast Notification -->
-    <div id="toast" class="fixed bottom-[-100px] left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-4 py-2 rounded-lg shadow-xl border border-slate-700 font-medium text-xs z-[100] opacity-0 flex items-center gap-2">
-        <i data-lucide="info" class="w-4 h-4 text-indigo-400"></i>
-        <span id="toast-msg">Notification message</span>
+<!-- ─── Sidebar ─────────────────────────────────────────────────────────── -->
+<aside class="w-14 bg-[#0a1628] border-r border-slate-800/60 flex flex-col items-center py-3 gap-1 shrink-0 z-50">
+    <div class="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-900/40 mb-3 cursor-pointer" onclick="showToast('RCA Operator — connected')">
+        <i data-lucide="radar" class="w-5 h-5 text-white"></i>
     </div>
 
-    <script>
-        (function() {
-            const LAYOUT_PCT = {
-                ingress: { x: 15, y: 30 },
-                "api-gateway": { x: 30, y: 50 },
-                "auth-svc": { x: 50, y: 20 },
-                "payment-svc": { x: 50, y: 50 },
-                "inventory-svc": { x: 50, y: 80 },
-                "redis-cache": { x: 75, y: 30 },
-                "postgres-db": { x: 75, y: 70 }
-            };
+    <button id="nav-topology" onclick="switchTab('topology')" class="nav-item active w-full flex justify-center py-3 text-slate-400 relative group">
+        <i data-lucide="network" class="w-4.5 h-4.5"></i>
+        <span class="tooltip">Topology</span>
+    </button>
+    <button id="nav-incidents" onclick="switchTab('incidents')" class="nav-item w-full flex justify-center py-3 text-slate-500 relative group">
+        <i data-lucide="alert-triangle" class="w-4.5 h-4.5"></i>
+        <div id="inc-badge" class="absolute top-2 right-2.5 w-1.5 h-1.5 bg-red-500 rounded-full pulse-dot hidden"></div>
+        <span class="tooltip">Incidents</span>
+    </button>
+    <button id="nav-metrics" onclick="switchTab('metrics')" class="nav-item w-full flex justify-center py-3 text-slate-500 relative group">
+        <i data-lucide="activity" class="w-4.5 h-4.5"></i>
+        <span class="tooltip">Metrics</span>
+    </button>
+    <button id="nav-logs" onclick="switchTab('logs')" class="nav-item w-full flex justify-center py-3 text-slate-500 relative group">
+        <i data-lucide="terminal" class="w-4.5 h-4.5"></i>
+        <span class="tooltip">Logs</span>
+    </button>
+    <button id="nav-traces" onclick="switchTab('traces')" class="nav-item w-full flex justify-center py-3 text-slate-500 relative group">
+        <i data-lucide="git-branch" class="w-4.5 h-4.5"></i>
+        <span class="tooltip">Traces</span>
+    </button>
 
-            const ICON_MAP = {
-                globe: "globe",
-                database: "database",
-                mail: "mail",
-                "shield-check": "shield-check",
-                "credit-card": "credit-card",
-                monitor: "monitor",
-                server: "server",
-                package: "package",
-                cpu: "cpu"
-            };
+    <div class="w-6 h-px bg-slate-800 my-1"></div>
 
-            const PLAYBOOK = {
-                NodeNotReady: [
-                    "kubectl describe node <node-name>",
-                    "kubectl get events -n <ns> --sort-by='.lastTimestamp'"
-                ],
-                StalledRollout: [
-                    "kubectl rollout history deployment/<name> -n <ns>",
-                    "kubectl rollout undo deployment/<name> -n <ns>"
-                ],
-                OOMKilled: [
-                    "kubectl top pod -n <ns>",
-                    "kubectl describe pod <pod-name> -n <ns>",
-                    "kubectl get limitrange -n <ns>"
-                ],
-                ImagePullBackOff: [
-                    "kubectl describe pod <pod-name> -n <ns>",
-                    "kubectl get secret -n <ns> | grep docker"
-                ],
-                CrashLoopBackOff: [
-                    "kubectl logs <pod-name> -n <ns> --previous",
-                    "kubectl describe pod <pod-name> -n <ns>"
-                ],
-                ProbeFailure: [
-                    "kubectl describe pod <pod-name> -n <ns>",
-                    "kubectl logs <pod-name> -n <ns>"
-                ]
-            };
+    <button id="nav-rules" onclick="switchTab('rules')" class="nav-item w-full flex justify-center py-3 text-slate-500 relative group">
+        <i data-lucide="file-code-2" class="w-4.5 h-4.5"></i>
+        <span class="tooltip">RCA Rules</span>
+    </button>
+    <button id="nav-agents" onclick="switchTab('agents')" class="nav-item w-full flex justify-center py-3 text-slate-500 relative group">
+        <i data-lucide="cpu" class="w-4.5 h-4.5"></i>
+        <span class="tooltip">RCA Agents</span>
+    </button>
 
-            const SEV_BADGE = {
-                P1: "bg-red-500/10 text-red-400 border-red-500/30",
-                P2: "bg-amber-500/10 text-amber-400 border-amber-500/30",
-                P3: "bg-blue-500/10 text-blue-400 border-blue-500/30",
-                P4: "bg-slate-700/40 text-slate-300 border-slate-600"
-            };
+    <div class="mt-auto">
+        <button onclick="showToast('Settings panel coming soon')" class="w-full flex justify-center py-3 text-slate-600 hover:text-slate-400 transition-colors">
+            <i data-lucide="settings" class="w-4.5 h-4.5"></i>
+        </button>
+    </div>
+</aside>
 
-            const PHASE_BADGE = {
-                Active: "bg-red-500/10 text-red-400 border-red-500/30",
-                Detecting: "bg-purple-500/10 text-purple-400 border-purple-500/30",
-                Resolved: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-            };
+<style>
+.tooltip { position: absolute; left: calc(100% + 8px); top: 50%; transform: translateY(-50%); background: #1e293b; color: #e2e8f0; font-size: 11px; font-weight: 500; padding: 4px 8px; border-radius: 6px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 0.15s; z-index: 100; border: 1px solid #334155; }
+.group:hover .tooltip { opacity: 1; }
+</style>
 
-            const state = {
-                incidents: [],
-                stats: { active: 0, detecting: 0, resolved: 0, namespaces: {}, agents: [] },
-                rules: [],
-                topoGraph: { nodes: {}, edges: [] },
-                services: [],
-                activeTab: "topology",
-                selectedIncidentKey: null,
-                selectedNodeId: null,
-                selectedService: "",
-                nodesData: [],
-                edgesData: [],
-                nodePositions: {},
-                topologySSE: null,
-                correlationSSE: null,
-                logsSeverity: "",
-                metricsCache: {},
-                logsCache: {},
-                lastRefreshAt: new Date()
-            };
+<!-- ─── Main ──────────────────────────────────────────────────────────────── -->
+<main class="flex-grow flex flex-col relative min-w-0 h-full overflow-hidden">
 
-            let draggedNodeId = null;
-            let dragOffsetX = 0;
-            let dragOffsetY = 0;
-            let isDragging = false;
-            let toastTimeout;
-            let sseRefreshTimer = null;
+    <!-- Header -->
+    <header class="h-12 bg-[#0a1628]/95 backdrop-blur border-b border-slate-800/60 flex items-center justify-between px-5 shrink-0 z-40">
+        <div class="flex items-center gap-3">
+            <div class="flex items-center gap-1.5 text-xs font-medium">
+                <span id="hdr-cluster" class="text-slate-400 hover:text-slate-200 cursor-pointer transition-colors">prod-cluster-01</span>
+                <i data-lucide="chevron-right" class="w-3 h-3 text-slate-600"></i>
+                <span id="hdr-ns" class="text-slate-200 cursor-pointer">—</span>
+            </div>
+            <div class="w-px h-4 bg-slate-700/60"></div>
+            <button id="active-pill" onclick="switchTab('incidents')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wide border transition-colors cursor-pointer">
+                <span id="pill-dot" class="w-1.5 h-1.5 rounded-full pulse-dot"></span>
+                <span id="pill-text">—</span>
+            </button>
+        </div>
+        <div class="flex items-center gap-5 text-[11px] font-mono text-slate-400">
+            <span class="hidden sm:flex items-center gap-1.5"><i data-lucide="server" class="w-3 h-3 text-emerald-400"></i><span id="hdr-svc">0 Services</span></span>
+            <span class="hidden sm:flex items-center gap-1.5"><i data-lucide="cpu" class="w-3 h-3 text-indigo-400"></i><span id="hdr-agt">0 Agents</span></span>
+            <span class="flex items-center gap-1.5"><i data-lucide="shield-alert" class="w-3 h-3 text-red-400"></i><span id="hdr-fail">0 Failing</span></span>
+            <div class="w-px h-4 bg-slate-700/60"></div>
+            <button onclick="exportReport()" class="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-[10px] font-semibold transition-colors">
+                <i data-lucide="download" class="w-3 h-3"></i> Export
+            </button>
+        </div>
+    </header>
 
-            function byId(id) {
-                return document.getElementById(id);
-            }
+    <!-- Views -->
+    <div class="flex-grow relative overflow-hidden">
 
-            function esc(value) {
-                if (value === null || value === undefined) {
-                    return "";
-                }
-                return String(value)
-                    .replace(/&/g, "&amp;")
-                    .replace(/</g, "&lt;")
-                    .replace(/>/g, "&gt;")
-                    .replace(/\"/g, "&quot;")
-                    .replace(/'/g, "&#39;");
-            }
+        <!-- ═══════════════ TOPOLOGY ═══════════════ -->
+        <div id="view-topology" class="absolute inset-0 flex z-10">
+            <div class="flex-grow relative canvas-bg" id="canvas-wrap">
+                <!-- HUD -->
+                <div class="absolute top-3 left-3 z-20 bg-[#0a1628]/90 border border-slate-800 rounded-lg p-1 flex gap-0.5 backdrop-blur">
+                    <button title="Zoom In" class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800/60 rounded transition-colors"><i data-lucide="zoom-in" class="w-3.5 h-3.5"></i></button>
+                    <button title="Zoom Out" class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800/60 rounded transition-colors"><i data-lucide="zoom-out" class="w-3.5 h-3.5"></i></button>
+                    <div class="w-px h-4 bg-slate-700 my-auto mx-0.5"></div>
+                    <button title="Reset layout" onclick="resetLayout()" class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800/60 rounded transition-colors"><i data-lucide="maximize-2" class="w-3.5 h-3.5"></i></button>
+                </div>
+                <svg id="svg-edges" class="absolute inset-0 w-full h-full pointer-events-none z-0"></svg>
+                <div id="div-nodes" class="absolute inset-0 w-full h-full z-10"></div>
+            </div>
 
-            function num(value, fallback) {
-                const n = Number(value);
-                return Number.isFinite(n) ? n : fallback;
-            }
-
-            function clamp(v, min, max) {
-                return Math.min(max, Math.max(min, v));
-            }
-
-            function formatBytes(bytes) {
-                const n = num(bytes, 0);
-                if (n <= 0) {
-                    return "0 B";
-                }
-                if (n >= 1024 * 1024 * 1024) {
-                    return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-                }
-                if (n >= 1024 * 1024) {
-                    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-                }
-                if (n >= 1024) {
-                    return `${(n / 1024).toFixed(1)} KB`;
-                }
-                return `${Math.round(n)} B`;
-            }
-
-            function formatTime(ts) {
-                if (!ts) {
-                    return "--";
-                }
-                const d = new Date(ts);
-                if (Number.isNaN(d.getTime())) {
-                    return "--";
-                }
-                return d.toLocaleTimeString([], { hour12: false });
-            }
-
-            function relTime(ts) {
-                if (!ts) {
-                    return "--";
-                }
-                const d = new Date(ts);
-                if (Number.isNaN(d.getTime())) {
-                    return "--";
-                }
-                let sec = Math.floor((Date.now() - d.getTime()) / 1000);
-                if (sec < 0) {
-                    sec = 0;
-                }
-                if (sec < 60) {
-                    return `${sec}s ago`;
-                }
-                if (sec < 3600) {
-                    return `${Math.floor(sec / 60)}m ago`;
-                }
-                if (sec < 86400) {
-                    return `${Math.floor(sec / 3600)}h ago`;
-                }
-                return `${Math.floor(sec / 86400)}d ago`;
-            }
-
-            function elapsed(start, end) {
-                if (!start) {
-                    return "--";
-                }
-                const s = new Date(start).getTime();
-                const e = end ? new Date(end).getTime() : Date.now();
-                if (Number.isNaN(s) || Number.isNaN(e) || e < s) {
-                    return "--";
-                }
-                const total = Math.floor((e - s) / 1000);
-                const h = Math.floor(total / 3600);
-                const m = Math.floor((total % 3600) / 60);
-                const sec = total % 60;
-                if (h > 0) {
-                    return `${h}h ${m}m ${sec}s`;
-                }
-                if (m > 0) {
-                    return `${m}m ${sec}s`;
-                }
-                return `${sec}s`;
-            }
-
-            function incidentKey(inc) {
-                return `${inc.namespace}/${inc.name}`;
-            }
-
-            function incidentStart(inc) {
-                return inc.firstObservedAt || inc.activeAt || inc.lastObservedAt || inc.resolvedAt || "";
-            }
-
-            function serviceForIncident(inc) {
-                if (inc.scope && inc.scope.resourceRef && inc.scope.resourceRef.name) {
-                    return inc.scope.resourceRef.name;
-                }
-                if (inc.scope && inc.scope.workloadRef && inc.scope.workloadRef.name) {
-                    return inc.scope.workloadRef.name;
-                }
-                const resources = Array.isArray(inc.affectedResources) ? inc.affectedResources : [];
-                const preferredKinds = [
-                    "Deployment",
-                    "StatefulSet",
-                    "DaemonSet",
-                    "ReplicaSet",
-                    "Pod",
-                    "Node"
-                ];
-                for (const kind of preferredKinds) {
-                    const found = resources.find((r) => r && r.kind === kind && r.name);
-                    if (found) {
-                        return found.name;
-                    }
-                }
-                return inc.podName || inc.name;
-            }
-
-            function severityRank(sev) {
-                if (sev === "P1") return 4;
-                if (sev === "P2") return 3;
-                if (sev === "P3") return 2;
-                return 1;
-            }
-
-            async function apiGet(path, allowFail) {
-                const res = await fetch(path);
-                if (!res.ok) {
-                    if (allowFail) {
-                        return null;
-                    }
-                    throw new Error(`${res.status} ${res.statusText}`);
-                }
-                return res.json();
-            }
-
-            function chooseIcon(hint, kind, name) {
-                if (hint && ICON_MAP[hint]) {
-                    return ICON_MAP[hint];
-                }
-                const kindRaw = (kind || "").toLowerCase();
-                const nameRaw = (name || "").toLowerCase();
-                if (kindRaw.includes("db") || nameRaw.includes("db") || nameRaw.includes("redis") || nameRaw.includes("postgres")) {
-                    return "database";
-                }
-                if (kindRaw.includes("ingress") || nameRaw.includes("gateway") || nameRaw.includes("ingress")) {
-                    return "globe";
-                }
-                return "server";
-            }
-
-            function nodeDomId(name) {
-                return `node-${name.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-            }
-
-            function normalizeSpark(v) {
-                const val = clamp(num(v, 0), 0, 100);
-                return [0.52, 0.66, 0.75, 0.88, 1].map((m) => clamp(Math.round(val * m), 3, 100));
-            }
-
-            function statusToCpuPercent(metrics) {
-                const cores = num(metrics && metrics.cpuUsage, 0);
-                if (cores <= 0) {
-                    return 0;
-                }
-                return clamp(cores * 18, 1, 100);
-            }
-
-            function statusToMemPercent(metrics) {
-                const bytes = num(metrics && metrics.memoryUsage, 0);
-                if (bytes <= 0) {
-                    return 0;
-                }
-                return clamp((bytes / (4 * 1024 * 1024 * 1024)) * 100, 1, 100);
-            }
-
-            function buildTopologyModels(resetLayout) {
-                const nodesMap = (state.topoGraph && state.topoGraph.nodes) || {};
-                const nodeNames = Object.keys(nodesMap).sort();
-                const edges = (state.topoGraph && state.topoGraph.edges) || [];
-                const container = byId("canvas-container");
-                const width = container ? container.clientWidth : 1200;
-                const height = container ? container.clientHeight : 600;
-
-                if (resetLayout) {
-                    state.nodePositions = {};
-                }
-
-                state.nodesData = nodeNames.map((name, index) => {
-                    const src = nodesMap[name] || {};
-                    const metrics = src.metrics || {};
-                    const incidents = Array.isArray(src.incidents) ? src.incidents : [];
-                    const cpuPercent = statusToCpuPercent(metrics);
-                    const memPercent = statusToMemPercent(metrics);
-                    const predefined = LAYOUT_PCT[name];
-                    let position = state.nodePositions[name];
-
-                    if (!position) {
-                        if (predefined) {
-                            position = {
-                                x: (width * predefined.x) / 100,
-                                y: (height * predefined.y) / 100
-                            };
-                        } else {
-                            const perRow = Math.max(1, Math.ceil(Math.sqrt(nodeNames.length)));
-                            const row = Math.floor(index / perRow);
-                            const col = index % perRow;
-                            const xStep = width / (perRow + 1);
-                            const yStep = height / (Math.ceil(nodeNames.length / perRow) + 1);
-                            position = {
-                                x: xStep * (col + 1),
-                                y: yStep * (row + 1)
-                            };
-                        }
-                        state.nodePositions[name] = position;
-                    }
-
-                    return {
-                        id: name,
-                        label: name,
-                        type: src.kind || "Service",
-                        status: src.status || "unknown",
-                        icon: chooseIcon(src.icon, src.kind, name),
-                        x: position.x,
-                        y: position.y,
-                        cpu: normalizeSpark(cpuPercent),
-                        mem: normalizeSpark(memPercent),
-                        metrics,
-                        incidents,
-                        restarts: incidents.length * 2,
-                        rca: incidents.length > 0 ? (incidents[0].summary || `${incidents[0].incidentType || "Issue"} detected`) : ""
-                    };
-                });
-
-                state.edgesData = edges.map((e) => ({
-                    source: e.source,
-                    target: e.target,
-                    status: e.status || "active",
-                    callCount: e.callCount || 0
-                }));
-
-                if (state.selectedNodeId && !state.nodesData.some((n) => n.id === state.selectedNodeId)) {
-                    state.selectedNodeId = null;
-                }
-            }
-
-            function getServices() {
-                const fromTopo = state.nodesData.map((n) => n.id);
-                if (fromTopo.length) {
-                    return fromTopo;
-                }
-                if (Array.isArray(state.services) && state.services.length) {
-                    return state.services.map((s) => s.name).filter(Boolean);
-                }
-                const fromIncidents = state.incidents.map(serviceForIncident).filter(Boolean);
-                return Array.from(new Set(fromIncidents));
-            }
-
-            async function refreshAllData() {
-                const results = await Promise.allSettled([
-                    apiGet("/api/incidents", false),
-                    apiGet("/api/stats", false),
-                    apiGet("/api/rules", true),
-                    apiGet("/api/topology", true),
-                    apiGet("/api/services", true)
-                ]);
-
-                if (results[0].status === "fulfilled") {
-                    state.incidents = Array.isArray(results[0].value) ? results[0].value : [];
-                }
-                if (results[1].status === "fulfilled" && results[1].value) {
-                    state.stats = results[1].value;
-                }
-                if (results[2].status === "fulfilled") {
-                    state.rules = Array.isArray(results[2].value) ? results[2].value : [];
-                }
-                if (results[3].status === "fulfilled" && results[3].value) {
-                    state.topoGraph = results[3].value;
-                }
-                if (results[4].status === "fulfilled") {
-                    state.services = Array.isArray(results[4].value) ? results[4].value : [];
-                }
-
-                state.lastRefreshAt = new Date();
-                buildTopologyModels(false);
-
-                if (state.selectedIncidentKey && !state.incidents.some((i) => incidentKey(i) === state.selectedIncidentKey)) {
-                    state.selectedIncidentKey = null;
-                }
-
-                if (!state.selectedIncidentKey && state.incidents.length) {
-                    const preferred = state.incidents.find((i) => i.phase === "Active" || i.phase === "Detecting") || state.incidents[0];
-                    state.selectedIncidentKey = incidentKey(preferred);
-                }
-
-                const services = getServices();
-                if (services.length && (!state.selectedService || !services.includes(state.selectedService))) {
-                    state.selectedService = services[0];
-                }
-
-                renderAll();
-            }
-
-            function renderAll() {
-                updateHeader();
-                renderTopology();
-                renderIncidentsList();
-                renderIncidentDetail();
-                renderRulesList();
-                renderAgentsList();
-                renderTimelineStream();
-
-                if (state.activeTab === "metrics") {
-                    renderMetricsTab(false);
-                }
-                if (state.activeTab === "logs") {
-                    renderLogsTab(false);
-                }
-
-                lucide.createIcons();
-            }
-
-            function updateHeader() {
-                const activeCount = state.incidents.filter((i) => i.phase === "Active" || i.phase === "Detecting").length;
-                const activeText = activeCount > 0 ? `${activeCount} ACTIVE INCIDENT${activeCount > 1 ? "S" : ""}` : "NO ACTIVE INCIDENTS";
-                const activePill = byId("active-incident-pill");
-
-                byId("active-incident-text").textContent = activeText;
-                byId("incidents-total").textContent = `${state.incidents.length} Total`;
-
-                if (activePill) {
-                    if (activeCount > 0) {
-                        activePill.classList.remove("bg-emerald-500/10", "border-emerald-500/30", "text-emerald-400");
-                        activePill.classList.add("bg-red-500/10", "border-red-500/30", "text-red-400");
-                    } else {
-                        activePill.classList.remove("bg-red-500/10", "border-red-500/30", "text-red-400");
-                        activePill.classList.add("bg-emerald-500/10", "border-emerald-500/30", "text-emerald-400");
-                    }
-                }
-
-                byId("hdr-services").textContent = `${state.nodesData.length} Services`;
-                byId("hdr-agents").textContent = `${(state.stats.agents || []).length} Agents`;
-                const failing = state.nodesData.filter((n) => n.status === "critical").length;
-                byId("hdr-failing").textContent = `${failing} Failing`;
-            }
-
-            function renderTopology() {
-                renderNodes();
-                renderEdges();
-                if (state.selectedNodeId) {
-                    openTopologyPanel(state.selectedNodeId);
-                }
-            }
-
-            function renderEdges() {
-                const svg = byId("edges-layer");
-                if (!svg) {
-                    return;
-                }
-                let html = "";
-                const byName = {};
-                state.nodesData.forEach((n) => {
-                    byName[n.id] = n;
-                });
-
-                for (const edge of state.edgesData) {
-                    const src = byName[edge.source];
-                    const tgt = byName[edge.target];
-                    if (!src || !tgt) {
-                        continue;
-                    }
-                    const dx = tgt.x - src.x;
-                    const path = `M ${src.x} ${src.y} C ${src.x + dx / 2} ${src.y}, ${tgt.x - dx / 2} ${tgt.y}, ${tgt.x} ${tgt.y}`;
-                    html += `<path d="${path}" class="edge-path ${esc(edge.status)}"></path>`;
-                }
-                svg.innerHTML = html;
-            }
-
-            function renderNodes() {
-                const layer = byId("nodes-layer");
-                if (!layer) {
-                    return;
-                }
-                let html = "";
-
-                for (const node of state.nodesData) {
-                    const selected = state.selectedNodeId === node.id ? "selected" : "";
-                    const iconColor = node.status === "healthy"
-                        ? "text-emerald-400"
-                        : node.status === "warning"
-                            ? "text-yellow-400"
-                            : node.status === "critical"
-                                ? "text-red-300"
-                                : "text-slate-400";
-                    const dotColor = node.status === "healthy"
-                        ? ""
-                        : node.status === "warning"
-                            ? "bg-yellow-500"
-                            : node.status === "critical"
-                                ? "bg-red-500 animate-pulse"
-                                : "bg-slate-600";
-                    const encoded = encodeURIComponent(node.id);
-
-                    html += `
-                        <div id="${nodeDomId(node.id)}" class="topology-node ${selected}" style="left:${node.x}px; top:${node.y}px;"
-                             onmousedown="startDrag(event, decodeURIComponent('${encoded}'))"
-                             onclick="selectTopologyNode(decodeURIComponent('${encoded}'), event)">
-                            <div class="node-circle w-12 h-12 rounded-full border-2 border-slate-700 bg-slate-900 flex items-center justify-center transition-colors shadow-lg z-10 relative">
-                                <i data-lucide="${esc(node.icon)}" class="w-5 h-5 ${iconColor}"></i>
-                                ${dotColor ? `<div class="absolute top-0 right-0 w-3 h-3 rounded-full border-2 border-slate-900 ${dotColor}"></div>` : ""}
-                            </div>
-                            <div class="absolute top-full mt-2 left-1/2 -translate-x-1/2 pointer-events-none">
-                                <div class="text-[10px] font-medium text-slate-300 bg-slate-900/80 px-2 py-0.5 rounded border border-slate-800 backdrop-blur whitespace-nowrap shadow-sm">${esc(node.label)}</div>
-                            </div>
+            <!-- Topology detail panel -->
+            <aside id="topo-panel" class="w-72 bg-[#0a1628] border-l border-slate-800/60 flex flex-col shrink-0 absolute right-0 top-0 bottom-0 z-30 slide-right closed shadow-2xl">
+                <div class="p-4 border-b border-slate-800/60 flex justify-between items-start">
+                    <div class="flex items-center gap-3">
+                        <div id="tp-icon-wrap" class="w-10 h-10 rounded-xl bg-slate-900 border border-slate-700/60 flex items-center justify-center">
+                            <i id="tp-icon" data-lucide="server" class="w-5 h-5 text-slate-300"></i>
                         </div>
-                    `;
-                }
-
-                layer.innerHTML = html;
-                lucide.createIcons();
-            }
-
-            function renderIncidentsList() {
-                const container = byId("incident-list-container");
-                if (!container) {
-                    return;
-                }
-
-                const sorted = state.incidents.slice().sort((a, b) => {
-                    const sev = severityRank(b.severity) - severityRank(a.severity);
-                    if (sev !== 0) {
-                        return sev;
-                    }
-                    return new Date(incidentStart(b)).getTime() - new Date(incidentStart(a)).getTime();
-                });
-
-                if (!sorted.length) {
-                    container.innerHTML = `<div class="p-6 text-xs text-slate-500">No incidents found.</div>`;
-                    return;
-                }
-
-                container.innerHTML = sorted
-                    .map((inc) => {
-                        const key = incidentKey(inc);
-                        const isSelected = state.selectedIncidentKey === key;
-                        const sevClass = SEV_BADGE[inc.severity] || SEV_BADGE.P4;
-                        const phaseClass = PHASE_BADGE[inc.phase] || PHASE_BADGE.Resolved;
-
-                        return `
-                            <div class="inc-row p-3 border-b border-slate-800/50 cursor-pointer hover:bg-slate-800/30 ${isSelected ? "selected" : ""}" onclick="selectIncident('${esc(key)}')">
-                                <div class="flex justify-between items-center mb-1.5">
-                                    <div class="flex items-center gap-2 min-w-0">
-                                        <span class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono border ${sevClass}">${esc(inc.severity || "P4")}</span>
-                                        <span class="font-bold text-slate-200 text-xs truncate">${esc(serviceForIncident(inc))}</span>
-                                    </div>
-                                    <span class="text-[10px] text-slate-500 font-mono">${esc(relTime(incidentStart(inc)))}</span>
+                        <div>
+                            <h2 id="tp-title" class="text-sm font-bold text-white">—</h2>
+                            <p id="tp-kind" class="text-[10px] text-slate-500 font-mono uppercase tracking-widest mt-0.5">Service</p>
+                        </div>
+                    </div>
+                    <button onclick="closeTopoPanel()" class="text-slate-500 hover:text-white p-1 transition-colors"><i data-lucide="x" class="w-4 h-4"></i></button>
+                </div>
+                <div class="flex-grow overflow-y-auto p-4 space-y-5">
+                    <!-- Anomaly box -->
+                    <div id="tp-anomaly" class="hidden bg-red-500/8 border border-red-500/25 rounded-xl p-3">
+                        <h4 class="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-1.5 flex items-center gap-1.5"><i data-lucide="brain-circuit" class="w-3.5 h-3.5"></i> Detected Anomaly</h4>
+                        <p id="tp-anomaly-text" class="text-xs text-slate-300 leading-relaxed"></p>
+                        <button onclick="switchTab('incidents')" class="mt-3 w-full text-center text-xs font-semibold text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 py-1.5 rounded-lg transition-colors flex items-center justify-center gap-1.5">
+                            View Details <i data-lucide="arrow-right" class="w-3 h-3"></i>
+                        </button>
+                    </div>
+                    <!-- Live telemetry -->
+                    <div>
+                        <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Live Telemetry</h3>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div class="bg-slate-900/80 border border-slate-800/60 rounded-xl p-2.5">
+                                <div class="flex justify-between items-center mb-2">
+                                    <span class="text-[10px] text-slate-400 flex items-center gap-1 font-medium"><i data-lucide="cpu" class="w-3 h-3 text-blue-400"></i> CPU</span>
+                                    <span id="tp-cpu-val" class="text-xs font-bold text-white font-mono">--%</span>
                                 </div>
-                                <div class="flex justify-between items-center text-[10px]">
-                                    <span class="text-slate-400 font-mono truncate">${esc(inc.incidentType || "Unknown")}</span>
-                                    <span class="px-1.5 py-0.5 rounded border font-bold ${phaseClass}">${esc(inc.phase || "Resolved")}</span>
+                                <div class="metric-bar-wrap" id="tp-cpu-bars"></div>
+                            </div>
+                            <div class="bg-slate-900/80 border border-slate-800/60 rounded-xl p-2.5">
+                                <div class="flex justify-between items-center mb-2">
+                                    <span class="text-[10px] text-slate-400 flex items-center gap-1 font-medium"><i data-lucide="hard-drive" class="w-3 h-3 text-purple-400"></i> MEM</span>
+                                    <span id="tp-mem-val" class="text-xs font-bold text-white font-mono">--%</span>
                                 </div>
-                            </div>
-                        `;
-                    })
-                    .join("");
-            }
-
-            function getIncidentByKey(key) {
-                return state.incidents.find((inc) => incidentKey(inc) === key);
-            }
-
-            async function loadIncidentDetail(key) {
-                const inc = getIncidentByKey(key);
-                if (!inc) {
-                    return;
-                }
-                const detail = await apiGet(`/api/incidents/${encodeURIComponent(inc.namespace)}/${encodeURIComponent(inc.name)}`, true);
-                if (!detail) {
-                    return;
-                }
-                Object.assign(inc, detail);
-                if (state.selectedIncidentKey === key) {
-                    renderIncidentDetail();
-                }
-            }
-
-            function buildPlaybook(inc) {
-                const commands = [];
-                const seen = new Set();
-
-                function add(cmd) {
-                    if (!cmd || seen.has(cmd)) {
-                        return;
-                    }
-                    seen.add(cmd);
-                    commands.push(cmd);
-                }
-
-                const service = serviceForIncident(inc);
-                add(`kubectl describe incidentreport ${inc.name} -n ${inc.namespace}`);
-                add(`kubectl get events -n ${inc.namespace} --sort-by='.lastTimestamp' | head -30`);
-
-                if (inc.rca && Array.isArray(inc.rca.playbook) && inc.rca.playbook.length) {
-                    inc.rca.playbook.forEach(add);
-                }
-
-                const base = PLAYBOOK[inc.incidentType] || [];
-                for (const cmd of base) {
-                    add(
-                        cmd
-                            .replace(/<ns>/g, inc.namespace)
-                            .replace(/<name>/g, service)
-                            .replace(/<pod-name>/g, inc.podName || service)
-                            .replace(/<node-name>/g, service)
-                    );
-                }
-
-                return commands;
-            }
-
-            function renderIncidentDetail() {
-                const emptyPane = byId("incident-empty-pane");
-                const detailPane = byId("incident-detail-pane");
-                const key = state.selectedIncidentKey;
-
-                if (!key) {
-                    detailPane.classList.add("hidden");
-                    emptyPane.classList.remove("hidden");
-                    return;
-                }
-
-                const inc = getIncidentByKey(key);
-                if (!inc) {
-                    detailPane.classList.add("hidden");
-                    emptyPane.classList.remove("hidden");
-                    return;
-                }
-
-                emptyPane.classList.add("hidden");
-                detailPane.classList.remove("hidden");
-
-                const service = serviceForIncident(inc);
-                const sevClass = SEV_BADGE[inc.severity] || SEV_BADGE.P4;
-                const phaseClass = PHASE_BADGE[inc.phase] || PHASE_BADGE.Resolved;
-
-                byId("inc-det-title").textContent = service;
-                byId("inc-det-type").textContent = inc.incidentType || "Unknown";
-                byId("inc-det-meta").textContent = `${inc.namespace} • ${inc.name}`;
-                byId("inc-det-sev").className = `px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider font-mono border ${sevClass}`;
-                byId("inc-det-sev").textContent = inc.severity || "P4";
-                byId("inc-det-phase").className = `px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider font-mono flex items-center gap-1.5 border ${phaseClass}`;
-                byId("inc-det-phase").innerHTML = `${inc.phase === "Active" ? '<div class="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></div>' : '<i data-lucide="check" class="w-2.5 h-2.5"></i>'} ${esc(inc.phase || "Resolved")}`;
-                byId("inc-det-dur").textContent = elapsed(incidentStart(inc), inc.resolvedAt);
-
-                const summary = (inc.rca && inc.rca.rootCause) || inc.summary || inc.message || "No summary available for this incident.";
-                byId("inc-det-summary").textContent = summary;
-
-                const commands = buildPlaybook(inc);
-                const playbookRows = commands.length
-                    ? commands.map((cmd, i) => `
-                        <div class="flex items-center gap-2 bg-slate-900 p-2 rounded border border-slate-800">
-                            <span class="text-slate-600 font-mono text-[9px] w-4">${i + 1}.</span>
-                            <code class="text-indigo-300 font-mono text-[10px] flex-grow truncate">${esc(cmd)}</code>
-                            <button onclick="copyToClip(this)" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded text-[9px] font-bold transition-colors"><i data-lucide="copy" class="w-3 h-3"></i></button>
-                        </div>
-                    `).join("")
-                    : `<div class="text-xs text-slate-500 p-2">No playbook commands available.</div>`;
-
-                const investigationAction = !inc.rca && (inc.phase === "Active" || inc.phase === "Detecting")
-                    ? `<button onclick="triggerInvestigation('${esc(inc.namespace)}','${esc(inc.name)}')" class="w-full mt-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold py-2 rounded transition-colors">Run AI Investigation</button>`
-                    : "";
-
-                byId("inc-det-playbook").innerHTML = playbookRows + investigationAction;
-
-                const resources = Array.isArray(inc.affectedResources) ? inc.affectedResources : [];
-                let resourcesHtml = resources
-                    .map((res) => `
-                        <div class="bg-slate-950 border border-slate-800 rounded p-2 flex items-center justify-between gap-2">
-                            <div class="flex items-center gap-2 min-w-0">
-                                <span class="bg-indigo-500/10 text-indigo-400 font-mono text-[9px] px-1.5 py-0.5 rounded font-bold uppercase">${esc(res.kind || "Resource")}</span>
-                                <span class="text-xs text-slate-300 truncate">${esc(res.name || "unknown")}</span>
-                            </div>
-                            <span class="text-[10px] text-slate-500 font-mono">${esc(res.namespace || inc.namespace)}</span>
-                        </div>
-                    `)
-                    .join("");
-
-                if (!resourcesHtml) {
-                    resourcesHtml = `<div class="text-xs text-slate-500">No affected resources reported.</div>`;
-                }
-
-                if (Array.isArray(inc.relatedTraces) && inc.relatedTraces.length) {
-                    resourcesHtml += `
-                        <div class="mt-2">
-                            <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Related Traces</div>
-                            <div class="flex flex-wrap gap-1.5">
-                                ${inc.relatedTraces.map((t) => `<span class="px-2 py-0.5 rounded bg-slate-800 text-[10px] font-mono text-slate-300">${esc(t)}</span>`).join("")}
+                                <div class="metric-bar-wrap" id="tp-mem-bars"></div>
                             </div>
                         </div>
-                    `;
-                }
-
-                if (Array.isArray(inc.blastRadius) && inc.blastRadius.length) {
-                    resourcesHtml += `
-                        <div class="mt-2">
-                            <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Blast Radius</div>
-                            <div class="flex flex-wrap gap-1.5">
-                                ${inc.blastRadius.map((s) => `<span class="px-2 py-0.5 rounded bg-red-500/10 border border-red-500/20 text-[10px] font-mono text-red-300">${esc(s)}</span>`).join("")}
+                    </div>
+                    <!-- Resource status -->
+                    <div>
+                        <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Resource Status</h3>
+                        <div class="bg-slate-900/80 border border-slate-800/60 rounded-xl p-3 text-xs font-mono space-y-2">
+                            <div class="flex justify-between pb-2 border-b border-slate-800/40">
+                                <span class="text-slate-500">Replicas</span>
+                                <span id="tp-replicas" class="font-bold">—</span>
+                            </div>
+                            <div class="flex justify-between pb-2 border-b border-slate-800/40">
+                                <span class="text-slate-500">Restarts</span>
+                                <span id="tp-restarts" class="text-slate-300 font-bold">0</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-slate-500">Request Rate</span>
+                                <span id="tp-rps" class="text-slate-300">—</span>
                             </div>
                         </div>
-                    `;
-                }
+                    </div>
+                    <!-- Linked traces button -->
+                    <button id="tp-traces-btn" onclick="openServiceTraces()" class="hidden w-full flex items-center justify-center gap-1.5 text-xs font-medium text-indigo-400 bg-indigo-500/8 hover:bg-indigo-500/15 border border-indigo-500/20 py-2 rounded-lg transition-colors">
+                        <i data-lucide="git-branch" class="w-3.5 h-3.5"></i> View Traces
+                    </button>
+                </div>
+            </aside>
+        </div>
 
-                byId("inc-det-resources").innerHTML = resourcesHtml;
-                lucide.createIcons();
-            }
+        <!-- ═══════════════ INCIDENTS ═══════════════ -->
+        <div id="view-incidents" class="absolute inset-0 hidden flex z-10 bg-[#020817]">
+            <!-- List -->
+            <div class="w-80 shrink-0 border-r border-slate-800/60 flex flex-col bg-[#0a1628]/40">
+                <div class="px-4 py-3 border-b border-slate-800/60 flex justify-between items-center bg-[#0a1628]/80">
+                    <h2 class="font-bold text-white text-sm flex items-center gap-2"><i data-lucide="alert-triangle" class="w-4 h-4 text-red-400"></i> Active Incidents</h2>
+                    <span id="inc-total" class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded font-mono">0 Total</span>
+                </div>
+                <div class="px-3 py-2 border-b border-slate-800/40">
+                    <input id="inc-search" type="text" placeholder="Search incidents…" oninput="filterIncidents()" class="w-full bg-slate-900/60 border border-slate-700/60 rounded-lg px-3 py-1.5 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/20 transition-colors">
+                </div>
+                <div class="flex gap-1 px-3 py-2 border-b border-slate-800/40">
+                    <button onclick="setIncPhase('')" id="ifil-all" class="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 transition-colors">All</button>
+                    <button onclick="setIncPhase('Active')" id="ifil-active" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700 hover:border-red-500/40 transition-colors">Active</button>
+                    <button onclick="setIncPhase('Detecting')" id="ifil-detecting" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700 hover:border-purple-500/40 transition-colors">Detecting</button>
+                    <button onclick="setIncPhase('Resolved')" id="ifil-resolved" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700 hover:border-emerald-500/40 transition-colors">Resolved</button>
+                </div>
+                <div class="flex-grow overflow-y-auto" id="inc-list"></div>
+            </div>
+            <!-- Detail -->
+            <div id="inc-detail" class="flex-grow flex flex-col hidden overflow-hidden">
+                <!-- Detail header -->
+                <div class="px-6 py-4 border-b border-slate-800/60 bg-[#0a1628]/60 shrink-0 flex justify-between items-start">
+                    <div>
+                        <div class="flex items-center gap-2 mb-2">
+                            <span id="id-sev" class="px-2 py-0.5 rounded text-[10px] font-bold font-mono border">P1</span>
+                            <span id="id-phase" class="px-2 py-0.5 rounded text-[10px] font-bold font-mono flex items-center gap-1.5 border">Active</span>
+                            <span id="id-type" class="px-2 py-0.5 bg-slate-800 text-slate-400 rounded text-[10px] font-mono border border-slate-700"></span>
+                        </div>
+                        <h2 id="id-title" class="text-xl font-bold text-white tracking-tight"></h2>
+                        <p id="id-meta" class="text-[11px] text-slate-500 font-mono mt-1"></p>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-[9px] font-bold text-slate-600 uppercase tracking-widest mb-0.5">Time Elapsed</div>
+                        <div id="id-elapsed" class="text-base font-mono font-bold text-amber-400">—</div>
+                    </div>
+                </div>
+                <div class="flex-grow overflow-y-auto p-6 space-y-5">
+                    <!-- Summary -->
+                    <section>
+                        <h3 class="sec-title text-purple-400">
+                            <i data-lucide="brain-circuit" class="w-3.5 h-3.5"></i> Operator Summary
+                        </h3>
+                        <div class="bg-purple-500/5 border border-purple-500/20 rounded-xl p-4">
+                            <p id="id-summary" class="text-xs text-slate-300 leading-relaxed">—</p>
+                        </div>
+                    </section>
+                    <!-- Playbook -->
+                    <section>
+                        <h3 class="sec-title text-emerald-400"><i data-lucide="terminal-square" class="w-3.5 h-3.5"></i> Playbook</h3>
+                        <div class="bg-slate-900/60 border border-slate-800/60 rounded-xl p-2 space-y-1.5" id="id-playbook"></div>
+                    </section>
+                    <!-- Resources + Conditions grid -->
+                    <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                        <section>
+                            <h3 class="sec-title text-slate-400"><i data-lucide="layers" class="w-3.5 h-3.5"></i> Affected Resources</h3>
+                            <div class="space-y-1.5" id="id-resources"></div>
+                        </section>
+                        <section>
+                            <h3 class="sec-title text-slate-400"><i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> Conditions</h3>
+                            <div class="bg-slate-900/60 border border-slate-800/60 rounded-xl overflow-hidden text-xs" id="id-conditions"></div>
+                        </section>
+                    </div>
+                    <!-- Correlated signals -->
+                    <section id="id-signals-section" class="hidden">
+                        <h3 class="sec-title text-blue-400"><i data-lucide="share-2" class="w-3.5 h-3.5"></i> Correlated Signals</h3>
+                        <div class="flex flex-wrap gap-1.5" id="id-signals"></div>
+                    </section>
+                    <!-- Timeline -->
+                    <section id="id-timeline-section" class="hidden">
+                        <h3 class="sec-title text-amber-400"><i data-lucide="list-ordered" class="w-3.5 h-3.5"></i> Event Timeline</h3>
+                        <div class="space-y-1" id="id-timeline"></div>
+                    </section>
+                    <!-- AI RCA block -->
+                    <section id="id-rca-section" class="hidden">
+                        <h3 class="sec-title text-indigo-400"><i data-lucide="sparkles" class="w-3.5 h-3.5"></i> AI Root Cause Analysis</h3>
+                        <div class="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-4 space-y-3">
+                            <div id="id-rca-cause" class="text-xs text-slate-300 leading-relaxed"></div>
+                            <div id="id-rca-confidence" class="text-[10px] font-mono text-slate-500"></div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+            <div id="inc-empty" class="flex-grow flex flex-col items-center justify-center text-slate-600">
+                <i data-lucide="shield-alert" class="w-10 h-10 mb-3 opacity-20"></i>
+                <p class="text-sm font-medium">Select an incident to view details</p>
+            </div>
+        </div>
 
-            function renderRulesList() {
-                const body = byId("rules-table-body");
-                if (!body) {
-                    return;
-                }
+        <!-- ═══════════════ METRICS ═══════════════ -->
+        <div id="view-metrics" class="absolute inset-0 hidden flex flex-col bg-[#020817] z-10">
+            <div class="px-6 py-4 border-b border-slate-800/60 bg-[#0a1628]/60 shrink-0 flex items-center justify-between">
+                <div>
+                    <h2 class="text-base font-bold text-white">Cluster Metrics</h2>
+                    <p class="text-[11px] text-slate-500 mt-0.5">Aggregated over selected window</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <select id="metrics-svc" onchange="onMetricsSvcChange()" class="bg-slate-800 border border-slate-700 text-slate-300 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-500/60 transition-colors"></select>
+                    <select id="metrics-range" onchange="loadMetrics()" class="bg-slate-800 border border-slate-700 text-slate-300 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-500/60 transition-colors">
+                        <option value="15">Last 15m</option>
+                        <option value="60" selected>Last 1h</option>
+                        <option value="360">Last 6h</option>
+                        <option value="1440">Last 24h</option>
+                    </select>
+                    <button onclick="loadMetrics()" class="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"><i data-lucide="refresh-cw" class="w-3 h-3"></i> Refresh</button>
+                </div>
+            </div>
+            <div class="flex-grow overflow-y-auto p-6">
+                <div id="metrics-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5"></div>
+            </div>
+        </div>
 
-                if (!state.rules.length) {
-                    body.innerHTML = `<tr><td colspan="4" class="px-4 py-6 text-xs text-slate-500">No RCA correlation rules found.</td></tr>`;
-                    return;
-                }
+        <!-- ═══════════════ LOGS ═══════════════ -->
+        <div id="view-logs" class="absolute inset-0 hidden flex flex-col bg-[#020817] z-10">
+            <div class="px-6 py-4 border-b border-slate-800/60 bg-[#0a1628]/60 shrink-0 flex items-center justify-between">
+                <h2 class="text-base font-bold text-white flex items-center gap-2"><i data-lucide="terminal" class="w-4 h-4 text-indigo-400"></i> Unified Log Stream</h2>
+                <div class="flex items-center gap-2">
+                    <select id="logs-svc" onchange="loadLogs()" class="bg-slate-800 border border-slate-700 text-slate-300 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-500/60 transition-colors"></select>
+                    <select id="logs-sev" onchange="loadLogs()" class="bg-slate-800 border border-slate-700 text-slate-300 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-500/60 transition-colors">
+                        <option value="">All Levels</option>
+                        <option value="INFO">INFO</option>
+                        <option value="WARN">WARN</option>
+                        <option value="ERROR">ERROR</option>
+                        <option value="FATAL">FATAL</option>
+                    </select>
+                    <button onclick="loadLogs()" class="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"><i data-lucide="refresh-cw" class="w-3 h-3"></i> Refresh</button>
+                    <button onclick="toggleLogScroll()" id="log-scroll-btn" class="text-xs bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"><i data-lucide="arrow-down-to-line" class="w-3 h-3"></i> Auto-scroll</button>
+                </div>
+            </div>
+            <div class="flex-grow bg-[#060d1a] border-b border-slate-800/60 flex flex-col overflow-hidden">
+                <div class="h-7 bg-[#0a1628] border-b border-slate-800/60 flex items-center px-4 gap-2 shrink-0">
+                    <div class="w-2.5 h-2.5 rounded-full bg-red-500/40"></div>
+                    <div class="w-2.5 h-2.5 rounded-full bg-yellow-500/40"></div>
+                    <div class="w-2.5 h-2.5 rounded-full bg-emerald-500/40"></div>
+                    <span id="logs-cmd" class="text-[10px] text-slate-600 font-mono ml-2">tail -f /var/log/containers/*.log</span>
+                </div>
+                <div id="logs-stream" class="flex-grow overflow-y-auto p-4 space-y-0.5"></div>
+            </div>
+        </div>
 
-                body.innerHTML = state.rules
-                    .map((r) => {
-                        const sevClass = SEV_BADGE[r.firesSeverity] || SEV_BADGE.P4;
-                        const conditions = Array.isArray(r.conditions) ? r.conditions.join(", ") : "";
-                        return `
-                            <tr class="hover:bg-slate-800/30">
-                                <td class="px-4 py-3 font-medium text-slate-300">${esc(r.name)}</td>
-                                <td class="px-4 py-3 font-mono text-[10px] text-indigo-300">${esc(r.triggerEvent || "-")}</td>
-                                <td class="px-4 py-3"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold font-mono border ${sevClass}">${esc(r.firesSeverity || "P4")}</span></td>
-                                <td class="px-4 py-3 text-[10px] font-mono text-slate-400">${esc(conditions || "none")}</td>
+        <!-- ═══════════════ TRACES ═══════════════ -->
+        <div id="view-traces" class="absolute inset-0 hidden flex flex-col bg-[#020817] z-10">
+            <div class="px-6 py-4 border-b border-slate-800/60 bg-[#0a1628]/60 shrink-0 flex items-center justify-between">
+                <h2 class="text-base font-bold text-white flex items-center gap-2"><i data-lucide="git-branch" class="w-4 h-4 text-indigo-400"></i> Distributed Traces</h2>
+                <div class="flex items-center gap-2">
+                    <select id="traces-svc" onchange="loadTraces()" class="bg-slate-800 border border-slate-700 text-slate-300 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-500/60 transition-colors"></select>
+                    <button onclick="loadTraces()" class="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"><i data-lucide="refresh-cw" class="w-3 h-3"></i> Refresh</button>
+                </div>
+            </div>
+            <div class="flex-grow overflow-y-auto p-6">
+                <div class="bg-[#0a1628] border border-slate-800/60 rounded-xl overflow-hidden">
+                    <table class="w-full text-left text-xs">
+                        <thead class="text-[10px] text-slate-500 uppercase bg-[#060d1a] border-b border-slate-800/60">
+                            <tr>
+                                <th class="px-4 py-3 font-bold">Trace ID</th>
+                                <th class="px-4 py-3 font-bold">Root Operation</th>
+                                <th class="px-4 py-3 font-bold">Duration</th>
+                                <th class="px-4 py-3 font-bold">Spans</th>
+                                <th class="px-4 py-3 font-bold">Status</th>
+                                <th class="px-4 py-3 font-bold text-right">Time</th>
                             </tr>
-                        `;
-                    })
-                    .join("");
-            }
+                        </thead>
+                        <tbody id="traces-body" class="divide-y divide-slate-800/40"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
 
-            function renderAgentsList() {
-                const body = byId("agents-table-body");
-                if (!body) {
-                    return;
-                }
-
-                const agents = Array.isArray(state.stats.agents) ? state.stats.agents : [];
-                if (!agents.length) {
-                    body.innerHTML = `<tr><td colspan="4" class="px-4 py-6 text-xs text-slate-500">No RCAAgent resources found.</td></tr>`;
-                    return;
-                }
-
-                const syncText = relTime(state.lastRefreshAt.toISOString());
-
-                body.innerHTML = agents
-                    .map((a) => {
-                        const healthy = a.healthy !== false;
-                        const statusLabel = healthy ? "HEALTHY" : "DEGRADED";
-                        const dotClass = healthy ? "bg-emerald-500" : "bg-red-500";
-                        const badgeClass = healthy
-                            ? "bg-emerald-500/10 text-emerald-400"
-                            : "bg-red-500/10 text-red-400";
-                        const namespaces = Array.isArray(a.watchNamespaces) && a.watchNamespaces.length
-                            ? a.watchNamespaces.join(", ")
-                            : "all";
-
-                        return `
-                            <tr class="hover:bg-slate-800/30">
-                                <td class="px-4 py-3 font-medium text-slate-300 flex items-center gap-2">
-                                    <div class="w-2 h-2 rounded-full ${dotClass}"></div> ${esc(a.name || "unknown")}
-                                </td>
-                                <td class="px-4 py-3 font-mono text-[10px] text-slate-400">${esc(namespaces)}</td>
-                                <td class="px-4 py-3"><span class="${badgeClass} px-1.5 py-0.5 rounded text-[10px] font-bold font-mono">${statusLabel}</span></td>
-                                <td class="px-4 py-3 text-right text-[10px] font-mono text-slate-500">${esc(syncText)}</td>
+        <!-- ═══════════════ RCA RULES ═══════════════ -->
+        <div id="view-rules" class="absolute inset-0 hidden flex flex-col bg-[#020817] z-10">
+            <div class="px-6 py-4 border-b border-slate-800/60 bg-[#0a1628]/60 shrink-0 flex items-center justify-between">
+                <div>
+                    <h2 class="text-base font-bold text-white">RCA Correlation Rules</h2>
+                    <p class="text-[11px] text-slate-500 mt-0.5">Operator-evaluated signal correlation logic</p>
+                </div>
+                <span id="rules-count" class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded font-mono">0 Rules</span>
+            </div>
+            <div class="flex-grow overflow-y-auto p-6">
+                <div class="bg-[#0a1628] border border-slate-800/60 rounded-xl overflow-hidden">
+                    <table class="w-full text-left text-xs">
+                        <thead class="text-[10px] text-slate-500 uppercase bg-[#060d1a] border-b border-slate-800/60">
+                            <tr>
+                                <th class="px-4 py-3 font-bold w-8">P</th>
+                                <th class="px-4 py-3 font-bold">Rule Name</th>
+                                <th class="px-4 py-3 font-bold">Trigger Event</th>
+                                <th class="px-4 py-3 font-bold">Fires As</th>
+                                <th class="px-4 py-3 font-bold">Severity</th>
+                                <th class="px-4 py-3 font-bold">Conditions</th>
+                                <th class="px-4 py-3 font-bold">Scope</th>
+                                <th class="px-4 py-3 font-bold text-right">Age</th>
                             </tr>
-                        `;
-                    })
-                    .join("");
-            }
+                        </thead>
+                        <tbody id="rules-body" class="divide-y divide-slate-800/40"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
 
-            function buildTimelineEvents() {
-                const events = [];
-                const sorted = state.incidents.slice().sort((a, b) => new Date(incidentStart(a)).getTime() - new Date(incidentStart(b)).getTime());
+        <!-- ═══════════════ RCA AGENTS ═══════════════ -->
+        <div id="view-agents" class="absolute inset-0 hidden flex flex-col bg-[#020817] z-10">
+            <div class="px-6 py-4 border-b border-slate-800/60 bg-[#0a1628]/60 shrink-0 flex items-center justify-between">
+                <div>
+                    <h2 class="text-base font-bold text-white">RCA Agents</h2>
+                    <p class="text-[11px] text-slate-500 mt-0.5">Active collectors and their watch configuration</p>
+                </div>
+                <button onclick="refreshAgents()" class="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"><i data-lucide="refresh-cw" class="w-3 h-3"></i> Refresh</button>
+            </div>
+            <div class="flex-grow overflow-y-auto p-6 space-y-4" id="agents-grid"></div>
+        </div>
 
-                for (const inc of sorted.slice(-16)) {
-                    const sev = inc.severity || "P4";
-                    let color = "slate";
-                    if (sev === "P1") color = "red";
-                    if (sev === "P2") color = "purple";
-                    if (sev === "P3") color = "blue";
-                    events.push({
-                        time: formatTime(incidentStart(inc)),
-                        source: inc.agentRef || "RCA-Operator",
-                        title: `${inc.incidentType || "Incident"} • ${sev}`,
-                        msg: (inc.summary || inc.message || serviceForIncident(inc)).slice(0, 90),
-                        icon: inc.phase === "Resolved" ? "check-circle" : "alert-triangle",
-                        color
-                    });
+    </div><!-- end views -->
 
-                    if (inc.rca && inc.rca.rootCause) {
-                        events.push({
-                            time: formatTime(inc.rca.investigatedAt || incidentStart(inc)),
-                            source: "AI Investigator",
-                            title: "Root Cause Updated",
-                            msg: inc.rca.rootCause.slice(0, 90),
-                            icon: "brain-circuit",
-                            color: "purple"
-                        });
-                    }
-                }
+    <!-- Correlation Stream (persistent bottom) -->
+    <div class="h-44 bg-[#0a1628] border-t border-slate-800/60 shrink-0 flex flex-col z-40 shadow-[0_-8px_30px_rgba(0,0,0,0.4)]">
+        <div class="flex items-center justify-between px-5 py-2 border-b border-slate-800/40 shrink-0">
+            <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                <i data-lucide="activity" class="w-3.5 h-3.5 text-indigo-400"></i> Live Correlation Stream
+            </h3>
+            <div class="flex items-center gap-2">
+                <span id="sse-status" class="text-[10px] font-mono text-slate-600 flex items-center gap-1"></span>
+            </div>
+        </div>
+        <div class="flex-grow overflow-x-auto overflow-y-hidden relative" id="stream-wrap">
+            <div class="tl-line"></div>
+            <div class="flex gap-3 min-w-max items-start h-full px-4 py-3 relative z-10" id="stream-cards"></div>
+        </div>
+    </div>
 
-                return events;
-            }
+</main>
 
-            function renderTimelineStream() {
-                const timeline = byId("stream-timeline");
-                if (!timeline) {
-                    return;
-                }
+<!-- Toast -->
+<div id="toast" class="fixed bottom-[-80px] left-1/2 -translate-x-1/2 bg-slate-800 border border-slate-700 text-white px-4 py-2 rounded-xl shadow-2xl text-xs font-medium z-[200] opacity-0 flex items-center gap-2">
+    <i data-lucide="info" class="w-3.5 h-3.5 text-indigo-400"></i>
+    <span id="toast-msg"></span>
+</div>
 
-                const events = buildTimelineEvents();
-                if (!events.length) {
-                    timeline.innerHTML = `<div class="text-xs text-slate-500 px-2">No correlation events available yet.</div>`;
-                    return;
-                }
+<style>
+.sec-title { @apply text-[10px] font-bold uppercase tracking-widest mb-2 flex items-center gap-1.5; }
+</style>
 
-                timeline.innerHTML = events
-                    .map((ev) => {
-                        let colorClasses = "border-slate-500/30 bg-slate-500/10 text-slate-300";
-                        let bgCircle = "bg-slate-400";
-                        if (ev.color === "blue") {
-                            colorClasses = "border-blue-500/30 bg-blue-500/10 text-blue-400";
-                            bgCircle = "bg-blue-500";
-                        }
-                        if (ev.color === "purple") {
-                            colorClasses = "border-purple-500/30 bg-purple-500/10 text-purple-400";
-                            bgCircle = "bg-purple-500";
-                        }
-                        if (ev.color === "red") {
-                            colorClasses = "border-red-500/50 bg-red-500/20 text-red-400";
-                            bgCircle = "bg-red-500";
-                        }
+<script>
+(function() {
+'use strict';
 
-                        return `
-                            <div class="relative flex flex-col items-center group w-56 shrink-0 cursor-default mt-1">
-                                <div class="w-4 h-4 rounded-full ${bgCircle} border-4 border-slate-900 z-10 mb-2 flex items-center justify-center"></div>
-                                <div class="bg-slate-950 border ${colorClasses} rounded-lg p-3 w-full transition-transform transform group-hover:-translate-y-1">
-                                    <div class="flex justify-between items-start mb-1.5">
-                                        <span class="text-[9px] uppercase tracking-wider font-bold opacity-80 flex items-center gap-1"><i data-lucide="${esc(ev.icon)}" class="w-3 h-3"></i> ${esc(ev.source)}</span>
-                                        <span class="font-mono text-[9px] text-slate-500">${esc(ev.time)}</span>
-                                    </div>
-                                    <h4 class="text-xs font-bold text-white mb-1 leading-tight">${esc(ev.title)}</h4>
-                                    <p class="text-[10px] opacity-80 leading-snug truncate">${esc(ev.msg)}</p>
-                                </div>
-                            </div>
-                        `;
-                    })
-                    .join("");
-            }
+// ── Constants ──────────────────────────────────────────────────────────────
+const POLL_INTERVAL = 15000; // 15s data refresh
+const SEV_BADGE = {
+    P1: 'bg-red-500/10 text-red-400 border-red-500/30',
+    P2: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    P3: 'bg-blue-500/10 text-blue-400 border-blue-500/30',
+    P4: 'bg-slate-700/30 text-slate-300 border-slate-600/60',
+};
+const PHASE_BADGE = {
+    Active:    'bg-red-500/10 text-red-400 border-red-500/30',
+    Detecting: 'bg-purple-500/10 text-purple-400 border-purple-500/30',
+    Resolved:  'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+};
+const LOG_COLOR = {
+    INFO:  'text-emerald-400',
+    DEBUG: 'text-slate-500',
+    TRACE: 'text-slate-600',
+    WARN:  'text-amber-400',
+    ERROR: 'text-red-400',
+    FATAL: 'text-red-300',
+    K8S:   'text-indigo-400',
+};
+const STREAM_SOURCE_COLOR = {
+    prometheus:   'border-blue-500/30 bg-blue-500/8 text-blue-400',
+    jaeger:       'border-violet-500/30 bg-violet-500/8 text-violet-400',
+    signoz:       'border-slate-500/30 bg-slate-800 text-slate-400',
+    'rca-operator': 'border-red-500/40 bg-red-500/10 text-red-400',
+    ai:           'border-purple-500/30 bg-purple-500/8 text-purple-400',
+};
+const PLAYBOOK_DB = {
+    OOMKilled:       ['kubectl top pod -n <ns>', 'kubectl describe pod <pod> -n <ns>', 'kubectl get limitrange -n <ns>'],
+    CrashLoopBackOff:['kubectl logs <pod> -n <ns> --previous', 'kubectl describe pod <pod> -n <ns>'],
+    ImagePullBackOff:['kubectl describe pod <pod> -n <ns>', 'kubectl get secret -n <ns> | grep docker'],
+    NodeNotReady:    ['kubectl describe node <node>', 'kubectl get events --sort-by=.lastTimestamp'],
+    StalledRollout:  ['kubectl rollout history deployment/<name> -n <ns>', 'kubectl rollout undo deployment/<name> -n <ns>'],
+    ProbeFailure:    ['kubectl describe pod <pod> -n <ns>', 'kubectl logs <pod> -n <ns>'],
+    PodEvicted:      ['kubectl get events -n <ns> --sort-by=.lastTimestamp', 'kubectl top node'],
+    NodePressure:    ['kubectl describe node <node>', 'kubectl top node'],
+};
+const NODE_LAYOUT = {
+    ingress:        {x:15,y:35}, 'api-gateway':{x:32,y:50}, 'auth-svc':{x:50,y:22},
+    'payment-svc':  {x:50,y:50}, 'inventory-svc':{x:50,y:78}, 'redis-cache':{x:68,y:30},
+    'postgres-db':  {x:68,y:70},
+};
 
-            function sparkBars(values, colorClass) {
-                return values
-                    .map((v) => `<div class="w-full ${colorClass} rounded-t-sm" style="height:${clamp(v, 4, 100)}%"></div>`)
-                    .join("");
-            }
+// ── State ──────────────────────────────────────────────────────────────────
+const S = {
+    tab: 'topology',
+    incidents: [], stats: {active:0,detecting:0,resolved:0,namespaces:{},agents:[]},
+    rules: [], agents: [],
+    topoGraph: {nodes:{},edges:[]},
+    nodesData: [], edgesData: [], nodePositions: {},
+    selectedIncKey: null, selectedNode: null, selectedSvc: '',
+    incPhaseFilter: '', incQuery: '',
+    metricsCache: {}, logsCache: {}, tracesCache: {},
+    sseConn: null, sseStreamEvents: [],
+    logAutoScroll: true,
+    pollTimer: null,
+};
+let dragNode = null, dragOX = 0, dragOY = 0, isDragging = false, toastTimer;
 
-            async function loadServiceMetrics(service, force) {
-                if (!service) {
-                    return null;
-                }
-                const key = service;
-                const now = Date.now();
-                const cached = state.metricsCache[key];
-                if (!force && cached && now - cached.at < 8000) {
-                    return cached.data;
-                }
+// ── Helpers ────────────────────────────────────────────────────────────────
+const $  = id => document.getElementById(id);
+const esc = v => v == null ? '' : String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const clamp = (v,a,b) => Math.min(b,Math.max(a,v));
+const num = (v,fb=0) => { const n=Number(v); return isFinite(n)?n:fb; };
 
-                let data = await apiGet(`/api/services/${encodeURIComponent(service)}/metrics`, true);
-                if (!data) {
-                    const node = state.nodesData.find((n) => n.id === service);
-                    data = node ? (node.metrics || {}) : {};
-                }
-                state.metricsCache[key] = { at: now, data };
-                return data;
-            }
+function relTime(ts) {
+    if (!ts) return '—';
+    let s = Math.floor((Date.now()-new Date(ts).getTime())/1000);
+    if (s<0) s=0;
+    if (s<60) return `${s}s ago`;
+    if (s<3600) return `${Math.floor(s/60)}m ago`;
+    if (s<86400) return `${Math.floor(s/3600)}h ago`;
+    return `${Math.floor(s/86400)}d ago`;
+}
+function elapsed(start, end) {
+    if (!start) return '—';
+    const ms = (end ? new Date(end) : new Date()).getTime() - new Date(start).getTime();
+    if (isNaN(ms)||ms<0) return '—';
+    const t=Math.floor(ms/1000), h=Math.floor(t/3600), m=Math.floor((t%3600)/60), s=t%60;
+    return h>0?`${h}h ${m}m ${s}s`:m>0?`${m}m ${s}s`:`${s}s`;
+}
+function fmtTime(ts) {
+    if (!ts) return '—';
+    return new Date(ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+}
+function fmtDur(ms) {
+    if (!ms) return '—';
+    if (ms < 1) return `${(ms*1000).toFixed(0)}μs`;
+    if (ms < 1000) return `${ms.toFixed(1)}ms`;
+    return `${(ms/1000).toFixed(2)}s`;
+}
+function sevRank(s) { return {P1:4,P2:3,P3:2,P4:1}[s]||0; }
+function incKey(inc) { return `${inc.namespace}/${inc.name}`; }
+function incStart(inc) { return inc.firstObservedAt||inc.activeAt||inc.lastObservedAt||inc.resolvedAt||''; }
+function serviceFor(inc) {
+    if (inc.scope?.resourceRef?.name) return inc.scope.resourceRef.name;
+    if (inc.scope?.workloadRef?.name) return inc.scope.workloadRef.name;
+    const kins = ['Deployment','StatefulSet','DaemonSet','Pod','Node'];
+    for (const k of kins) {
+        const f = (inc.affectedResources||[]).find(r=>r.kind===k&&r.name);
+        if (f) return f.name;
+    }
+    return inc.podName||inc.name;
+}
+function chooseIcon(hint, kind, name) {
+    const n=(name||'').toLowerCase(), k=(kind||'').toLowerCase();
+    if (n.includes('redis')||n.includes('cache')||n.includes('db')||n.includes('postgres')||n.includes('mysql')||k.includes('db')) return 'database';
+    if (n.includes('ingress')||n.includes('gateway')||n.includes('nginx')||n.includes('proxy')) return 'globe';
+    if (n.includes('auth')||n.includes('oauth')) return 'shield-check';
+    if (n.includes('payment')||n.includes('billing')) return 'credit-card';
+    if (n.includes('inventory')||n.includes('catalog')) return 'package';
+    return 'server';
+}
+function getServices() {
+    const from_topo = S.nodesData.map(n=>n.id);
+    if (from_topo.length) return from_topo;
+    const from_inc = S.incidents.map(serviceFor).filter(Boolean);
+    return [...new Set(from_inc)];
+}
 
-            async function loadServiceLogs(service, severity, force) {
-                if (!service) {
-                    return [];
-                }
-                const sevPart = severity ? `&severity=${encodeURIComponent(severity)}` : "";
-                const key = `${service}|${severity}`;
-                const now = Date.now();
-                const cached = state.logsCache[key];
-                if (!force && cached && now - cached.at < 5000) {
-                    return cached.data;
-                }
+async function apiFetch(url, allowFail=false) {
+    try {
+        const r = await fetch(url);
+        if (!r.ok) { if (!allowFail) console.warn('API error', url, r.status); return null; }
+        return r.json();
+    } catch(e) { if (!allowFail) console.warn('Fetch failed', url, e.message); return null; }
+}
 
-                const data = await apiGet(`/api/services/${encodeURIComponent(service)}/logs?limit=120${sevPart}`, true);
-                const logs = Array.isArray(data) ? data : [];
-                state.logsCache[key] = { at: now, data: logs };
-                return logs;
-            }
+function showToast(msg) {
+    const el=$('toast'); $('toast-msg').textContent=msg;
+    el.style.bottom='24px'; el.style.opacity='1';
+    clearTimeout(toastTimer);
+    toastTimer=setTimeout(()=>{ el.style.bottom='-80px'; el.style.opacity='0'; },3000);
+}
 
-            async function renderMetricsTab(forceRefresh) {
-                const controls = byId("metrics-controls");
-                const cards = byId("metrics-cards");
-                if (!controls || !cards) {
-                    return;
-                }
+// ── Polling ────────────────────────────────────────────────────────────────
+async function refreshAll() {
+    const [incs, stats, rules, topo, agents] = await Promise.all([
+        apiFetch('/api/incidents'),
+        apiFetch('/api/stats'),
+        apiFetch('/api/rules', true),
+        apiFetch('/api/topology', true),
+        apiFetch('/api/agents', true),
+    ]);
 
-                const services = getServices();
-                if (!services.length) {
-                    controls.innerHTML = "";
-                    cards.innerHTML = `<div class="col-span-full bg-slate-900 border border-slate-800 rounded-xl p-6 text-sm text-slate-500">No services are available for metrics.</div>`;
-                    return;
-                }
+    if (Array.isArray(incs)) S.incidents = incs;
+    if (stats) S.stats = stats;
+    if (Array.isArray(rules)) S.rules = rules;
+    if (topo) S.topoGraph = topo;
+    if (Array.isArray(agents)) S.agents = agents;
 
-                if (!state.selectedService || !services.includes(state.selectedService)) {
-                    state.selectedService = services[0];
-                }
+    // Auto-select first service
+    const svcs = getServices();
+    if (svcs.length && !svcs.includes(S.selectedSvc)) S.selectedSvc = svcs[0];
 
-                controls.innerHTML = `
-                    <select onchange="metricsServiceChanged(this.value)" class="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1.5 font-mono">
-                        ${services.map((svc) => `<option value="${esc(svc)}" ${svc === state.selectedService ? "selected" : ""}>${esc(svc)}</option>`).join("")}
-                    </select>
-                    <button onclick="refreshMetrics()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold px-2.5 py-1.5 rounded">Refresh</button>
-                `;
+    // Auto-select incident
+    if (!S.selectedIncKey || !S.incidents.find(i=>incKey(i)===S.selectedIncKey)) {
+        const pref = S.incidents.find(i=>i.phase==='Active')||S.incidents.find(i=>i.phase==='Detecting')||S.incidents[0];
+        S.selectedIncKey = pref ? incKey(pref) : null;
+    }
 
-                const metrics = await loadServiceMetrics(state.selectedService, forceRefresh);
-                const requestRate = num(metrics && metrics.requestRate, 0);
-                const errorRate = num(metrics && metrics.errorRate, 0);
-                const p95 = num(metrics && metrics.p95Latency, 0);
-                const p99 = num(metrics && metrics.p99Latency, 0);
-                const cpu = num(metrics && metrics.cpuUsage, 0);
-                const memory = num(metrics && metrics.memoryUsage, 0);
+    buildTopoModels();
+    renderAll();
+}
 
-                const metricCards = [
-                    {
-                        title: "Request Rate",
-                        icon: "network",
-                        color: "text-emerald-400",
-                        val: `${requestRate.toFixed(2)} /s`,
-                        bars: normalizeSpark(clamp(requestRate * 10, 4, 100)),
-                        barClass: "bg-emerald-500/40"
-                    },
-                    {
-                        title: "Error Rate",
-                        icon: "alert-triangle",
-                        color: errorRate > 1 ? "text-red-400" : "text-amber-400",
-                        val: `${errorRate.toFixed(2)} /s`,
-                        bars: normalizeSpark(clamp(errorRate * 35, 4, 100)),
-                        barClass: errorRate > 1 ? "bg-red-500/60" : "bg-amber-500/50"
-                    },
-                    {
-                        title: "P95 Latency",
-                        icon: "timer",
-                        color: p95 > 500 ? "text-amber-400" : "text-blue-400",
-                        val: `${p95.toFixed(0)} ms`,
-                        bars: normalizeSpark(clamp(p95 / 12, 4, 100)),
-                        barClass: "bg-blue-500/45"
-                    },
-                    {
-                        title: "P99 Latency",
-                        icon: "zap",
-                        color: p99 > 1000 ? "text-red-400" : "text-purple-400",
-                        val: `${p99.toFixed(0)} ms`,
-                        bars: normalizeSpark(clamp(p99 / 16, 4, 100)),
-                        barClass: "bg-purple-500/45"
-                    },
-                    {
-                        title: "CPU Usage",
-                        icon: "cpu",
-                        color: "text-blue-400",
-                        val: `${cpu.toFixed(2)} cores`,
-                        bars: normalizeSpark(clamp(cpu * 20, 4, 100)),
-                        barClass: "bg-blue-500/45"
-                    },
-                    {
-                        title: "Memory Usage",
-                        icon: "hard-drive",
-                        color: memory > 2 * 1024 * 1024 * 1024 ? "text-red-400" : "text-purple-400",
-                        val: formatBytes(memory),
-                        bars: normalizeSpark(clamp((memory / (4 * 1024 * 1024 * 1024)) * 100, 4, 100)),
-                        barClass: "bg-purple-500/45"
-                    }
-                ];
+function startPolling() {
+    refreshAll();
+    S.pollTimer = setInterval(refreshAll, POLL_INTERVAL);
+}
 
-                cards.innerHTML = metricCards
-                    .map((card) => `
-                        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
-                            <div class="flex justify-between items-center mb-4">
-                                <h3 class="text-slate-300 font-bold text-xs flex items-center gap-1.5"><i data-lucide="${card.icon}" class="w-3.5 h-3.5 ${card.color}"></i> ${card.title}</h3>
-                                <span class="text-lg font-bold ${card.color} font-mono">${card.val}</span>
-                            </div>
-                            <div class="h-24 flex items-end gap-1">${sparkBars(card.bars, card.barClass)}</div>
+// ── Tab switching ──────────────────────────────────────────────────────────
+const TABS = ['topology','incidents','metrics','logs','traces','rules','agents'];
+function switchTab(tab) {
+    S.tab = tab;
+    TABS.forEach(t => {
+        const v=$(`view-${t}`), n=$(`nav-${t}`);
+        if (!v||!n) return;
+        const active = t===tab;
+        v.classList.toggle('hidden', !active);
+        n.classList.toggle('active', active);
+    });
+    if (tab==='metrics') populateSvcSelectors(), loadMetrics();
+    if (tab==='logs')    populateSvcSelectors(), loadLogs();
+    if (tab==='traces')  populateSvcSelectors(), loadTraces();
+    if (tab==='agents')  renderAgents();
+    lucide.createIcons();
+}
+
+// ── Topology ───────────────────────────────────────────────────────────────
+function buildTopoModels(reset=false) {
+    const nodes = S.topoGraph?.nodes||{};
+    const edges = S.topoGraph?.edges||[];
+    const wrap = $('canvas-wrap');
+    const W = wrap?.clientWidth||1200, H = wrap?.clientHeight||600;
+    if (reset) S.nodePositions={};
+
+    S.nodesData = Object.keys(nodes).map((name, idx) => {
+        const src = nodes[name]||{};
+        const metrics = src.metrics||{};
+        const incidents = Array.isArray(src.incidents)?src.incidents:[];
+        const cpuPct = clamp(num(metrics.cpuUsage)*20, 0, 100);
+        const memPct = clamp(num(metrics.memoryUsage)/(4*1024*1024*1024)*100, 0, 100);
+        if (!S.nodePositions[name]) {
+            const pre = NODE_LAYOUT[name];
+            if (pre) { S.nodePositions[name]={x:W*pre.x/100, y:H*pre.y/100}; }
+            else { const r=Math.floor(idx/4), c=idx%4; S.nodePositions[name]={x:W*(c+1)/5, y:H*(r+1)/4}; }
+        }
+        const {x,y}=S.nodePositions[name];
+        return { id:name, label:name, kind:src.kind||'Service', status:src.status||'unknown',
+                 icon:chooseIcon(src.icon,src.kind,name), x, y,
+                 cpu:cpuPct, mem:memPct, metrics, incidents,
+                 rca: incidents.length>0?(incidents[0].summary||`${incidents[0].incidentType||'Issue'} detected`):'',
+                 replicas: src.replicas||null };
+    });
+
+    S.edgesData = edges.map(e=>({ source:e.source||e.from, target:e.target||e.to, status:e.status||'active' }));
+    if (S.selectedNode && !S.nodesData.find(n=>n.id===S.selectedNode)) S.selectedNode=null;
+}
+
+function resetLayout() { buildTopoModels(true); renderTopology(); }
+
+function renderTopology() {
+    renderNodes(); renderEdges();
+    if (S.selectedNode) openTopoPanel(S.selectedNode);
+}
+
+function renderEdges() {
+    const svg=$('svg-edges'); if (!svg) return;
+    const byId={}; S.nodesData.forEach(n=>byId[n.id]=n);
+    svg.innerHTML = S.edgesData.map(e=>{
+        const a=byId[e.source], b=byId[e.target]; if (!a||!b) return '';
+        const dx=b.x-a.x;
+        const d=`M ${a.x} ${a.y} C ${a.x+dx/2} ${a.y}, ${b.x-dx/2} ${b.y}, ${b.x} ${b.y}`;
+        return `<path d="${d}" class="edge-path ${esc(e.status)}"/>`;
+    }).join('');
+}
+
+function renderNodes() {
+    const layer=$('div-nodes'); if (!layer) return;
+    layer.innerHTML = S.nodesData.map(n=>{
+        const sel = S.selectedNode===n.id ? 'selected' : '';
+        const ic = n.status==='healthy'?'text-emerald-400':n.status==='warning'?'text-amber-400':n.status==='critical'?'text-red-400':'text-slate-400';
+        const dot = n.status==='critical'?'bg-red-500 pulse-dot':n.status==='warning'?'bg-amber-500':'';
+        const enc = encodeURIComponent(n.id);
+        return `<div id="nd-${enc}" class="topo-node ${sel}" style="left:${n.x}px;top:${n.y}px"
+            onmousedown="startDrag(event,decodeURIComponent('${enc}'))"
+            onclick="selectNode(decodeURIComponent('${enc}'),event)">
+            <div class="node-ring w-12 h-12 rounded-full border-2 border-slate-700 bg-[#0a1628] flex items-center justify-center shadow-lg relative transition-all">
+                <i data-lucide="${esc(n.icon)}" class="w-5 h-5 ${ic}"></i>
+                ${dot?`<div class="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#020817] ${dot}"></div>`:''}
+            </div>
+            <div class="absolute top-full mt-2 left-1/2 -translate-x-1/2 pointer-events-none">
+                <div class="text-[10px] font-medium text-slate-300 bg-[#0a1628]/90 px-2 py-0.5 rounded border border-slate-800/60 whitespace-nowrap shadow">${esc(n.label)}</div>
+            </div>
+        </div>`;
+    }).join('');
+    lucide.createIcons();
+}
+
+// drag
+function startDrag(e, nodeId) {
+    dragNode=nodeId; isDragging=false;
+    const el=document.getElementById(`nd-${encodeURIComponent(nodeId)}`);
+    if (!el) return;
+    dragOX=e.clientX-S.nodePositions[nodeId].x;
+    dragOY=e.clientY-S.nodePositions[nodeId].y;
+    e.preventDefault();
+}
+document.addEventListener('mousemove', e=>{
+    if (!dragNode) return; isDragging=true;
+    const wrap=$('canvas-wrap'); if (!wrap) return;
+    const rect=wrap.getBoundingClientRect();
+    const x=clamp(e.clientX-dragOX,20,rect.width-20);
+    const y=clamp(e.clientY-dragOY,20,rect.height-20);
+    S.nodePositions[dragNode]={x,y};
+    const el=document.getElementById(`nd-${encodeURIComponent(dragNode)}`);
+    if (el) { el.style.left=x+'px'; el.style.top=y+'px'; }
+    // update node
+    const nd=S.nodesData.find(n=>n.id===dragNode);
+    if (nd) { nd.x=x; nd.y=y; }
+    renderEdges();
+});
+document.addEventListener('mouseup', ()=>{ dragNode=null; isDragging=false; });
+
+function selectNode(id, e) {
+    if (isDragging) return;
+    S.selectedNode = id;
+    // update selected class
+    document.querySelectorAll('.topo-node').forEach(el=>el.classList.remove('selected'));
+    const el=document.getElementById(`nd-${encodeURIComponent(id)}`);
+    if (el) el.classList.add('selected');
+    openTopoPanel(id);
+}
+
+async function openTopoPanel(id) {
+    const node = S.nodesData.find(n=>n.id===id);
+    if (!node) return;
+    const panel=$('topo-panel');
+    panel.classList.remove('closed'); panel.classList.add('open');
+    $('tp-title').textContent = node.label;
+    $('tp-kind').textContent = node.kind;
+    $('tp-icon').setAttribute('data-lucide', node.icon);
+
+    // Anomaly
+    const anomalyBox=$('tp-anomaly');
+    if (node.rca) {
+        anomalyBox.classList.remove('hidden');
+        $('tp-anomaly-text').textContent = node.rca;
+    } else { anomalyBox.classList.add('hidden'); }
+
+    // Replicas
+    const repEl=$('tp-replicas');
+    if (node.replicas) {
+        const cur=node.replicas.current, des=node.replicas.desired;
+        const cls=cur<des?'text-red-400 font-bold':'text-emerald-400 font-bold';
+        repEl.innerHTML=`${des} Desired / <span class="${cls}">${cur} Current</span>`;
+    } else { repEl.textContent='—'; }
+
+    $('tp-restarts').textContent = node.incidents.length;
+
+    // Load metrics
+    const metrics = await apiFetch(`/api/services/${encodeURIComponent(id)}/metrics`, true);
+    const m = metrics||node.metrics||{};
+    const cpuPct = clamp(num(m.cpuUsage)*20,0,100);
+    const memPct = clamp(num(m.memoryUsage)/(4*1024*1024*1024)*100,0,100);
+    $('tp-cpu-val').textContent=`${Math.round(cpuPct)}%`;
+    $('tp-mem-val').textContent=`${Math.round(memPct)}%`;
+    renderSparkBars('tp-cpu-bars', cpuPct, 'bg-blue-500');
+    renderSparkBars('tp-mem-bars', memPct, memPct>80?'bg-red-500':'bg-purple-500');
+
+    const rps = m.requestRate != null ? `${num(m.requestRate,0).toFixed(1)}/s` : '—';
+    $('tp-rps').textContent=rps;
+
+    const tracesBtn=$('tp-traces-btn');
+    tracesBtn.classList.toggle('hidden', S.tab!=='topology');
+    if (S.tab==='topology') {
+        tracesBtn.onclick=()=>{ S.selectedSvc=id; switchTab('traces'); };
+        tracesBtn.classList.remove('hidden');
+    }
+
+    lucide.createIcons();
+}
+function closeTopoPanel() {
+    const p=$('topo-panel'); p.classList.remove('open'); p.classList.add('closed');
+    S.selectedNode=null;
+    document.querySelectorAll('.topo-node').forEach(el=>el.classList.remove('selected'));
+}
+
+function renderSparkBars(containerId, pct, colorClass) {
+    const el=$(containerId); if (!el) return;
+    const vals=[0.5,0.65,0.75,0.85,1].map(m=>clamp(Math.round(pct*m),3,100));
+    el.innerHTML=vals.map(v=>`<div class="spark-bar flex-1 ${colorClass}" style="height:${v}%"></div>`).join('');
+}
+
+// ── Incidents ──────────────────────────────────────────────────────────────
+function setIncPhase(p) {
+    S.incPhaseFilter=p;
+    ['all','active','detecting','resolved'].forEach(id=>{
+        const el=$(`ifil-${id}`); if (!el) return;
+        const active=(p===''&&id==='all')||(p.toLowerCase()===id);
+        el.className=active
+            ?'px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 transition-colors'
+            :'px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-600 transition-colors';
+    });
+    renderIncidentsList();
+}
+function filterIncidents() { S.incQuery=$('inc-search').value.toLowerCase(); renderIncidentsList(); }
+
+function filteredIncidents() {
+    return S.incidents.filter(i=>{
+        if (S.incPhaseFilter && i.phase!==S.incPhaseFilter) return false;
+        if (S.incQuery) {
+            const hay=[i.name,i.namespace,i.incidentType,i.summary,i.podName,serviceFor(i)].join(' ').toLowerCase();
+            if (!hay.includes(S.incQuery)) return false;
+        }
+        return true;
+    }).sort((a,b)=>sevRank(b.severity)-sevRank(a.severity)||new Date(incStart(b))-new Date(incStart(a)));
+}
+
+function renderIncidentsList() {
+    const list=$('inc-list'); if (!list) return;
+    const items=filteredIncidents();
+    $('inc-total').textContent=`${S.incidents.length} Total`;
+
+    const active=S.incidents.filter(i=>i.phase==='Active'||i.phase==='Detecting').length;
+    $('inc-badge').classList.toggle('hidden', active===0);
+
+    if (!items.length) {
+        list.innerHTML=`<div class="p-6 text-xs text-slate-600">No incidents match your filter.</div>`;
+        return;
+    }
+    list.innerHTML=items.map(inc=>{
+        const k=incKey(inc), sel=S.selectedIncKey===k;
+        const sbc=SEV_BADGE[inc.severity]||SEV_BADGE.P4;
+        const phc=PHASE_BADGE[inc.phase]||PHASE_BADGE.Resolved;
+        return `<div class="inc-row p-3 border-b border-slate-800/40 cursor-pointer ${sel?'sel':''}" onclick="selectInc('${esc(k)}')">
+            <div class="flex justify-between items-center mb-1">
+                <div class="flex items-center gap-1.5 min-w-0">
+                    <span class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono border ${sbc}">${esc(inc.severity||'P4')}</span>
+                    <span class="font-semibold text-slate-200 text-xs truncate">${esc(serviceFor(inc))}</span>
+                </div>
+                <span class="text-[10px] text-slate-600 font-mono shrink-0 ml-1">${esc(relTime(incStart(inc)))}</span>
+            </div>
+            <div class="flex justify-between items-center">
+                <span class="text-[10px] text-slate-500 font-mono truncate">${esc(inc.incidentType||'Unknown')}</span>
+                <span class="px-1.5 py-0.5 rounded border text-[9px] font-bold shrink-0 ml-1 ${phc}">${esc(inc.phase||'Resolved')}</span>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function selectInc(key) {
+    S.selectedIncKey=key;
+    renderIncidentsList();
+    renderIncidentDetail();
+    loadIncidentExtras(key);
+}
+
+async function loadIncidentExtras(key) {
+    const inc=S.incidents.find(i=>incKey(i)===key); if (!inc) return;
+    // Load full detail (trace, firedRule)
+    const detail=await apiFetch(`/api/incidents/${encodeURIComponent(inc.namespace)}/${encodeURIComponent(inc.name)}`, true);
+    if (detail) { Object.assign(inc, detail); }
+    // Load timeline
+    if (inc.fingerprint) {
+        const tl=await apiFetch(`/api/timeline?fingerprint=${encodeURIComponent(inc.fingerprint)}`, true);
+        if (Array.isArray(tl)) inc._timeline=tl;
+    }
+    if (S.selectedIncKey===key) renderIncidentDetail();
+}
+
+function renderIncidentDetail() {
+    const det=$('inc-detail'), emp=$('inc-empty'); if (!det||!emp) return;
+    const inc=S.incidents.find(i=>incKey(i)===S.selectedIncKey);
+    if (!inc) { det.classList.add('hidden'); emp.classList.remove('hidden'); return; }
+    emp.classList.add('hidden'); det.classList.remove('hidden');
+
+    const svc=serviceFor(inc);
+    const sbc=SEV_BADGE[inc.severity]||SEV_BADGE.P4;
+    const phc=PHASE_BADGE[inc.phase]||PHASE_BADGE.Resolved;
+
+    $('id-title').textContent=svc;
+    $('id-type').textContent=inc.incidentType||'Unknown';
+    $('id-meta').textContent=`${inc.namespace} • ${inc.name}`;
+    $('id-sev').className=`px-2 py-0.5 rounded text-[10px] font-bold font-mono border ${sbc}`;
+    $('id-sev').textContent=inc.severity||'P4';
+    $('id-phase').className=`px-2 py-0.5 rounded text-[10px] font-bold font-mono flex items-center gap-1.5 border ${phc}`;
+    $('id-phase').innerHTML=(inc.phase==='Active'?'<div class="w-1.5 h-1.5 bg-red-500 rounded-full pulse-dot"></div>':'<i data-lucide="check" class="w-2.5 h-2.5"></i>')+` ${esc(inc.phase||'Resolved')}`;
+    $('id-elapsed').textContent=elapsed(incStart(inc), inc.resolvedAt);
+
+    const summary=(inc.rca?.rootCause)||inc.summary||inc.message||'No summary available.';
+    $('id-summary').textContent=summary;
+
+    // Playbook
+    const cmds=buildPlaybook(inc);
+    $('id-playbook').innerHTML=cmds.length
+        ? cmds.map((cmd,i)=>`<div class="flex items-center gap-2 bg-[#060d1a] p-2 rounded-lg border border-slate-800/60">
+            <span class="text-slate-600 font-mono text-[9px] w-4 shrink-0">${i+1}.</span>
+            <code class="text-indigo-300 font-mono text-[10px] flex-grow truncate">${esc(cmd)}</code>
+            <button onclick="copyCmd(this)" class="shrink-0 bg-slate-800 hover:bg-slate-700 text-slate-400 px-1.5 py-0.5 rounded text-[9px] transition-colors"><i data-lucide="copy" class="w-3 h-3"></i></button>
+        </div>`).join('')
+        +((!inc.rca&&(inc.phase==='Active'||inc.phase==='Detecting'))?`<button onclick="triggerRCA('${esc(inc.namespace)}','${esc(inc.name)}')" class="mt-2 w-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold py-2 rounded-lg transition-colors flex items-center justify-center gap-1.5"><i data-lucide="sparkles" class="w-3.5 h-3.5"></i> Run AI Investigation</button>`:'')
+        : `<div class="text-xs text-slate-600 p-2">No playbook commands available.</div>`;
+
+    // Resources
+    const res=Array.isArray(inc.affectedResources)?inc.affectedResources:[];
+    $('id-resources').innerHTML=res.length
+        ? res.map(r=>`<div class="bg-slate-900/60 border border-slate-800/60 rounded-lg p-2 flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+                <span class="bg-indigo-500/10 text-indigo-400 font-mono text-[9px] px-1.5 py-0.5 rounded border border-indigo-500/20 font-bold uppercase">${esc(r.kind||'Resource')}</span>
+                <span class="text-xs text-slate-300">${esc(r.name||'unknown')}</span>
+            </div>
+            <span class="text-[10px] text-slate-500 font-mono">${esc(r.namespace||inc.namespace)}</span>
+        </div>`).join('')
+        : `<div class="text-xs text-slate-600">No affected resources reported.</div>`;
+
+    // Blast radius + related traces
+    let extra='';
+    if (Array.isArray(inc.blastRadius)&&inc.blastRadius.length) {
+        extra+=`<div class="mt-2"><div class="text-[10px] uppercase text-slate-600 mb-1">Blast Radius</div><div class="flex flex-wrap gap-1">${inc.blastRadius.map(s=>`<span class="px-2 py-0.5 rounded bg-red-500/10 border border-red-500/20 text-[10px] font-mono text-red-300">${esc(s)}</span>`).join('')}</div></div>`;
+    }
+    if (inc.traceId) {
+        extra+=`<div class="mt-2"><span class="text-[10px] text-slate-600">Trace: </span><button onclick="viewTrace('${esc(inc.traceId)}')" class="text-[10px] font-mono text-indigo-400 hover:text-indigo-300 underline">${esc(inc.traceId.slice(0,16))}…</button></div>`;
+    }
+    $('id-resources').innerHTML+=extra;
+
+    // Conditions
+    const notified=inc.notified?`<div class="p-2.5 flex items-start gap-2"><i data-lucide="bell-ring" class="w-3.5 h-3.5 text-emerald-500 mt-0.5"></i><div class="text-xs font-semibold text-slate-200">Alert Dispatched <span class="font-mono text-[9px] bg-slate-800 px-1 rounded text-slate-400 ml-1">True</span></div></div>`:'';
+    const signalCount=inc.signalCount>0?`<div class="p-2.5 flex items-start gap-2"><i data-lucide="signal" class="w-3.5 h-3.5 text-blue-500 mt-0.5"></i><div class="text-xs font-semibold text-slate-200">Signals <span class="font-mono text-[9px] bg-slate-800 px-1 rounded text-slate-400 ml-1">${inc.signalCount}</span></div></div>`:'';
+    $('id-conditions').innerHTML=`
+        <div class="p-2.5 border-b border-slate-800/40 flex items-start gap-2"><i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-500 mt-0.5"></i><div class="text-xs font-semibold text-slate-200">Signals Correlated <span class="font-mono text-[9px] bg-slate-800 px-1 rounded text-slate-400 ml-1">${(inc.correlatedSignals||[]).length>0?'True':'False'}</span></div></div>
+        ${notified}${signalCount}`;
+
+    // Correlated signals
+    const sigs=Array.isArray(inc.correlatedSignals)?inc.correlatedSignals:[];
+    const sigSec=$('id-signals-section');
+    sigSec.classList.toggle('hidden', sigs.length===0);
+    if (sigs.length) { $('id-signals').innerHTML=sigs.map(s=>`<span class="px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-[10px] font-mono text-blue-300">${esc(s)}</span>`).join(''); }
+
+    // Timeline
+    const tl=Array.isArray(inc._timeline)?inc._timeline:[];
+    const tlSec=$('id-timeline-section');
+    tlSec.classList.toggle('hidden', tl.length===0);
+    if (tl.length) {
+        $('id-timeline').innerHTML=tl.slice(-20).map(e=>{
+            const cls=e.phase==='Active'?'text-red-400':e.phase==='Resolved'?'text-emerald-400':'text-purple-400';
+            return `<div class="flex items-start gap-2 py-1.5 border-b border-slate-800/30">
+                <span class="font-mono text-[10px] text-slate-600 shrink-0 mt-0.5">${esc(fmtTime(e.time))}</span>
+                <span class="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${cls.replace('text','bg')}"></span>
+                <span class="text-[11px] text-slate-400">${esc(e.event)}</span>
+                <span class="ml-auto text-[9px] font-mono ${cls} shrink-0">${esc(e.phase||'')}</span>
+            </div>`;
+        }).join('');
+    }
+
+    // RCA
+    const rcaSec=$('id-rca-section');
+    if (inc.rca?.rootCause) {
+        rcaSec.classList.remove('hidden');
+        $('id-rca-cause').textContent=inc.rca.rootCause;
+        $('id-rca-confidence').textContent=inc.rca.confidence?`Confidence: ${inc.rca.confidence}`:'';
+    } else { rcaSec.classList.add('hidden'); }
+
+    lucide.createIcons();
+}
+
+function buildPlaybook(inc) {
+    const svc=serviceFor(inc), ns=inc.namespace, pod=inc.podName||svc;
+    const cmds=new Set();
+    cmds.add(`kubectl describe incidentreport ${inc.name} -n ${ns}`);
+    cmds.add(`kubectl get events -n ${ns} --sort-by='.lastTimestamp' | head -30`);
+    if (inc.rca?.playbook) inc.rca.playbook.forEach(c=>cmds.add(c));
+    (PLAYBOOK_DB[inc.incidentType]||[]).forEach(t=>cmds.add(t.replace(/<ns>/g,ns).replace(/<name>/g,svc).replace(/<pod>/g,pod).replace(/<node>/g,svc)));
+    return [...cmds];
+}
+
+function copyCmd(btn) {
+    const code=btn.closest('div').querySelector('code');
+    if (code) navigator.clipboard?.writeText(code.textContent).then(()=>showToast('Copied to clipboard'));
+}
+
+async function triggerRCA(ns, name) {
+    showToast('Starting AI investigation…');
+    const r=await apiFetch(`/api/investigate/${encodeURIComponent(ns)}/${encodeURIComponent(name)}`, true);
+    if (r) showToast('AI investigation started');
+}
+
+function viewTrace(tid) { S.selectedSvc=''; switchTab('traces'); }
+
+// ── Metrics ────────────────────────────────────────────────────────────────
+function populateSvcSelectors() {
+    const svcs=getServices();
+    ['metrics-svc','logs-svc','traces-svc'].forEach(selId=>{
+        const sel=$(selId); if (!sel) return;
+        const cur=sel.value||S.selectedSvc;
+        sel.innerHTML=svcs.length
+            ? svcs.map(s=>`<option value="${esc(s)}" ${s===cur?'selected':''}>${esc(s)}</option>`).join('')
+            : '<option value="">No services</option>';
+        if (!S.selectedSvc && svcs.length) S.selectedSvc=svcs[0];
+    });
+}
+
+function onMetricsSvcChange() { S.selectedSvc=$('metrics-svc').value; loadMetrics(); }
+
+async function loadMetrics() {
+    const svc=$('metrics-svc')?.value||S.selectedSvc; if (!svc) return;
+    const data=await apiFetch(`/api/services/${encodeURIComponent(svc)}/metrics`, true);
+    renderMetrics(svc, data||{});
+}
+
+function renderMetrics(svc, m) {
+    const grid=$('metrics-grid'); if (!grid) return;
+    const cards = [
+        {
+            label:'CPU Utilization', icon:'cpu', color:'blue',
+            value: num(m.cpuUsage)>0 ? `${num(m.cpuUsage).toFixed(2)} Cores` : '—',
+            pct: clamp(num(m.cpuUsage)*20,0,100),
+            hist: m.cpuHistory||generateFakeBars(8,num(m.cpuUsage)*20),
+        },
+        {
+            label:'Memory Allocation', icon:'hard-drive', color:'purple',
+            value: num(m.memoryUsage)>0 ? formatBytes(num(m.memoryUsage)) : '—',
+            pct: clamp(num(m.memoryUsage)/(4*1024*1024*1024)*100,0,100),
+            hist: m.memHistory||generateFakeBars(8, clamp(num(m.memoryUsage)/(4*1024*1024*1024)*100,0,100)),
+        },
+        {
+            label:'Request Rate', icon:'zap', color:'emerald',
+            value: m.requestRate!=null?`${num(m.requestRate).toFixed(1)}/s`:'—',
+            pct: clamp(num(m.requestRate)/10*100,0,100),
+            hist: m.rpsHistory||generateFakeBars(8, clamp(num(m.requestRate)/10*100,0,100)),
+        },
+        {
+            label:'Error Rate', icon:'x-circle', color:'red',
+            value: m.errorRate!=null?`${(num(m.errorRate)*100).toFixed(2)}%`:'—',
+            pct: clamp(num(m.errorRate)*100*5,0,100),
+            hist: m.errHistory||generateFakeBars(8, clamp(num(m.errorRate)*100*5,0,100)),
+            alert: num(m.errorRate)>0.01,
+        },
+        {
+            label:'P99 Latency', icon:'timer', color:'amber',
+            value: m.p99Latency!=null?fmtDur(num(m.p99Latency)):'—',
+            pct: clamp(num(m.p99Latency)/1000*100,0,100),
+            hist: m.latHistory||generateFakeBars(8, clamp(num(m.p99Latency)/1000*100,0,100)),
+        },
+        {
+            label:'Active Connections', icon:'link', color:'indigo',
+            value: m.activeConnections!=null?String(num(m.activeConnections)):'—',
+            pct: clamp(num(m.activeConnections)/1000*100,0,100),
+            hist: m.connHistory||generateFakeBars(8, clamp(num(m.activeConnections)/1000*100,0,100)),
+        },
+    ];
+
+    const COLOR = {blue:'bg-blue-500',purple:'bg-purple-500',emerald:'bg-emerald-500',red:'bg-red-500',amber:'bg-amber-500',indigo:'bg-indigo-500'};
+    const TCOL  = {blue:'text-blue-400',purple:'text-purple-400',emerald:'text-emerald-400',red:'text-red-400',amber:'text-amber-400',indigo:'text-indigo-400'};
+
+    grid.innerHTML = cards.map(c=>{
+        const barColor = c.alert ? 'bg-red-500' : COLOR[c.color]||'bg-slate-500';
+        const textColor = c.alert ? 'text-red-400' : TCOL[c.color]||'text-slate-400';
+        const bars = c.hist.map(v=>`<div class="metric-bar ${barColor}" style="height:${clamp(v,4,100)}%"></div>`).join('');
+        return `<div class="bg-[#0a1628] border ${c.alert?'border-red-500/30':'border-slate-800/60'} rounded-xl p-5 hover:border-slate-700 transition-colors">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="${c.icon}" class="w-4 h-4 ${textColor}"></i>
+                    <span class="text-xs font-semibold text-slate-300">${c.label}</span>
+                </div>
+                ${c.alert?'<span class="text-[9px] bg-red-500/15 text-red-400 border border-red-500/30 px-1.5 py-0.5 rounded font-bold">ALERT</span>':''}
+            </div>
+            <div class="text-2xl font-bold ${textColor} font-mono mb-4">${c.value}</div>
+            <div class="metric-bar-wrap">${bars}</div>
+        </div>`;
+    }).join('');
+    lucide.createIcons();
+}
+
+function generateFakeBars(n, base) {
+    return Array.from({length:n},(_,i)=>clamp(base*(0.6+Math.random()*0.8),2,100));
+}
+
+function formatBytes(b) {
+    if (b>=1e9) return `${(b/1e9).toFixed(1)} GB`;
+    if (b>=1e6) return `${(b/1e6).toFixed(1)} MB`;
+    if (b>=1e3) return `${(b/1e3).toFixed(1)} KB`;
+    return `${Math.round(b)} B`;
+}
+
+// ── Logs ───────────────────────────────────────────────────────────────────
+async function loadLogs() {
+    const svc=$('logs-svc')?.value||S.selectedSvc;
+    const sev=$('logs-sev')?.value||'';
+    if (!svc) return;
+
+    const url=`/api/services/${encodeURIComponent(svc)}/logs?limit=200${sev?'&severity='+encodeURIComponent(sev):''}`;
+    $('logs-cmd').textContent=`tail -f /var/log/containers/${svc}*.log${sev?' | grep '+sev:''}`;
+    const data=await apiFetch(url, true);
+    const stream=$('logs-stream'); if (!stream) return;
+
+    if (!Array.isArray(data)||data.length===0) {
+        stream.innerHTML=`<div class="text-xs text-slate-600 py-4">No logs available. Configure a log backend (SigNoz/Loki) in telemetry settings.</div>`;
+        return;
+    }
+    stream.innerHTML=data.map(renderLogLine).join('');
+    if (S.logAutoScroll) stream.scrollTop=stream.scrollHeight;
+}
+
+function renderLogLine(e) {
+    const lvl=(e.severity||e.level||'INFO').toUpperCase();
+    const cls=LOG_COLOR[lvl]||'text-slate-400';
+    const ts=e.timestamp?fmtTime(e.timestamp):'--:--:--';
+    const svc=e.serviceName||e.service||'';
+    const msg=e.body||e.message||'';
+    return `<div class="log-line ${lvl}">
+        <span class="text-slate-700">${esc(ts)}</span>
+        <span class="mx-1.5 font-bold ${cls}">[${esc(lvl)}]</span>
+        ${svc?`<span class="text-slate-600">[${esc(svc)}]</span> `:''}
+        <span class="text-slate-300">${esc(msg)}</span>
+    </div>`;
+}
+
+function toggleLogScroll() {
+    S.logAutoScroll=!S.logAutoScroll;
+    const btn=$('log-scroll-btn');
+    btn.classList.toggle('bg-indigo-500/15',S.logAutoScroll);
+    btn.classList.toggle('text-indigo-400',S.logAutoScroll);
+    btn.classList.toggle('bg-slate-800',!S.logAutoScroll);
+    btn.classList.toggle('text-slate-500',!S.logAutoScroll);
+}
+
+// ── Traces ─────────────────────────────────────────────────────────────────
+async function loadTraces() {
+    const svc=$('traces-svc')?.value||S.selectedSvc;
+    if (!svc) return;
+    const data=await apiFetch(`/api/services/${encodeURIComponent(svc)}/traces?limit=50`, true);
+    renderTraces(data);
+}
+
+function renderTraces(data) {
+    const body=$('traces-body'); if (!body) return;
+    if (!Array.isArray(data)||data.length===0) {
+        body.innerHTML=`<tr><td colspan="6" class="px-4 py-8 text-xs text-slate-600">No traces available. Configure Jaeger or SigNoz as telemetry backend.</td></tr>`;
+        return;
+    }
+    body.innerHTML=data.map(t=>{
+        const err=t.hasError||t.error;
+        const sc=err?'bg-red-500/10 text-red-400 border border-red-500/20':'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+        return `<tr class="trace-row">
+            <td class="px-4 py-2.5 font-mono text-[10px] text-indigo-400">${esc((t.traceId||t.id||'').slice(0,16))}…</td>
+            <td class="px-4 py-2.5 text-slate-300 text-xs">${esc(t.rootSpan||t.operationName||t.name||'—')}</td>
+            <td class="px-4 py-2.5 font-mono text-[11px] text-slate-400">${esc(fmtDur(t.duration||t.durationMs))}</td>
+            <td class="px-4 py-2.5 text-[11px] text-slate-500">${esc(t.spanCount||t.spans||'—')}</td>
+            <td class="px-4 py-2.5"><span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${sc}">${err?'ERROR':'OK'}</span></td>
+            <td class="px-4 py-2.5 text-right font-mono text-[10px] text-slate-600">${esc(fmtTime(t.startTime||t.timestamp))}</td>
+        </tr>`;
+    }).join('');
+}
+
+// ── RCA Rules ──────────────────────────────────────────────────────────────
+function renderRules() {
+    const body=$('rules-body'); if (!body) return;
+    $('rules-count').textContent=`${S.rules.length} Rules`;
+    if (!S.rules.length) {
+        body.innerHTML=`<tr><td colspan="8" class="px-4 py-8 text-xs text-slate-600">No RCACorrelationRule resources found.</td></tr>`;
+        return;
+    }
+    body.innerHTML=S.rules.map(r=>{
+        const sc=SEV_BADGE[r.firesSeverity]||SEV_BADGE.P4;
+        const conds=(Array.isArray(r.conditions)?r.conditions:[]).join(' + ');
+        const autoTag=r.autoGenerated?'<span class="text-[9px] bg-slate-700 text-slate-400 px-1.5 py-0.5 rounded font-mono ml-1">auto</span>':'';
+        return `<tr class="hover:bg-slate-800/20 transition-colors">
+            <td class="px-4 py-3 font-mono text-[11px] font-bold text-slate-400">${esc(r.priority||'—')}</td>
+            <td class="px-4 py-3 font-medium text-slate-200 text-xs">${esc(r.name)}${autoTag}</td>
+            <td class="px-4 py-3 font-mono text-[10px] text-indigo-300">${esc(r.triggerEvent||'—')}</td>
+            <td class="px-4 py-3 font-mono text-[10px] text-slate-300">${esc(r.firesType||'—')}</td>
+            <td class="px-4 py-3"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold font-mono border ${sc}">${esc(r.firesSeverity||'—')}</span></td>
+            <td class="px-4 py-3 text-[10px] text-slate-500 font-mono max-w-xs truncate">${esc(conds||'none')}</td>
+            <td class="px-4 py-3 text-[10px] text-slate-500">${esc(r.agentSelector||'all')}</td>
+            <td class="px-4 py-3 text-right font-mono text-[10px] text-slate-600">${esc(r.age||'—')}</td>
+        </tr>`;
+    }).join('');
+}
+
+// ── RCA Agents ────────────────────────────────────────────────────────────
+async function refreshAgents() {
+    const data=await apiFetch('/api/agents', true);
+    if (Array.isArray(data)) S.agents=data;
+    renderAgents();
+}
+
+function renderAgents() {
+    const grid=$('agents-grid'); if (!grid) return;
+    const agents=S.agents.length?S.agents:(S.stats.agents||[]).map(a=>({...a,conditions:[],watchNamespaces:a.watchNamespaces||[]}));
+    if (!agents.length) {
+        grid.innerHTML=`<div class="text-xs text-slate-600 text-center py-12">No RCAAgent resources found.</div>`;
+        return;
+    }
+    grid.innerHTML=agents.map(a=>{
+        const ok=a.healthy!==false;
+        const stCls=ok?'bg-emerald-500/10 text-emerald-400 border-emerald-500/30':'bg-red-500/10 text-red-400 border-red-500/30';
+        const dotCls=ok?'bg-emerald-500':'bg-red-500 pulse-dot';
+        const nss=(a.watchNamespaces||[]);
+        const nsHtml=nss.length?nss.map(n=>`<span class="px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-400 text-[10px] font-mono border border-slate-700">${esc(n)}</span>`).join('')
+            :'<span class="text-[10px] text-slate-600 font-mono">all namespaces</span>';
+        const caps=[];
+        if (a.hasSlack) caps.push('<span class="text-[9px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono">Slack</span>');
+        if (a.hasPagerDuty) caps.push('<span class="text-[9px] px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-400 border border-orange-500/20 font-mono">PagerDuty</span>');
+        const conds=(a.conditions||[]).map(c=>`
+            <div class="flex items-center justify-between text-[10px] py-1 border-b border-slate-800/30 last:border-0">
+                <span class="text-slate-500 font-mono">${esc(c.type)}</span>
+                <span class="font-bold ${c.status==='True'?'text-emerald-400':'text-red-400'}">${esc(c.status)}</span>
+            </div>`).join('');
+        return `<div class="bg-[#0a1628] border ${ok?'border-slate-800/60':'border-red-500/20'} rounded-xl p-5 hover:border-slate-700 transition-colors">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
+                        <i data-lucide="cpu" class="w-4 h-4 text-indigo-400"></i>
+                    </div>
+                    <div>
+                        <div class="text-sm font-bold text-white flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full ${dotCls}"></span>
+                            ${esc(a.name)}
                         </div>
-                    `)
-                    .join("");
+                        ${a.namespace?`<div class="text-[10px] text-slate-600 font-mono mt-0.5">${esc(a.namespace)}</div>`:''}
+                    </div>
+                </div>
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold border ${stCls}">${ok?'HEALTHY':'DEGRADED'}</span>
+            </div>
+            <div class="space-y-3">
+                <div>
+                    <div class="text-[10px] text-slate-600 uppercase tracking-wider mb-1.5">Watch Namespaces</div>
+                    <div class="flex flex-wrap gap-1">${nsHtml}</div>
+                </div>
+                ${caps.length?`<div><div class="text-[10px] text-slate-600 uppercase tracking-wider mb-1.5">Notifications</div><div class="flex gap-1.5">${caps.join('')}</div></div>`:''}
+                ${a.retentionDuration?`<div class="flex justify-between text-[10px]"><span class="text-slate-600">Retention</span><span class="font-mono text-slate-400">${esc(a.retentionDuration)}</span></div>`:''}
+                ${a.signalMappings>0?`<div class="flex justify-between text-[10px]"><span class="text-slate-600">Signal Mappings</span><span class="font-mono text-slate-400">${a.signalMappings} custom</span></div>`:''}
+                ${a.createdAt?`<div class="flex justify-between text-[10px]"><span class="text-slate-600">Created</span><span class="font-mono text-slate-400">${esc(relTime(a.createdAt))}</span></div>`:''}
+                ${conds?`<div class="mt-2 bg-slate-900/40 rounded-lg p-2">${conds}</div>`:''}
+            </div>
+        </div>`;
+    }).join('');
+    lucide.createIcons();
+}
 
-                lucide.createIcons();
-            }
+// ── Correlation Stream ──────────────────────────────────────────────────────
+function initSSE() {
+    if (S.sseConn) { try{S.sseConn.close();}catch(e){} }
+    const es=new EventSource('/api/stream/correlation');
+    S.sseConn=es;
+    es.addEventListener('connected', ()=>{
+        $('sse-status').innerHTML='<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 pulse-dot"></span><span>Live</span>';
+    });
+    es.addEventListener('signal.new', e=>{
+        try { const d=JSON.parse(e.data); pushStreamEvent(d); } catch(_){}
+    });
+    es.addEventListener('incident.created', e=>{
+        try { const d=JSON.parse(e.data); pushStreamEvent({...d, source:'rca-operator'}); refreshAll(); } catch(_){}
+    });
+    es.onerror=()=>{
+        $('sse-status').innerHTML='<span class="w-1.5 h-1.5 rounded-full bg-slate-600"></span><span class="text-slate-600">Polling</span>';
+    };
+}
 
-            async function renderLogsTab(forceRefresh) {
-                const controls = byId("logs-controls");
-                const stream = byId("logs-stream");
-                if (!controls || !stream) {
-                    return;
-                }
+function pushStreamEvent(ev) {
+    S.sseStreamEvents.unshift(ev);
+    if (S.sseStreamEvents.length>30) S.sseStreamEvents.pop();
+    renderStreamCards();
+}
 
-                const services = getServices();
-                if (!services.length) {
-                    controls.innerHTML = "";
-                    stream.innerHTML = `<div class="text-xs text-slate-500">No services are available for logs.</div>`;
-                    return;
-                }
+function buildStreamEvents() {
+    // Merge SSE events with incident-derived events
+    const incEvents = S.incidents.slice(-12).flatMap(inc=>{
+        const src='rca-operator';
+        const ev=[{
+            time: incStart(inc),
+            source: src,
+            title: `${inc.incidentType||'Incident'} • ${inc.severity||''}`,
+            msg: (inc.summary||serviceFor(inc)).slice(0,80),
+            color:'rca-operator',
+        }];
+        if (inc.rca?.rootCause) ev.push({
+            time: inc.rca.investigatedAt||incStart(inc),
+            source:'ai', title:'Root Cause Identified',
+            msg: inc.rca.rootCause.slice(0,80), color:'ai',
+        });
+        return ev;
+    });
+    const all=[...S.sseStreamEvents.map(e=>({...e, fromSSE:true})), ...incEvents]
+        .sort((a,b)=>new Date(a.time)-new Date(b.time));
+    return all.slice(-18);
+}
 
-                if (!state.selectedService || !services.includes(state.selectedService)) {
-                    state.selectedService = services[0];
-                }
+function renderStreamCards() {
+    const container=$('stream-cards'); if (!container) return;
+    const events=buildStreamEvents();
+    if (!events.length) {
+        container.innerHTML=`<div class="flex items-center text-xs text-slate-700 px-2">No correlation events yet.</div>`;
+        return;
+    }
+    container.innerHTML=events.map(ev=>{
+        const src=(ev.source||'').toLowerCase().replace(/[^a-z-]/g,'-');
+        const cls=STREAM_SOURCE_COLOR[src]||STREAM_SOURCE_COLOR['rca-operator'];
+        const srcLabel=(ev.source||'RCA-OPERATOR').toUpperCase();
+        const dot=cls.includes('red')?'bg-red-500':cls.includes('blue')?'bg-blue-500':cls.includes('violet')?'bg-violet-500':cls.includes('emerald')?'bg-emerald-500':'bg-slate-500';
+        return `<div class="relative flex flex-col items-center group w-52 shrink-0 mt-1">
+            <div class="w-3 h-3 rounded-full ${dot} border-2 border-[#0a1628] z-10 mb-2"></div>
+            <div class="bg-[#060d1a] border ${cls} rounded-xl p-3 w-full group-hover:-translate-y-0.5 transition-transform">
+                <div class="flex justify-between items-center mb-1">
+                    <span class="text-[9px] uppercase tracking-wider font-bold opacity-80">${esc(srcLabel)}</span>
+                    <span class="font-mono text-[9px] text-slate-600">${esc(fmtTime(ev.time))}</span>
+                </div>
+                <h4 class="text-xs font-bold text-white mb-0.5 leading-tight">${esc(ev.title||'')}</h4>
+                <p class="text-[10px] opacity-70 leading-snug line-clamp-2">${esc(ev.msg||'')}</p>
+            </div>
+        </div>`;
+    }).join('');
+    // Scroll to end
+    const wrap=$('stream-wrap');
+    if (wrap) wrap.scrollLeft=wrap.scrollWidth;
+}
 
-                controls.innerHTML = `
-                    <select onchange="logsServiceChanged(this.value)" class="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1.5 font-mono">
-                        ${services.map((svc) => `<option value="${esc(svc)}" ${svc === state.selectedService ? "selected" : ""}>${esc(svc)}</option>`).join("")}
-                    </select>
-                    <select onchange="logsSeverityChanged(this.value)" class="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1.5 font-mono">
-                        <option value="" ${state.logsSeverity === "" ? "selected" : ""}>ALL</option>
-                        <option value="ERROR" ${state.logsSeverity === "ERROR" ? "selected" : ""}>ERROR</option>
-                        <option value="WARN" ${state.logsSeverity === "WARN" ? "selected" : ""}>WARN</option>
-                        <option value="INFO" ${state.logsSeverity === "INFO" ? "selected" : ""}>INFO</option>
-                        <option value="DEBUG" ${state.logsSeverity === "DEBUG" ? "selected" : ""}>DEBUG</option>
-                    </select>
-                    <button onclick="refreshLogs()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold px-2.5 py-1.5 rounded">Refresh</button>
-                `;
+// ── Header ────────────────────────────────────────────────────────────────
+function updateHeader() {
+    const active=S.incidents.filter(i=>i.phase==='Active'||i.phase==='Detecting').length;
+    const pill=$('active-pill');
+    const txt=$('pill-text'), dot=$('pill-dot');
+    if (active>0) {
+        txt.textContent=`${active} ACTIVE INCIDENT${active>1?'S':''}`;
+        pill.className='flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wide border transition-colors cursor-pointer bg-red-500/10 border-red-500/30 text-red-400';
+        dot.className='w-1.5 h-1.5 rounded-full pulse-dot bg-red-500';
+    } else {
+        txt.textContent='ALL CLEAR';
+        pill.className='flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wide border transition-colors cursor-pointer bg-emerald-500/10 border-emerald-500/30 text-emerald-400';
+        dot.className='w-1.5 h-1.5 rounded-full bg-emerald-500';
+    }
 
-                const logs = await loadServiceLogs(state.selectedService, state.logsSeverity, forceRefresh);
-                if (!logs.length) {
-                    stream.innerHTML = `<div class="text-xs text-slate-500">No logs found for ${esc(state.selectedService)} in the last 15 minutes.</div>`;
-                    return;
-                }
+    const svcs=S.nodesData.length||getServices().length;
+    $('hdr-svc').textContent=`${svcs} Services`;
+    $('hdr-agt').textContent=`${(S.stats.agents||[]).length} Agents`;
+    const failing=S.nodesData.filter(n=>n.status==='critical').length||active;
+    $('hdr-fail').textContent=`${failing} Failing`;
 
-                stream.innerHTML = logs
-                    .map((log) => {
-                        const sev = (log.severity || "INFO").toUpperCase();
-                        const sevClass = sev === "ERROR" || sev === "FATAL"
-                            ? "text-red-400"
-                            : sev === "WARN"
-                                ? "text-amber-400"
-                                : sev === "DEBUG"
-                                    ? "text-blue-400"
-                                    : "text-emerald-400";
-                        const rowClass = sev === "ERROR" || sev === "FATAL"
-                            ? "bg-red-500/10 border-l-2 border-red-500 text-red-200 px-2 py-1"
-                            : "text-slate-300 hover:bg-slate-800/30 px-1 py-0.5";
+    // Namespace from first incident or first agent namespace
+    const ns=S.incidents[0]?.namespace||S.agents[0]?.namespace||'—';
+    $('hdr-ns').textContent=ns;
+}
 
-                        return `
-                            <div class="${rowClass}">
-                                <span class="text-slate-600">${esc(formatTime(log.timestamp))}</span>
-                                <span class="${sevClass} w-14 inline-block font-bold">[${esc(sev)}]</span>
-                                <span class="text-slate-500">[${esc(log.serviceName || state.selectedService)}]</span>
-                                ${esc(log.body || "")}
-                            </div>
-                        `;
-                    })
-                    .join("");
-            }
+// ── Render all ────────────────────────────────────────────────────────────
+function renderAll() {
+    updateHeader();
+    renderTopology();
+    renderIncidentsList();
+    if (S.selectedIncKey) renderIncidentDetail();
+    renderRules();
+    renderStreamCards();
+    if (S.tab==='metrics') loadMetrics();
+    if (S.tab==='logs')    loadLogs();
+    if (S.tab==='traces')  loadTraces();
+    if (S.tab==='agents')  renderAgents();
+    lucide.createIcons();
+}
 
-            function openTopologyPanel(nodeId) {
-                const node = state.nodesData.find((n) => n.id === nodeId);
-                if (!node) {
-                    return;
-                }
+// ── Export ────────────────────────────────────────────────────────────────
+function exportReport() {
+    const rows=[['Name','Namespace','Type','Severity','Phase','First Seen','Elapsed']];
+    S.incidents.forEach(i=>rows.push([i.name,i.namespace,i.incidentType||'',i.severity||'',i.phase||'',incStart(i),elapsed(incStart(i),i.resolvedAt)]));
+    const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+    const a=document.createElement('a');
+    a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+    a.download=`rca-incidents-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    showToast('Report exported');
+}
 
-                const nodeEl = byId(nodeDomId(nodeId));
-                document.querySelectorAll(".topology-node").forEach((elNode) => elNode.classList.remove("selected"));
-                if (nodeEl) {
-                    nodeEl.classList.add("selected");
-                }
+// ── Boot ──────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', ()=>{
+    lucide.createIcons();
+    switchTab('topology');
+    startPolling();
+    initSSE();
+    // Re-render correlation every 5s if SSE not active
+    setInterval(renderStreamCards, 5000);
+});
 
-                byId("topo-panel-title").textContent = node.label;
-                byId("topo-panel-type").textContent = node.type;
-                byId("topo-panel-icon").innerHTML = `<i data-lucide="${esc(node.icon)}" class="w-5 h-5 text-slate-300"></i>`;
+// expose for inline handlers
+window.switchTab=switchTab;
+window.selectNode=selectNode;
+window.closeTopoPanel=closeTopoPanel;
+window.startDrag=startDrag;
+window.resetLayout=resetLayout;
+window.openServiceTraces=()=>{ switchTab('traces'); };
+window.selectInc=selectInc;
+window.setIncPhase=setIncPhase;
+window.filterIncidents=filterIncidents;
+window.triggerRCA=triggerRCA;
+window.viewTrace=viewTrace;
+window.copyCmd=copyCmd;
+window.loadMetrics=loadMetrics;
+window.onMetricsSvcChange=onMetricsSvcChange;
+window.loadLogs=loadLogs;
+window.toggleLogScroll=toggleLogScroll;
+window.loadTraces=loadTraces;
+window.refreshAgents=refreshAgents;
+window.exportReport=exportReport;
+window.showToast=showToast;
 
-                const rcaBox = byId("topo-rca-box");
-                if (node.rca) {
-                    rcaBox.classList.remove("hidden");
-                    byId("topo-rca-text").textContent = node.rca;
-                } else {
-                    rcaBox.classList.add("hidden");
-                }
-
-                byId("topo-k8s-desired").textContent = "3";
-                byId("topo-k8s-current").textContent = node.status === "critical" ? "2 Current" : "3 Current";
-                byId("topo-k8s-current").className = node.status === "critical" ? "text-red-400 font-bold" : "text-emerald-400 font-bold";
-                byId("topo-k8s-restarts").textContent = String(node.restarts || 0);
-
-                const toBars = (arr) => arr.map((val) => `<div class="spark-bar ${val > 85 ? "danger" : val > 60 ? "warn" : ""}" style="height:${Math.max(5, val)}%;"></div>`).join("");
-                byId("topo-spark-cpu").innerHTML = toBars(node.cpu);
-                byId("topo-spark-mem").innerHTML = toBars(node.mem);
-                byId("topo-cpu-val").textContent = `${node.cpu[node.cpu.length - 1]}%`;
-                byId("topo-mem-val").textContent = `${node.mem[node.mem.length - 1]}%`;
-
-                const panel = byId("topology-panel");
-                panel.classList.remove("panel-closed");
-                panel.classList.add("panel-open");
-                lucide.createIcons();
-            }
-
-            function closeTopologyPanel() {
-                state.selectedNodeId = null;
-                document.querySelectorAll(".topology-node").forEach((elNode) => elNode.classList.remove("selected"));
-                const panel = byId("topology-panel");
-                panel.classList.remove("panel-open");
-                panel.classList.add("panel-closed");
-            }
-
-            function startDrag(event, id) {
-                if (event.button !== 0) {
-                    return;
-                }
-                const node = state.nodesData.find((n) => n.id === id);
-                if (!node) {
-                    return;
-                }
-
-                draggedNodeId = id;
-                isDragging = false;
-                const rect = byId("canvas-container").getBoundingClientRect();
-                dragOffsetX = event.clientX - rect.left - node.x;
-                dragOffsetY = event.clientY - rect.top - node.y;
-            }
-
-            function handleDrag(event) {
-                if (!draggedNodeId) {
-                    return;
-                }
-                isDragging = true;
-                const node = state.nodesData.find((n) => n.id === draggedNodeId);
-                if (!node) {
-                    return;
-                }
-
-                const rect = byId("canvas-container").getBoundingClientRect();
-                const nextX = event.clientX - rect.left - dragOffsetX;
-                const nextY = event.clientY - rect.top - dragOffsetY;
-                node.x = nextX;
-                node.y = nextY;
-                state.nodePositions[draggedNodeId] = { x: nextX, y: nextY };
-
-                const nodeEl = byId(nodeDomId(draggedNodeId));
-                if (nodeEl) {
-                    nodeEl.style.left = `${nextX}px`;
-                    nodeEl.style.top = `${nextY}px`;
-                }
-                renderEdges();
-            }
-
-            function endDrag() {
-                draggedNodeId = null;
-            }
-
-            function showToast(message) {
-                const toast = byId("toast");
-                byId("toast-msg").textContent = message;
-                toast.style.opacity = "1";
-                toast.style.bottom = "24px";
-                clearTimeout(toastTimeout);
-                toastTimeout = setTimeout(() => {
-                    toast.style.opacity = "0";
-                    toast.style.bottom = "-100px";
-                }, 3000);
-            }
-
-            function copyToClip(btn) {
-                const code = btn.previousElementSibling ? btn.previousElementSibling.textContent : "";
-                if (navigator.clipboard && code) {
-                    navigator.clipboard.writeText(code);
-                }
-                const original = btn.innerHTML;
-                btn.innerHTML = '<i data-lucide="check" class="w-3 h-3 text-emerald-400"></i>';
-                lucide.createIcons();
-                setTimeout(() => {
-                    btn.innerHTML = original;
-                    lucide.createIcons();
-                }, 1500);
-            }
-
-            async function triggerInvestigation(namespace, name) {
-                const ok = window.confirm(`Trigger AI investigation for ${namespace}/${name}?`);
-                if (!ok) {
-                    return;
-                }
-
-                try {
-                    const res = await fetch(`/api/investigate/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, { method: "POST" });
-                    if (!res.ok) {
-                        const txt = await res.text();
-                        throw new Error(txt || "request failed");
-                    }
-                    showToast(`AI investigation started for ${namespace}/${name}`);
-                    setTimeout(refreshAllData, 1200);
-                } catch (err) {
-                    showToast(`Investigation failed: ${err.message}`);
-                }
-            }
-
-            function exportReport() {
-                const selected = state.selectedIncidentKey ? getIncidentByKey(state.selectedIncidentKey) : null;
-                const inc = selected || state.incidents.find((i) => i.phase === "Active") || state.incidents[0];
-                if (!inc) {
-                    showToast("No incident available to export");
-                    return;
-                }
-
-                const service = serviceForIncident(inc);
-                const lines = [];
-                lines.push(`# RCA Incident Report`);
-                lines.push("");
-                lines.push(`- Incident: ${inc.namespace}/${inc.name}`);
-                lines.push(`- Service: ${service}`);
-                lines.push(`- Severity: ${inc.severity || "P4"}`);
-                lines.push(`- Phase: ${inc.phase || "Unknown"}`);
-                lines.push(`- Started: ${incidentStart(inc) || "-"}`);
-                lines.push(`- Duration: ${elapsed(incidentStart(inc), inc.resolvedAt)}`);
-                lines.push("");
-                lines.push("## Summary");
-                lines.push((inc.rca && inc.rca.rootCause) || inc.summary || inc.message || "No summary available.");
-                lines.push("");
-                lines.push("## Playbook");
-                buildPlaybook(inc).forEach((cmd, idx) => lines.push(`${idx + 1}. ${cmd}`));
-                lines.push("");
-                lines.push("## Correlated Signals");
-                (inc.correlatedSignals || []).forEach((sig) => lines.push(`- ${sig}`));
-
-                const content = lines.join("\n");
-                const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `${inc.name}-rca-report.md`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-                showToast("RCA Markdown report downloaded");
-            }
-
-            function switchTab(tabId) {
-                state.activeTab = tabId;
-                document.querySelectorAll(".nav-btn").forEach((btn) => btn.classList.remove("active"));
-                const activeBtn = byId(`nav-${tabId}`);
-                if (activeBtn) {
-                    activeBtn.classList.add("active");
-                }
-
-                ["view-topology", "view-metrics", "view-logs", "view-incidents", "view-rules", "view-agents"].forEach((id) => {
-                    byId(id).classList.add("hidden");
-                });
-                byId(`view-${tabId}`).classList.remove("hidden");
-
-                if (tabId === "topology") {
-                    setTimeout(renderEdges, 40);
-                }
-                if (tabId === "metrics") {
-                    renderMetricsTab(false);
-                }
-                if (tabId === "logs") {
-                    renderLogsTab(false);
-                }
-            }
-
-            function selectIncident(key) {
-                state.selectedIncidentKey = key;
-                renderIncidentsList();
-                renderIncidentDetail();
-                loadIncidentDetail(key);
-            }
-
-            function selectTopologyNode(id, event) {
-                if (isDragging) {
-                    isDragging = false;
-                    return;
-                }
-                state.selectedNodeId = id;
-                state.selectedService = id;
-                openTopologyPanel(id);
-                if (event) {
-                    event.stopPropagation();
-                }
-            }
-
-            function resetLayout() {
-                buildTopologyModels(true);
-                renderTopology();
-                showToast("Topology layout reset");
-            }
-
-            function scheduleRefresh() {
-                if (sseRefreshTimer) {
-                    return;
-                }
-                sseRefreshTimer = setTimeout(async () => {
-                    sseRefreshTimer = null;
-                    await refreshAllData();
-                }, 350);
-            }
-
-            function connectSSE() {
-                if (typeof EventSource === "undefined") {
-                    return;
-                }
-
-                try {
-                    state.topologySSE = new EventSource("/api/stream/topology");
-                    state.topologySSE.addEventListener("connected", scheduleRefresh);
-                    state.topologySSE.addEventListener("topology.update", scheduleRefresh);
-                    state.topologySSE.onerror = function() {};
-                } catch (e) {}
-
-                try {
-                    state.correlationSSE = new EventSource("/api/stream/correlation");
-                    state.correlationSSE.addEventListener("connected", scheduleRefresh);
-                    state.correlationSSE.addEventListener("correlation.update", scheduleRefresh);
-                    state.correlationSSE.addEventListener("signal.new", scheduleRefresh);
-                    state.correlationSSE.onerror = function() {};
-                } catch (e) {}
-            }
-
-            function metricsServiceChanged(service) {
-                state.selectedService = service;
-                renderMetricsTab(false);
-                if (state.activeTab === "logs") {
-                    renderLogsTab(false);
-                }
-            }
-
-            function logsServiceChanged(service) {
-                state.selectedService = service;
-                renderLogsTab(false);
-                if (state.activeTab === "metrics") {
-                    renderMetricsTab(false);
-                }
-            }
-
-            function logsSeverityChanged(severity) {
-                state.logsSeverity = severity;
-                renderLogsTab(true);
-            }
-
-            function refreshMetrics() {
-                renderMetricsTab(true);
-            }
-
-            function refreshLogs() {
-                renderLogsTab(true);
-            }
-
-            async function initApp() {
-                document.addEventListener("mousemove", handleDrag);
-                document.addEventListener("mouseup", endDrag);
-
-                window.addEventListener("resize", function() {
-                    if (!byId("view-topology").classList.contains("hidden")) {
-                        renderEdges();
-                    }
-                });
-
-                window.addEventListener("beforeunload", function() {
-                    if (state.topologySSE) {
-                        state.topologySSE.close();
-                    }
-                    if (state.correlationSSE) {
-                        state.correlationSSE.close();
-                    }
-                });
-
-                await refreshAllData();
-                connectSSE();
-                setInterval(refreshAllData, 10000);
-            }
-
-            window.switchTab = switchTab;
-            window.selectIncident = selectIncident;
-            window.selectTopologyNode = selectTopologyNode;
-            window.closeTopologyPanel = closeTopologyPanel;
-            window.startDrag = startDrag;
-            window.resetLayout = resetLayout;
-            window.showToast = showToast;
-            window.copyToClip = copyToClip;
-            window.triggerInvestigation = triggerInvestigation;
-            window.exportReport = exportReport;
-            window.metricsServiceChanged = metricsServiceChanged;
-            window.logsServiceChanged = logsServiceChanged;
-            window.logsSeverityChanged = logsSeverityChanged;
-            window.refreshMetrics = refreshMetrics;
-            window.refreshLogs = refreshLogs;
-
-            window.onload = initApp;
-        })();
-    </script>
+})();
+</script>
 </body>
 </html>

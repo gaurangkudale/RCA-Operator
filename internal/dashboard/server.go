@@ -87,6 +87,7 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/incidents", s.handleIncidents)
 	mux.HandleFunc("/api/incidents/", s.handleIncidentDetail)
 	mux.HandleFunc("/api/rules", s.handleRules)
+	mux.HandleFunc("/api/agents", s.handleAgents)
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/timeline", s.handleTimeline)
 
@@ -181,6 +182,28 @@ type agentInfo struct {
 	Name            string   `json:"name"`
 	WatchNamespaces []string `json:"watchNamespaces"`
 	Healthy         bool     `json:"healthy"`
+}
+
+type agentDetailResponse struct {
+	Name              string            `json:"name"`
+	Namespace         string            `json:"namespace"`
+	WatchNamespaces   []string          `json:"watchNamespaces"`
+	Healthy           bool              `json:"healthy"`
+	Phase             string            `json:"phase"`
+	Conditions        []agentCondition  `json:"conditions"`
+	RetentionDuration string            `json:"retentionDuration"`
+	SignalMappings    int               `json:"signalMappings"`
+	HasSlack          bool              `json:"hasSlack"`
+	HasPagerDuty      bool              `json:"hasPagerDuty"`
+	CreatedAt         *time.Time        `json:"createdAt"`
+	Labels            map[string]string `json:"labels"`
+}
+
+type agentCondition struct {
+	Type    string `json:"type"`
+	Status  string `json:"status"`
+	Reason  string `json:"reason"`
+	Message string `json:"message"`
 }
 
 type ruleResponse struct {
@@ -921,4 +944,66 @@ func (s *Server) handleInvestigate(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// handleAgents returns a detailed list of all RCAAgent resources.
+func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	list := &rcav1alpha1.RCAAgentList{}
+	if err := s.client.List(r.Context(), list); err != nil {
+		s.log.Error(err, "Failed to list RCAAgents")
+		http.Error(w, "failed to list agents", http.StatusInternalServerError)
+		return
+	}
+
+	result := make([]agentDetailResponse, 0, len(list.Items))
+	for i := range list.Items {
+		a := &list.Items[i]
+		detail := agentDetailResponse{
+			Name:            a.Name,
+			Namespace:       a.Namespace,
+			WatchNamespaces: a.Spec.WatchNamespaces,
+			Healthy:         true,
+			Labels:          a.Labels,
+		}
+		if detail.WatchNamespaces == nil {
+			detail.WatchNamespaces = []string{}
+		}
+		if detail.Labels == nil {
+			detail.Labels = map[string]string{}
+		}
+		if a.Spec.IncidentRetention != "" {
+			detail.RetentionDuration = a.Spec.IncidentRetention
+		}
+		detail.SignalMappings = len(a.Spec.SignalMappings)
+		if a.Spec.Notifications != nil {
+			detail.HasSlack = a.Spec.Notifications.Slack != nil
+			detail.HasPagerDuty = a.Spec.Notifications.PagerDuty != nil
+		}
+		if !a.CreationTimestamp.IsZero() {
+			t := a.CreationTimestamp.Time
+			detail.CreatedAt = &t
+		}
+		for _, c := range a.Status.Conditions {
+			detail.Conditions = append(detail.Conditions, agentCondition{
+				Type:    c.Type,
+				Status:  string(c.Status),
+				Reason:  c.Reason,
+				Message: c.Message,
+			})
+			if c.Type == "Available" {
+				detail.Healthy = c.Status == "True"
+			}
+		}
+		if detail.Conditions == nil {
+			detail.Conditions = []agentCondition{}
+		}
+		result = append(result, detail)
+	}
+
+	writeJSON(w, result)
 }
