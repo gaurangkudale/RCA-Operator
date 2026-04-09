@@ -20,7 +20,7 @@ querier.go          -- TelemetryQuerier interface + NoopQuerier
 signoz_client.go    -- SigNoz Query Service REST API client
 jaeger_client.go    -- Jaeger v2 HTTP Query API client
 prometheus_client.go -- Prometheus PromQL HTTP API client
-composite.go        -- Composite querier (delegates to Jaeger+Prometheus)
+composite.go        -- Composite querier (delegates to Jaeger+Prometheus or full-composite)
 ```
 
 **TelemetryQuerier Interface:**
@@ -36,13 +36,15 @@ composite.go        -- Composite querier (delegates to Jaeger+Prometheus)
 | `GetDependencies` | Topology | Get service dependency edges from span relationships |
 | `CorrelateByTraceID` | Cross-signal | Get correlated traces + logs + metrics for a trace ID |
 
-**Backend Capabilities:**
+**Backend Capability Matrix:**
 
 | Backend | Traces | Metrics | Logs | Topology |
 |---|---|---|---|---|
-| SigNoz | `/api/v3/traces` | `/api/v3/query_range` | `/api/v3/logs` | `/api/v1/services/dependencies` |
-| Jaeger | `/api/traces/{id}` | N/A | N/A | `/api/dependencies` |
-| Prometheus | N/A | `/api/v1/query_range` | N/A | N/A |
+| `signoz` | `/api/v3/traces` | `/api/v3/query_range` | `/api/v3/logs` | `/api/v1/services/dependencies` |
+| `jaeger` | `/api/traces/{id}` | N/A | N/A | `/api/dependencies` |
+| `prometheus` | N/A | `/api/v1/query_range` | N/A | N/A |
+| `composite` | Jaeger | Prometheus | No | Jaeger |
+| `full-composite` | Jaeger | Prometheus | SigNoz | Jaeger |
 
 ### `internal/topology/` - Service Dependency Graph
 
@@ -125,9 +127,11 @@ status:
 | `GET` | `/api/topology` | ServiceGraph JSON (nodes + edges + metrics) |
 | `GET` | `/api/topology/blast?service=X` | Blast radius for service X |
 | `GET` | `/api/services` | List discovered services with health status |
-| `GET` | `/api/services/{name}/metrics` | Sparkline data for a service |
+| `GET` | `/api/services/{name}` | Single service node detail |
+| `GET` | `/api/services/{name}/metrics` | RED + resource metrics for a service |
 | `GET` | `/api/services/{name}/traces` | Recent traces for a service |
 | `GET` | `/api/services/{name}/logs` | Recent logs for a service |
+| `GET` | `/api/agents` | All RCAAgent resources with health, conditions, and configuration summary |
 | `GET` | `/api/investigate/{ns}/{name}` | Get existing AI RCA result for an incident |
 | `POST` | `/api/investigate/{ns}/{name}` | Trigger AI investigation for an incident |
 | `SSE` | `/api/stream/topology` | Live topology graph updates |
@@ -137,16 +141,18 @@ status:
 
 | Flag | Default | Description |
 |---|---|---|
-| `--telemetry-backend` | (empty) | Backend type: `signoz`, `jaeger`, or `composite`. Empty disables telemetry. |
-| `--signoz-endpoint` | (empty) | SigNoz query service URL |
-| `--jaeger-endpoint` | (empty) | Jaeger query HTTP API URL |
-| `--prometheus-endpoint` | (empty) | Prometheus HTTP API URL |
+| `--telemetry-backend` | (empty) | Backend type: `signoz`, `jaeger`, `composite`, or `full-composite`. Empty disables telemetry. |
+| `--signoz-endpoint` | (empty) | SigNoz query service URL. Used when backend is `signoz` or `full-composite`. |
+| `--jaeger-endpoint` | (empty) | Jaeger query HTTP API URL. Used when backend is `jaeger`, `composite`, or `full-composite`. |
+| `--prometheus-endpoint` | (empty) | Prometheus HTTP API URL. Used when backend is `composite` or `full-composite`. |
 | `--topology-refresh-interval` | `30s` | How often to refresh the topology graph cache |
 | `--topology-dependency-window` | `15m` | Time window for querying service dependencies |
 | `--ai-endpoint` | (empty) | OpenAI-compatible API endpoint. Empty disables AI investigation. |
 | `--ai-model` | `gpt-4o` | LLM model name for AI investigation |
 | `--ai-secret-ref` | (empty) | Kubernetes Secret name containing API key (key: `apiKey`) |
 | `--ai-auto-investigate` | `false` | Auto-trigger AI investigation on Active incidents |
+
+See [CLI Flags reference](../reference/cli-flags.md) for the complete flag list.
 
 ## Helm Values
 
@@ -183,7 +189,7 @@ topology:
 | M2: Dashboard Topology Visualization | **Done** | Interactive SVG topology view, SSE hub, service detail panel with metrics/blast radius |
 | M3: Cross-Signal Enrichment | **Done** | `CrossSignalEnricher` in correlator, auto-populates `RelatedTraces` + `BlastRadius` on incidents |
 | M4: AI/LLM Investigation | **Done** | `internal/rca/` with OpenAI-compatible LLM client, tool-use agentic pattern, PII redaction, `/api/investigate` endpoint |
-| M5: OTel Instrumentation + Helm | Planned | Enhanced span instrumentation, finalize Helm chart |
+| M5: OTel Instrumentation + Helm | **Done** | OTLP metrics export (30s periodic reader), enhanced span instrumentation, Helm chart with telemetry/ai/topology values |
 
 ## Recommended Stack
 
