@@ -80,7 +80,10 @@ func (b *Builder) BuildGraph(ctx context.Context, window time.Duration, incident
 	// Step 4: Overlay incident data onto nodes
 	b.overlayIncidents(graph, incidents)
 
-	// Step 5: Infer node icons from service names
+	// Step 5: Promote node status based on edge error rates (even without a K8s-level incident)
+	upgradeNodeStatusFromEdges(graph)
+
+	// Step 6: Infer node icons from service names
 	for _, node := range graph.Nodes {
 		if node.Icon == "" {
 			node.Icon = inferIcon(node)
@@ -165,6 +168,58 @@ func matchesService(node *ServiceNode, inc IncidentRef) bool {
 	}
 
 	return false
+}
+
+// upgradeNodeStatusFromEdges promotes node health status based on edge error rates.
+// When service-to-service calls are failing, the affected nodes should reflect that
+// degradation even without a corresponding Kubernetes-level incident.
+//
+// For critical edges (>10% error rate):
+//   - target node is upgraded to at least critical (it is likely the failing service)
+//   - source node is upgraded to at least warning (its outbound calls are failing)
+//
+// For warning edges (>1% error or >1s latency):
+//   - both source and target are upgraded to at least warning
+//
+// Upgrades are monotonic: a node already at critical is never downgraded.
+func upgradeNodeStatusFromEdges(graph *ServiceGraph) {
+	for _, edge := range graph.Edges {
+		src := graph.Nodes[edge.Source]
+		tgt := graph.Nodes[edge.Target]
+		if src == nil || tgt == nil {
+			continue
+		}
+		switch edge.Status {
+		case telemetry.EdgeStatusCritical:
+			if edgeStatusPriority(tgt.Status) < edgeStatusPriority(telemetry.HealthStatusCritical) {
+				tgt.Status = telemetry.HealthStatusCritical
+			}
+			if edgeStatusPriority(src.Status) < edgeStatusPriority(telemetry.HealthStatusWarning) {
+				src.Status = telemetry.HealthStatusWarning
+			}
+		case telemetry.EdgeStatusWarning:
+			if edgeStatusPriority(src.Status) < edgeStatusPriority(telemetry.HealthStatusWarning) {
+				src.Status = telemetry.HealthStatusWarning
+			}
+			if edgeStatusPriority(tgt.Status) < edgeStatusPriority(telemetry.HealthStatusWarning) {
+				tgt.Status = telemetry.HealthStatusWarning
+			}
+		}
+	}
+}
+
+// edgeStatusPriority returns a numeric priority for monotonic health status upgrades.
+func edgeStatusPriority(s telemetry.HealthStatus) int {
+	switch s {
+	case telemetry.HealthStatusCritical:
+		return 3
+	case telemetry.HealthStatusWarning:
+		return 2
+	case telemetry.HealthStatusHealthy:
+		return 1
+	default: // unknown
+		return 0
+	}
 }
 
 // classifyEdgeStatus determines edge health from dependency metrics.
