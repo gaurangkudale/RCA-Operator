@@ -935,7 +935,7 @@ func (s *Server) fetchPodLogs(ctx context.Context, svc string, limit int) ([]tel
 	if err != nil {
 		return nil, fmt.Errorf("pod log stream: %w", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	var entries []telemetry.LogEntry
 	scanner := bufio.NewScanner(io.LimitReader(stream, 2*1024*1024))

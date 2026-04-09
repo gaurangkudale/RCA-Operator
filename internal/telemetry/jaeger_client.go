@@ -306,8 +306,8 @@ func (td *jaegerTraceData) toTrace() *Trace {
 			TraceID:       s.TraceID,
 			SpanID:        s.SpanID,
 			OperationName: s.OperationName,
-			StartTime: time.UnixMicro(s.StartTime),
-			Duration:  float64(s.Duration) / 1000.0, // μs → ms
+			StartTime:     time.UnixMicro(s.StartTime),
+			Duration:      float64(s.Duration) / 1000.0, // μs → ms
 			Tags:          kvToMap(s.Tags),
 		}
 
