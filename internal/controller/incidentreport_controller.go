@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -96,18 +95,18 @@ func (r *IncidentReportReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	case "":
 		return ctrl.Result{}, nil
 	case phaseDetecting:
-		return r.reconcileDetecting(ctx, log, report)
+		return r.reconcileDetecting(ctx, report)
 	case phaseActive:
-		return r.reconcileActive(ctx, log, report)
+		return r.reconcileActive(ctx, report)
 	case phaseResolved:
-		return r.reconcileResolved(ctx, log, report)
+		return ctrl.Result{}, r.reconcileResolved(ctx, report)
 	default:
 		log.Info("IncidentReport has unrecognised phase; skipping", "phase", report.Status.Phase)
 		return ctrl.Result{}, nil
 	}
 }
 
-func (r *IncidentReportReconciler) reconcileDetecting(ctx context.Context, _ logr.Logger, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+func (r *IncidentReportReconciler) reconcileDetecting(ctx context.Context, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
 	firstObserved := incidentstatus.EffectiveStartTime(report.Status)
 	if firstObserved == nil {
 		return r.transitionToActive(ctx, report)
@@ -138,7 +137,7 @@ func (r *IncidentReportReconciler) reconcileDetecting(ctx context.Context, _ log
 	return r.transitionToResolved(ctx, report, "Incident cleared before activation")
 }
 
-func (r *IncidentReportReconciler) reconcileActive(ctx context.Context, _ logr.Logger, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+func (r *IncidentReportReconciler) reconcileActive(ctx context.Context, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
 	if !report.Status.Notified {
 		if err := r.sendOpenNotifications(ctx, report); err != nil {
 			return ctrl.Result{}, err
@@ -178,20 +177,20 @@ func (r *IncidentReportReconciler) reconcileActive(ctx context.Context, _ logr.L
 		fmt.Sprintf("No confirming signals for %.0f minutes and issue state cleared", healthyResolveWindow.Minutes()))
 }
 
-func (r *IncidentReportReconciler) reconcileResolved(ctx context.Context, _ logr.Logger, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+func (r *IncidentReportReconciler) reconcileResolved(ctx context.Context, report *rcav1alpha1.IncidentReport) error {
 	if err := r.recordResolvedMetric(ctx, report); err != nil {
-		return ctrl.Result{}, err
+		return err
 	}
 	if report.Status.Notified {
 		// Re-read to pick up the resourceVersion advanced by recordResolvedMetric's patch.
 		if err := r.Get(ctx, types.NamespacedName{Namespace: report.Namespace, Name: report.Name}, report); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
+			return client.IgnoreNotFound(err)
 		}
 		if err := r.sendResolvedNotifications(ctx, report); err != nil {
-			return ctrl.Result{}, err
+			return err
 		}
 	}
-	return ctrl.Result{}, nil
+	return nil
 }
 
 func (r *IncidentReportReconciler) transitionToActive(ctx context.Context, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {

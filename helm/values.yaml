@@ -88,15 +88,24 @@ autoDetect:
 
 # Telemetry backend configuration (Phase 2)
 # Use case: Connect to external observability backends for cross-signal correlation and topology.
+#
+# Backend options:
+#   "signoz"         - Unified: SigNoz provides traces, metrics, logs, and topology.
+#   "jaeger"         - Traces + topology only. No metrics or logs.
+#   "composite"      - Jaeger (traces+topology) + Prometheus (metrics). No logs.
+#   "full-composite" - Jaeger (traces+topology) + Prometheus (metrics) + SigNoz (logs).
+#                      Use this when you run all four systems together.
+#
+# OTel self-instrumentation (otel.*) works alongside any backend choice independently.
 telemetry:
   enabled: false
-  # Backend type: "signoz", "jaeger", or "composite"
   backend: ""
   signoz:
     # SigNoz query service URL (e.g. "http://signoz-query-service:8080")
     endpoint: ""
   jaeger:
     # Jaeger query HTTP API URL (e.g. "http://jaeger-query:16686")
+    # If Jaeger uses a base path (OTel Demo): "http://jaeger-query:16686/jaeger/ui"
     endpoint: ""
   prometheus:
     # Prometheus HTTP API URL (e.g. "http://prometheus:9090")

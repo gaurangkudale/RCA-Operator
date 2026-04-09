@@ -127,13 +127,15 @@ func main() {
 	var topologyRefreshInterval time.Duration
 	var topologyDependencyWindow time.Duration
 	flag.StringVar(&telemetryBackend, "telemetry-backend", "",
-		"Telemetry backend type: signoz, jaeger, or composite. Empty disables telemetry queries.")
+		"Telemetry backend type: signoz, jaeger, composite, or full-composite. Empty disables telemetry queries.")
 	flag.StringVar(&signozEndpoint, "signoz-endpoint", "",
-		"SigNoz query service URL (e.g. http://signoz-query-service:8080). Used when telemetry-backend=signoz.")
+		"SigNoz query service URL (e.g. http://signoz-query-service:8080)."+
+			" Used when telemetry-backend=signoz or full-composite.")
 	flag.StringVar(&jaegerEndpoint, "jaeger-endpoint", "",
-		"Jaeger query HTTP API URL (e.g. http://jaeger-query:16686). Used when telemetry-backend=jaeger or composite.")
+		"Jaeger query HTTP API URL (e.g. http://jaeger-query:16686)."+
+			" Used when telemetry-backend=jaeger, composite, or full-composite.")
 	flag.StringVar(&prometheusEndpoint, "prometheus-endpoint", "",
-		"Prometheus HTTP API URL (e.g. http://prometheus:9090). Used when telemetry-backend=composite.")
+		"Prometheus HTTP API URL (e.g. http://prometheus:9090). Used when telemetry-backend=composite or full-composite.")
 	flag.DurationVar(&topologyRefreshInterval, "topology-refresh-interval", 30*time.Second,
 		"How often to refresh the topology graph cache.")
 	flag.DurationVar(&topologyDependencyWindow, "topology-dependency-window", 15*time.Minute,
@@ -334,7 +336,27 @@ func main() {
 			setupLog.Info("Composite: metrics via Prometheus", "endpoint", prometheusEndpoint)
 		}
 		querier = telemetry.NewCompositeQuerier(traces, metrics, nil)
-		setupLog.Info("Telemetry backend: Composite")
+		setupLog.Info("Telemetry backend: Composite (Jaeger+Prometheus)")
+
+	case "full-composite":
+		// Full four-way mode: Jaeger for traces+topology, Prometheus for metrics,
+		// SigNoz for logs. All three can be combined independently.
+		// OTel self-instrumentation (otel.*) still works alongside this.
+		var traces, metrics, logs telemetry.TelemetryQuerier
+		if jaegerEndpoint != "" {
+			traces = telemetry.NewJaegerClient(jaegerEndpoint, nil)
+			setupLog.Info("Full-Composite: traces+topology via Jaeger", "endpoint", jaegerEndpoint)
+		}
+		if prometheusEndpoint != "" {
+			metrics = telemetry.NewPrometheusClient(prometheusEndpoint, nil)
+			setupLog.Info("Full-Composite: metrics via Prometheus", "endpoint", prometheusEndpoint)
+		}
+		if signozEndpoint != "" {
+			logs = telemetry.NewSigNozClient(signozEndpoint, nil)
+			setupLog.Info("Full-Composite: logs via SigNoz", "endpoint", signozEndpoint)
+		}
+		querier = telemetry.NewCompositeQuerier(traces, metrics, logs)
+		setupLog.Info("Telemetry backend: Full-Composite (Jaeger+Prometheus+SigNoz)")
 	}
 	if querier == nil {
 		querier = &telemetry.NoopQuerier{}
