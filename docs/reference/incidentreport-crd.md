@@ -49,6 +49,22 @@ status:
       event: "Incident detected: CrashLoopBackOff"
     - time: "2026-04-01T10:05:00Z"
       event: "Phase transition: Detecting → Active"
+  relatedTraces:
+    - "abc123def456ghi789"
+    - "jkl012mno345pqr678"
+  blastRadius:
+    - "api-gateway"
+    - "frontend"
+  rca:
+    rootCause: "Memory leak in payment-svc caused OOMKilled events"
+    confidence: "0.92"
+    playbook:
+      - "kubectl rollout undo deployment/payment-svc -n production"
+      - "kubectl scale deployment/payment-svc --replicas=6"
+    evidence:
+      - "Trace abc123: 500ms latency spike on /checkout"
+      - "Log: java.lang.OutOfMemoryError at 10:15:01"
+    investigatedAt: "2026-04-01T10:20:00Z"
 ```
 
 ## Spec Fields
@@ -71,6 +87,8 @@ status:
 
 ## Status Fields
 
+### Core Status
+
 | Field | Type | Description |
 |---|---|---|
 | `phase` | `string` | Current lifecycle phase: `Detecting`, `Active`, or `Resolved` |
@@ -89,6 +107,27 @@ status:
 | `correlatedSignals` | `[]string` | Raw signals that triggered this incident |
 | `timeline` | `[]TimelineEvent` | Ordered sequence of incident events |
 
+### Phase 2 Cross-Signal Status
+
+These fields are populated by the cross-signal enricher when a telemetry backend is configured.
+
+| Field | Type | Description |
+|---|---|---|
+| `relatedTraces` | `[]string` | W3C trace IDs correlated with this incident from the configured telemetry backend |
+| `blastRadius` | `[]string` | Downstream services impacted by this incident, computed by BFS over the service dependency graph |
+
+### status.rca
+
+Populated when an AI investigation completes (either via `autoInvestigate` or a manual `POST /api/investigate/{ns}/{name}` call).
+
+| Field | Type | Description |
+|---|---|---|
+| `rootCause` | `string` | AI-determined root cause summary |
+| `confidence` | `string` | AI confidence score (0.0–1.0 as string, e.g. `"0.92"`) |
+| `playbook` | `[]string` | Ordered list of suggested remediation steps |
+| `evidence` | `[]string` | Telemetry evidence the AI used (trace IDs, log lines, metric anomalies) |
+| `investigatedAt` | `Time` | When the AI investigation was performed |
+
 ### Lifecycle Phases
 
 ```text
@@ -98,7 +137,7 @@ Detecting ──(stabilization window)──> Active ──(pod healthy/deleted)
 ```
 
 - **Detecting**: Initial signal received; waiting for stabilization window confirmation
-- **Active**: Incident confirmed; notifications sent
+- **Active**: Incident confirmed; notifications sent; AI investigation triggered if `autoInvestigate=true`
 - **Resolved**: Underlying issue cleared; auto-resolved when affected pod becomes healthy or is deleted
 
 ### Severity Levels
@@ -140,10 +179,18 @@ kubectl describe incidentreport <name> -n <namespace>
 
 # Watch for new incidents
 kubectl get incidentreport -A -w
+
+# Get the AI RCA result for an incident
+kubectl get incidentreport <name> -n <namespace> -o jsonpath='{.status.rca}' | jq .
+
+# Get blast radius for an incident
+kubectl get incidentreport <name> -n <namespace> -o jsonpath='{.status.blastRadius}'
 ```
 
 ## Related
 
 - [RCAAgent CRD reference](rcaagent-crd.md)
 - [RCACorrelationRule CRD reference](rcacorrelationrule-crd.md)
+- [Dashboard API reference](dashboard-api.md)
+- [AI Investigation feature](../features/AI-INVESTIGATION.md)
 - [RBAC permissions](rbac.md)
