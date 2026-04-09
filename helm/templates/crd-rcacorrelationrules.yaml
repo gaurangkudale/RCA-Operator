@@ -181,7 +181,7 @@ spec:
                   summary:
                     description: |-
                       summary is a Go text/template rendered with event context.
-                      Available variables: {{ "{{" }}.PodName{{ "}}" }}, {{ "{{" }}.Namespace{{ "}}" }}, {{ "{{" }}.NodeName{{ "}}" }}, {{ "{{" }}.EventType{{ "}}" }}.
+                      Available variables: {{.PodName}}, {{.Namespace}}, {{.NodeName}}, {{.EventType}}.
                     minLength: 1
                     type: string
                 required:
@@ -218,4 +218,5 @@ spec:
     served: true
     storage: true
     subresources: {}
+
 {{- end }}

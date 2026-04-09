@@ -172,3 +172,12 @@ func WithEventRecorder(r events.EventRecorder) Option {
 		consumer.rep.Recorder = r
 	}
 }
+
+// WithCrossSignalEnricher attaches a cross-signal enricher that queries
+// external telemetry backends (traces, metrics, logs) to enrich incidents
+// with related traces and blast radius data.
+func WithCrossSignalEnricher(e *CrossSignalEnricher) Option {
+	return func(consumer *Consumer) {
+		consumer.crossSignal = e
+	}
+}

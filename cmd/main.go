@@ -29,6 +29,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -42,11 +43,15 @@ import (
 	"github.com/gaurangkudale/rca-operator/internal/autodetect"
 	"github.com/gaurangkudale/rca-operator/internal/collectors"
 	"github.com/gaurangkudale/rca-operator/internal/controller"
+	"github.com/gaurangkudale/rca-operator/internal/correlator"
 	"github.com/gaurangkudale/rca-operator/internal/dashboard"
 	"github.com/gaurangkudale/rca-operator/internal/engine"
 	"github.com/gaurangkudale/rca-operator/internal/notify"
 	rcaotel "github.com/gaurangkudale/rca-operator/internal/otel"
+	"github.com/gaurangkudale/rca-operator/internal/rca"
 	"github.com/gaurangkudale/rca-operator/internal/rulengine"
+	"github.com/gaurangkudale/rca-operator/internal/telemetry"
+	"github.com/gaurangkudale/rca-operator/internal/topology"
 	rcawebhook "github.com/gaurangkudale/rca-operator/internal/webhook"
 	// +kubebuilder:scaffold:imports
 )
@@ -115,6 +120,40 @@ func main() {
 		"How often to analyze the buffer for patterns.")
 	flag.DurationVar(&autoDetectExpiry, "autodetect-expiry", time.Hour,
 		"Duration without observation before an auto-generated rule expires.")
+
+	var telemetryBackend string
+	var signozEndpoint string
+	var jaegerEndpoint string
+	var prometheusEndpoint string
+	var topologyRefreshInterval time.Duration
+	var topologyDependencyWindow time.Duration
+	flag.StringVar(&telemetryBackend, "telemetry-backend", "",
+		"Telemetry backend type: signoz, jaeger, composite, or full-composite. Empty disables telemetry queries.")
+	flag.StringVar(&signozEndpoint, "signoz-endpoint", "",
+		"SigNoz query service URL (e.g. http://signoz-query-service:8080)."+
+			" Used when telemetry-backend=signoz or full-composite.")
+	flag.StringVar(&jaegerEndpoint, "jaeger-endpoint", "",
+		"Jaeger query HTTP API URL (e.g. http://jaeger-query:16686)."+
+			" Used when telemetry-backend=jaeger, composite, or full-composite.")
+	flag.StringVar(&prometheusEndpoint, "prometheus-endpoint", "",
+		"Prometheus HTTP API URL (e.g. http://prometheus:9090). Used when telemetry-backend=composite or full-composite.")
+	flag.DurationVar(&topologyRefreshInterval, "topology-refresh-interval", 30*time.Second,
+		"How often to refresh the topology graph cache.")
+	flag.DurationVar(&topologyDependencyWindow, "topology-dependency-window", 15*time.Minute,
+		"Time window for querying service dependencies.")
+
+	var aiEndpoint string
+	var aiModel string
+	var aiSecretName string
+	var aiAutoInvestigate bool
+	flag.StringVar(&aiEndpoint, "ai-endpoint", "",
+		"OpenAI-compatible API endpoint for AI-powered RCA (e.g. https://api.openai.com/v1). Empty disables AI.")
+	flag.StringVar(&aiModel, "ai-model", "gpt-4o",
+		"LLM model name for AI investigation.")
+	flag.StringVar(&aiSecretName, "ai-secret-ref", "",
+		"Name of Kubernetes Secret containing the AI API key (must have key 'apiKey').")
+	flag.BoolVar(&aiAutoInvestigate, "ai-auto-investigate", false,
+		"Automatically trigger AI investigation when incidents become Active.")
 
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
@@ -251,26 +290,9 @@ func main() {
 	}
 	engine.RegisterRuleEngineFactory(crdFactory)
 
-	// --- Signal channel + Incident Engine ---
+	// --- Signal channel ---
 	signals := make(chan collectors.Signal, 1024)
 	signalEmitter := collectors.NewChannelSignalEmitter(signals, ctrl.Log)
-	incidentEngine, err := engine.NewIncidentEngine(
-		mgr.GetClient(),
-		signals,
-		ctrl.Log,
-		engine.WithContext(managerCtx),
-		engine.WithEventRecorder(mgr.GetEventRecorder("rca-incident-engine")),
-	)
-	if err != nil {
-		setupLog.Error(err, "Failed to create incident engine")
-		os.Exit(1)
-	}
-	setupLog.Info("Incident engine created", "ruleEngine", incidentEngine.RuleEngineName(),
-		"loadedRules", crdFactory.Engine.RuleCount())
-	if err := mgr.Add(incidentEngine); err != nil {
-		setupLog.Error(err, "Failed to add incident engine")
-		os.Exit(1)
-	}
 
 	// --- Auto-Detection ---
 	if enableAutoDetect && crdFactory.Engine != nil {
@@ -291,9 +313,146 @@ func main() {
 		)
 	}
 
-	dashboardServer := dashboard.NewServer(mgr.GetClient(), dashboardAddr, ctrl.Log)
+	// --- Telemetry Querier ---
+	var querier telemetry.TelemetryQuerier
+	switch telemetryBackend {
+	case "signoz":
+		if signozEndpoint != "" {
+			querier = telemetry.NewSigNozClient(signozEndpoint, nil)
+			setupLog.Info("Telemetry backend: SigNoz", "endpoint", signozEndpoint)
+		}
+	case "jaeger":
+		if jaegerEndpoint != "" {
+			querier = telemetry.NewJaegerClient(jaegerEndpoint, nil)
+			setupLog.Info("Telemetry backend: Jaeger", "endpoint", jaegerEndpoint)
+		}
+	case "composite":
+		var traces, metrics telemetry.TelemetryQuerier
+		if jaegerEndpoint != "" {
+			traces = telemetry.NewJaegerClient(jaegerEndpoint, nil)
+			setupLog.Info("Composite: traces via Jaeger", "endpoint", jaegerEndpoint)
+		}
+		if prometheusEndpoint != "" {
+			metrics = telemetry.NewPrometheusClient(prometheusEndpoint, nil)
+			setupLog.Info("Composite: metrics via Prometheus", "endpoint", prometheusEndpoint)
+		}
+		querier = telemetry.NewCompositeQuerier(traces, metrics, nil)
+		setupLog.Info("Telemetry backend: Composite (Jaeger+Prometheus)")
+
+	case "full-composite":
+		// Full four-way mode: Jaeger for traces+topology, Prometheus for metrics,
+		// SigNoz for logs. All three can be combined independently.
+		// OTel self-instrumentation (otel.*) still works alongside this.
+		var traces, metrics, logs telemetry.TelemetryQuerier
+		if jaegerEndpoint != "" {
+			traces = telemetry.NewJaegerClient(jaegerEndpoint, nil)
+			setupLog.Info("Full-Composite: traces+topology via Jaeger", "endpoint", jaegerEndpoint)
+		}
+		if prometheusEndpoint != "" {
+			metrics = telemetry.NewPrometheusClient(prometheusEndpoint, nil)
+			setupLog.Info("Full-Composite: metrics via Prometheus", "endpoint", prometheusEndpoint)
+		}
+		if signozEndpoint != "" {
+			logs = telemetry.NewSigNozClient(signozEndpoint, nil)
+			setupLog.Info("Full-Composite: logs via SigNoz", "endpoint", signozEndpoint)
+		}
+		querier = telemetry.NewCompositeQuerier(traces, metrics, logs)
+		setupLog.Info("Telemetry backend: Full-Composite (Jaeger+Prometheus+SigNoz)")
+	}
+	if querier == nil {
+		querier = &telemetry.NoopQuerier{}
+	}
+
+	// --- Topology Cache ---
+	topoBuilder := topology.NewBuilder(querier, ctrl.Log.WithName("topology"))
+	k8sClient := mgr.GetClient()
+	topoCache := topology.NewCache(topoBuilder, ctrl.Log.WithName("topology-cache"),
+		topology.WithTTL(topologyRefreshInterval),
+		topology.WithDependencyWindow(topologyDependencyWindow),
+		topology.WithIncidentsFn(func() []topology.IncidentRef {
+			var list rcav1alpha1.IncidentReportList
+			if err := k8sClient.List(context.Background(), &list); err != nil {
+				return nil
+			}
+			var refs []topology.IncidentRef
+			for i := range list.Items {
+				inc := &list.Items[i]
+				if inc.Status.Phase == "Resolved" {
+					continue
+				}
+				refs = append(refs, topology.IncidentRef{
+					Name:         inc.Name,
+					Namespace:    inc.Namespace,
+					Severity:     inc.Status.Severity,
+					Phase:        inc.Status.Phase,
+					IncidentType: inc.Spec.IncidentType,
+					Summary:      inc.Status.Summary,
+				})
+			}
+			return refs
+		}),
+	)
+	if telemetryBackend != "" {
+		topoCache.StartBackgroundRefresh(managerCtx)
+		setupLog.Info("Topology cache started",
+			"refreshInterval", topologyRefreshInterval,
+			"dependencyWindow", topologyDependencyWindow,
+		)
+	}
+
+	// --- AI Investigator ---
+	var investigator *rca.Investigator
+	if aiEndpoint != "" {
+		apiKey := os.Getenv("RCA_AI_API_KEY")
+		if apiKey == "" && aiSecretName != "" {
+			setupLog.Info("AI API key not in env; will read from Secret at runtime", "secretRef", aiSecretName)
+		}
+		llmClient := rca.NewLLMClient(aiEndpoint, apiKey, aiModel)
+		investigator = rca.NewInvestigator(llmClient, querier, k8sClient, ctrl.Log)
+		setupLog.Info("AI investigator enabled",
+			"endpoint", aiEndpoint,
+			"model", aiModel,
+			"autoInvestigate", aiAutoInvestigate,
+		)
+	}
+
+	dashOpts := []dashboard.ServerOption{
+		dashboard.WithTelemetryQuerier(querier),
+		dashboard.WithTopologyCache(topoCache),
+	}
+	if investigator != nil {
+		dashOpts = append(dashOpts, dashboard.WithInvestigator(investigator))
+	}
+	// Pass a native kubernetes clientset for pod log fallback when telemetry backend is unavailable.
+	if k8sNative, err := kubernetes.NewForConfig(mgr.GetConfig()); err == nil {
+		dashOpts = append(dashOpts, dashboard.WithKubernetesClient(k8sNative))
+	}
+	dashboardServer := dashboard.NewServer(k8sClient, dashboardAddr, ctrl.Log, dashOpts...)
 	if err := mgr.Add(dashboardServer); err != nil {
 		setupLog.Error(err, "Failed to add dashboard server")
+		os.Exit(1)
+	}
+
+	// --- Cross-Signal Enricher + Incident Engine ---
+	crossSignalEnricher := correlator.NewCrossSignalEnricher(
+		querier, topoCache, mgr.GetClient(), ctrl.Log,
+	)
+	incidentEngine, err := engine.NewIncidentEngine(
+		mgr.GetClient(),
+		signals,
+		ctrl.Log,
+		engine.WithContext(managerCtx),
+		engine.WithEventRecorder(mgr.GetEventRecorder("rca-incident-engine")),
+		engine.WithCrossSignalEnricher(crossSignalEnricher),
+	)
+	if err != nil {
+		setupLog.Error(err, "Failed to create incident engine")
+		os.Exit(1)
+	}
+	setupLog.Info("Incident engine created", "ruleEngine", incidentEngine.RuleEngineName(),
+		"loadedRules", crdFactory.Engine.RuleCount())
+	if err := mgr.Add(incidentEngine); err != nil {
+		setupLog.Error(err, "Failed to add incident engine")
 		os.Exit(1)
 	}
 
@@ -308,10 +467,12 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&controller.IncidentReportReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorder("incidentreport-controller"),
-		Notifier: notify.NewDispatcher(mgr.GetClient(), ctrl.Log),
+		Client:          mgr.GetClient(),
+		Scheme:          mgr.GetScheme(),
+		Recorder:        mgr.GetEventRecorder("incidentreport-controller"),
+		Notifier:        notify.NewDispatcher(mgr.GetClient(), ctrl.Log),
+		Investigator:    investigator,
+		AutoInvestigate: aiAutoInvestigate,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "IncidentReport")
 		os.Exit(1)

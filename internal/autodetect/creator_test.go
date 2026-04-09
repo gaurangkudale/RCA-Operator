@@ -357,6 +357,7 @@ func TestCreator_LoadExisting(t *testing.T) {
 	rec := records["A:B:samePod"]
 	if rec == nil {
 		t.Fatal("expected A:B:samePod record")
+		return
 	}
 	if rec.Occurrences != 10 {
 		t.Errorf("expected 10 occurrences, got %d", rec.Occurrences)

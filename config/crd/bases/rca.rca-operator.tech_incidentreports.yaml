@@ -184,6 +184,13 @@ spec:
                   type: object
                 type: array
                 x-kubernetes-list-type: atomic
+              blastRadius:
+                description: blastRadius lists downstream services impacted by this
+                  incident.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: atomic
               conditions:
                 description: conditions represent the current state of the IncidentReport
                   resource.
@@ -284,10 +291,43 @@ spec:
                 - Active
                 - Resolved
                 type: string
+              rca:
+                description: rca holds AI-generated root cause analysis results.
+                properties:
+                  confidence:
+                    description: confidence is the AI's confidence level (0.0-1.0).
+                    type: string
+                  evidence:
+                    description: evidence lists the telemetry evidence the AI used.
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  investigatedAt:
+                    description: investigatedAt is when the AI investigation was performed.
+                    format: date-time
+                    type: string
+                  playbook:
+                    description: playbook is a list of suggested remediation steps.
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  rootCause:
+                    description: rootCause is the AI-determined root cause summary.
+                    type: string
+                type: object
               reason:
                 description: reason is the machine-oriented Kubernetes reason when
                   available.
                 type: string
+              relatedTraces:
+                description: relatedTraces lists W3C trace IDs correlated with this
+                  incident.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: atomic
               resolvedAt:
                 description: resolvedAt is when the incident was resolved.
                 format: date-time

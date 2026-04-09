@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
@@ -33,9 +35,10 @@ type Config struct {
 	Insecure bool
 }
 
-// Setup initialises the global OTel TracerProvider with an OTLP gRPC exporter
-// pointing at the configured endpoint (typically SigNoz). It returns a shutdown
-// function that must be deferred by the caller.
+// Setup initialises the global OTel TracerProvider and MeterProvider with OTLP
+// gRPC exporters pointing at the configured endpoint (typically SigNoz or an
+// OTel Collector). It returns a shutdown function that must be deferred by the
+// caller and that flushes pending spans and metric data points.
 //
 // When cfg.Endpoint is empty the function is a no-op — the default no-op
 // providers stay in place.
@@ -67,7 +70,8 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
-	exporter, err := otlptracegrpc.New(ctx,
+	// ── Trace exporter ─────────────────────────────────────────────────────────
+	traceExporter, err := otlptracegrpc.New(ctx,
 		otlptracegrpc.WithEndpoint(cfg.Endpoint),
 		otlptracegrpc.WithDialOption(dialOpts...),
 	)
@@ -76,7 +80,7 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	}
 
 	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter, sdktrace.WithBatchTimeout(5*time.Second)),
+		sdktrace.WithBatcher(traceExporter, sdktrace.WithBatchTimeout(5*time.Second)),
 		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(cfg.SamplingRate))),
 	)
@@ -86,5 +90,32 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 		propagation.Baggage{},
 	))
 
-	return tp.Shutdown, nil
+	// ── Metrics exporter ────────────────────────────────────────────────────────
+	// Operator-level metrics (reconcile counts, signal totals, etc.) are exported
+	// via OTLP alongside traces so they appear in the same backend (SigNoz, etc.).
+	metricExporter, err := otlpmetricgrpc.New(ctx,
+		otlpmetricgrpc.WithEndpoint(cfg.Endpoint),
+		otlpmetricgrpc.WithDialOption(dialOpts...),
+	)
+	if err != nil {
+		// Non-fatal: if metrics export fails to initialise, traces still work.
+		_ = tp.Shutdown(ctx)
+		return noop, err
+	}
+
+	mp := metric.NewMeterProvider(
+		metric.WithReader(metric.NewPeriodicReader(metricExporter,
+			metric.WithInterval(30*time.Second),
+		)),
+		metric.WithResource(res),
+	)
+	otel.SetMeterProvider(mp)
+
+	// Return a combined shutdown that flushes both providers.
+	return func(sCtx context.Context) error {
+		if tpErr := tp.Shutdown(sCtx); tpErr != nil {
+			return tpErr
+		}
+		return mp.Shutdown(sCtx)
+	}, nil
 }

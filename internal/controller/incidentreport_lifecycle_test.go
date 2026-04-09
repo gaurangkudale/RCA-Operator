@@ -88,7 +88,7 @@ func readyPod(ns, name string) *corev1.Pod { //nolint:unparam
 }
 
 // pendingPod builds a Pending (not ready) pod.
-func pendingPod(ns, name string) *corev1.Pod {
+func pendingPod(ns, name string) *corev1.Pod { //nolint:unparam
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Status:     corev1.PodStatus{Phase: corev1.PodPending},
