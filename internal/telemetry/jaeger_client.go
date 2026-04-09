@@ -283,7 +283,7 @@ func (td *jaegerTraceData) toTraceSummary() TraceSummary {
 			}
 			summary.RootSpan = s.OperationName
 			summary.StartTime = time.UnixMicro(s.StartTime)
-			summary.Duration = time.Duration(s.Duration) * time.Microsecond
+			summary.Duration = float64(s.Duration) / 1000.0 // μs → ms
 		}
 
 		// Check for errors
@@ -306,8 +306,8 @@ func (td *jaegerTraceData) toTrace() *Trace {
 			TraceID:       s.TraceID,
 			SpanID:        s.SpanID,
 			OperationName: s.OperationName,
-			StartTime:     time.UnixMicro(s.StartTime),
-			Duration:      time.Duration(s.Duration) * time.Microsecond,
+			StartTime: time.UnixMicro(s.StartTime),
+			Duration:  float64(s.Duration) / 1000.0, // μs → ms
 			Tags:          kvToMap(s.Tags),
 		}
 

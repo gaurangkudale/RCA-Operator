@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -92,39 +93,56 @@ func (c *PrometheusClient) GetServiceMetrics(ctx context.Context, service string
 
 	metrics := &ServiceMetrics{ServiceName: service}
 
+	// safeVal returns v only if it is a finite, non-NaN number, otherwise 0.
+	safeVal := func(v float64) float64 {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return 0
+		}
+		return v
+	}
+
 	// Request rate
 	rateQuery := fmt.Sprintf(`sum(rate(http_server_request_duration_seconds_count{service_name="%s"}[5m]))`, service)
 	rateSeries, err := c.QueryMetric(ctx, rateQuery, start, end, step)
 	if err == nil && len(rateSeries) > 0 && len(rateSeries[0].Datapoints) > 0 {
-		metrics.RequestRate = lastValue(rateSeries[0].Datapoints)
+		metrics.RequestRate = safeVal(lastValue(rateSeries[0].Datapoints))
 	}
 
 	// Error rate
 	errQuery := fmt.Sprintf(`sum(rate(http_server_request_duration_seconds_count{service_name="%s",http_response_status_code=~"5.."}[5m]))`, service)
 	errSeries, err := c.QueryMetric(ctx, errQuery, start, end, step)
 	if err == nil && len(errSeries) > 0 && len(errSeries[0].Datapoints) > 0 {
-		metrics.ErrorRate = lastValue(errSeries[0].Datapoints)
+		metrics.ErrorRate = safeVal(lastValue(errSeries[0].Datapoints))
 	}
 
-	// P99 latency
+	// P99 latency — histogram_quantile returns NaN when no observations exist
 	latQuery := fmt.Sprintf(`histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket{service_name="%s"}[5m])) by (le))`, service)
 	latSeries, err := c.QueryMetric(ctx, latQuery, start, end, step)
 	if err == nil && len(latSeries) > 0 && len(latSeries[0].Datapoints) > 0 {
-		metrics.P99Latency = lastValue(latSeries[0].Datapoints) * 1000 // s -> ms
+		if v := safeVal(lastValue(latSeries[0].Datapoints)); v > 0 {
+			metrics.P99Latency = v * 1000 // s → ms
+		}
 	}
 
 	// CPU usage
 	cpuQuery := fmt.Sprintf(`sum(rate(container_cpu_usage_seconds_total{pod=~"%s.*"}[5m]))`, service)
 	cpuSeries, err := c.QueryMetric(ctx, cpuQuery, start, end, step)
 	if err == nil && len(cpuSeries) > 0 && len(cpuSeries[0].Datapoints) > 0 {
-		metrics.CPUUsage = lastValue(cpuSeries[0].Datapoints)
+		metrics.CPUUsage = safeVal(lastValue(cpuSeries[0].Datapoints))
 	}
 
 	// Memory usage
 	memQuery := fmt.Sprintf(`sum(container_memory_working_set_bytes{pod=~"%s.*"})`, service)
 	memSeries, err := c.QueryMetric(ctx, memQuery, start, end, step)
 	if err == nil && len(memSeries) > 0 && len(memSeries[0].Datapoints) > 0 {
-		metrics.MemoryUsage = lastValue(memSeries[0].Datapoints)
+		metrics.MemoryUsage = safeVal(lastValue(memSeries[0].Datapoints))
+	}
+
+	// Active connections (OTel HTTP semantic conventions: http.server.active_requests)
+	connQuery := fmt.Sprintf(`sum(http_server_active_requests{service_name="%s"})`, service)
+	connSeries, err := c.QueryMetric(ctx, connQuery, start, end, step)
+	if err == nil && len(connSeries) > 0 && len(connSeries[0].Datapoints) > 0 {
+		metrics.ActiveConnections = safeVal(lastValue(connSeries[0].Datapoints))
 	}
 
 	return metrics, nil
@@ -225,7 +243,7 @@ func (d *promResultData) toMetricSeries() []MetricSeries {
 				continue
 			}
 			val, err := strconv.ParseFloat(valStr, 64)
-			if err != nil {
+			if err != nil || math.IsNaN(val) || math.IsInf(val, 0) {
 				continue
 			}
 			series.Datapoints = append(series.Datapoints, Datapoint{

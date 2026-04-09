@@ -29,6 +29,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -421,6 +422,10 @@ func main() {
 	}
 	if investigator != nil {
 		dashOpts = append(dashOpts, dashboard.WithInvestigator(investigator))
+	}
+	// Pass a native kubernetes clientset for pod log fallback when telemetry backend is unavailable.
+	if k8sNative, err := kubernetes.NewForConfig(mgr.GetConfig()); err == nil {
+		dashOpts = append(dashOpts, dashboard.WithKubernetesClient(k8sNative))
 	}
 	dashboardServer := dashboard.NewServer(k8sClient, dashboardAddr, ctrl.Log, dashOpts...)
 	if err := mgr.Add(dashboardServer); err != nil {

@@ -1,9 +1,11 @@
 package dashboard
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -13,6 +15,9 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
@@ -27,6 +32,7 @@ import (
 // It implements manager.Runnable so it can be registered with mgr.Add().
 type Server struct {
 	client       client.Client
+	k8sClient    kubernetes.Interface
 	addr         string
 	log          logr.Logger
 	querier      telemetry.TelemetryQuerier
@@ -51,6 +57,11 @@ func WithTopologyCache(c *topology.Cache) ServerOption {
 // WithInvestigator sets the AI investigator for the investigate API endpoint.
 func WithInvestigator(inv *rca.Investigator) ServerOption {
 	return func(s *Server) { s.investigator = inv }
+}
+
+// WithKubernetesClient sets the Kubernetes clientset for pod log fallback.
+func WithKubernetesClient(k kubernetes.Interface) ServerOption {
+	return func(s *Server) { s.k8sClient = k }
 }
 
 // NewServer returns a dashboard server that will listen on addr.
@@ -845,10 +856,18 @@ func (s *Server) handleServiceDetail(w http.ResponseWriter, r *http.Request) {
 			End:         end,
 			Limit:       limit,
 		})
-		if err != nil {
-			s.log.Error(err, "Failed to get logs", "service", serviceName)
-			http.Error(w, "failed to get logs", http.StatusInternalServerError)
-			return
+		if err != nil || len(logs) == 0 {
+			// Telemetry backend unavailable or returned nothing — fall back to k8s pod logs.
+			if s.k8sClient != nil {
+				podLogs, podErr := s.fetchPodLogs(r.Context(), serviceName, limit)
+				if podErr == nil && len(podLogs) > 0 {
+					writeJSON(w, podLogs)
+					return
+				}
+			}
+			if err != nil {
+				s.log.Error(err, "Failed to get logs", "service", serviceName)
+			}
 		}
 		if logs == nil {
 			logs = []telemetry.LogEntry{}
@@ -868,6 +887,104 @@ func (s *Server) handleServiceDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Error(w, "service not found", http.StatusNotFound)
 	}
+}
+
+// fetchPodLogs fetches recent log lines from Kubernetes pod logs as a fallback
+// when the telemetry backend (SigNoz/Loki) is unavailable.
+// It searches all namespaces for pods matching app=svc or app.kubernetes.io/name=svc.
+func (s *Server) fetchPodLogs(ctx context.Context, svc string, limit int) ([]telemetry.LogEntry, error) {
+	// List pods across all namespaces matching the service name.
+	podList, err := s.k8sClient.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+		LabelSelector: "app=" + svc,
+		Limit:         5,
+	})
+	if err != nil || len(podList.Items) == 0 {
+		// Try alternative label
+		podList, err = s.k8sClient.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+			LabelSelector: "app.kubernetes.io/name=" + svc,
+			Limit:         5,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(podList.Items) == 0 {
+		return nil, fmt.Errorf("no pods found for service %s", svc)
+	}
+
+	// Pick the most recently started running pod.
+	var targetPod *corev1.Pod
+	for i := range podList.Items {
+		p := &podList.Items[i]
+		if p.Status.Phase == corev1.PodRunning {
+			if targetPod == nil || p.CreationTimestamp.After(targetPod.CreationTimestamp.Time) {
+				targetPod = p
+			}
+		}
+	}
+	if targetPod == nil {
+		targetPod = &podList.Items[0]
+	}
+
+	tailLines := int64(limit)
+	req := s.k8sClient.CoreV1().Pods(targetPod.Namespace).GetLogs(targetPod.Name, &corev1.PodLogOptions{
+		TailLines:  &tailLines,
+		Timestamps: true,
+	})
+	stream, err := req.Stream(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("pod log stream: %w", err)
+	}
+	defer stream.Close()
+
+	var entries []telemetry.LogEntry
+	scanner := bufio.NewScanner(io.LimitReader(stream, 2*1024*1024))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		entry := parsePodLogLine(line, svc)
+		entries = append(entries, entry)
+	}
+	return entries, scanner.Err()
+}
+
+// parsePodLogLine parses a pod log line (with optional RFC3339 timestamp prefix from --timestamps)
+// into a LogEntry. Severity is inferred from common keywords.
+func parsePodLogLine(line, svc string) telemetry.LogEntry {
+	entry := telemetry.LogEntry{
+		ServiceName: svc,
+		Severity:    "INFO",
+		Timestamp:   time.Now(),
+	}
+
+	// Strip leading RFC3339 timestamp added by --timestamps flag.
+	body := line
+	if len(line) > 30 {
+		ts, rest, ok := strings.Cut(line, " ")
+		if ok {
+			if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+				entry.Timestamp = t
+				body = rest
+			}
+		}
+	}
+	entry.Body = body
+
+	// Infer severity from common patterns (case-insensitive).
+	upper := strings.ToUpper(body)
+	switch {
+	case strings.Contains(upper, "FATAL") || strings.Contains(upper, "PANIC"):
+		entry.Severity = "FATAL"
+	case strings.Contains(upper, `"level":"error"`) || strings.Contains(upper, "ERROR") || strings.Contains(upper, `"level":"fatal"`):
+		entry.Severity = "ERROR"
+	case strings.Contains(upper, `"level":"warn"`) || strings.Contains(upper, "WARN") || strings.Contains(upper, "WARNING"):
+		entry.Severity = "WARN"
+	case strings.Contains(upper, `"level":"debug"`) || strings.Contains(upper, "DEBUG"):
+		entry.Severity = "DEBUG"
+	}
+	return entry
 }
 
 func (s *Server) handleInvestigate(w http.ResponseWriter, r *http.Request) {
