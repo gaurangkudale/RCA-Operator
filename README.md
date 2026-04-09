@@ -177,6 +177,15 @@ Works with any OpenAI-compatible API (OpenAI, Azure OpenAI, ollama, LiteLLM, vLL
 | [Helm Chart Setup](docs/HELM_PAGES_SETUP.md) | Helm repo publishing to GitHub Pages |
 | [Helm Upgrade Guide](docs/HELM_UPGRADE.md) | CRD upgrade and migration steps |
 
+### Observability Backend Integration Guides
+
+| Guide | Description |
+|---|---|
+| [SigNoz Integration](docs/integrations/signoz.md) | Unified traces + metrics + logs + topology via SigNoz |
+| [Jaeger Integration](docs/integrations/jaeger.md) | Distributed traces and service topology via Jaeger |
+| [Prometheus Integration](docs/integrations/prometheus.md) | Service metrics via Prometheus PromQL |
+| [OpenTelemetry Integration](docs/integrations/opentelemetry.md) | Operator self-instrumentation and app trace pipeline |
+
 ## Custom Resources
 
 ### RCAAgent

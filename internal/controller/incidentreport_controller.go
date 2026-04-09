@@ -37,6 +37,8 @@ import (
 	"github.com/gaurangkudale/rca-operator/internal/incidentstatus"
 	"github.com/gaurangkudale/rca-operator/internal/metrics"
 	"github.com/gaurangkudale/rca-operator/internal/notify"
+	rcaotel "github.com/gaurangkudale/rca-operator/internal/otel"
+	"github.com/gaurangkudale/rca-operator/internal/rca"
 )
 
 const (
@@ -53,10 +55,12 @@ const (
 
 type IncidentReportReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	Recorder events.EventRecorder
-	Notifier *notify.Dispatcher
-	nowFn    func() time.Time
+	Scheme          *runtime.Scheme
+	Recorder        events.EventRecorder
+	Notifier        *notify.Dispatcher
+	Investigator    *rca.Investigator
+	AutoInvestigate bool
+	nowFn           func() time.Time
 }
 
 func (r *IncidentReportReconciler) now() time.Time {
@@ -79,6 +83,9 @@ func (r *IncidentReportReconciler) now() time.Time {
 
 func (r *IncidentReportReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
+
+	ctx, span := rcaotel.StartReconcileSpan(ctx, "IncidentReport", req.Name, req.Namespace)
+	defer span.End()
 
 	report := &rcav1alpha1.IncidentReport{}
 	if err := r.Get(ctx, req.NamespacedName, report); err != nil {
@@ -206,6 +213,19 @@ func (r *IncidentReportReconciler) transitionToActive(ctx context.Context, repor
 		r.Recorder.Eventf(report, nil, corev1.EventTypeWarning, "IncidentActive", "Activate",
 			"Incident confirmed active type=%s severity=%s", report.Status.IncidentType, report.Status.Severity)
 	}
+
+	// Trigger AI investigation asynchronously when auto-investigate is enabled.
+	if r.AutoInvestigate && r.Investigator != nil {
+		reportCopy := report.DeepCopy()
+		go func() {
+			bgCtx := context.Background()
+			if err := r.Investigator.Investigate(bgCtx, reportCopy); err != nil {
+				logf.FromContext(ctx).Error(err, "AI auto-investigation failed",
+					"incident", report.Namespace+"/"+report.Name)
+			}
+		}()
+	}
+
 	return ctrl.Result{RequeueAfter: healthyResolveWindow}, nil
 }
 

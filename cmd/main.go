@@ -440,10 +440,12 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&controller.IncidentReportReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorder("incidentreport-controller"),
-		Notifier: notify.NewDispatcher(mgr.GetClient(), ctrl.Log),
+		Client:          mgr.GetClient(),
+		Scheme:          mgr.GetScheme(),
+		Recorder:        mgr.GetEventRecorder("incidentreport-controller"),
+		Notifier:        notify.NewDispatcher(mgr.GetClient(), ctrl.Log),
+		Investigator:    investigator,
+		AutoInvestigate: aiAutoInvestigate,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "IncidentReport")
 		os.Exit(1)

@@ -14,6 +14,7 @@ import (
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 	"github.com/gaurangkudale/rca-operator/internal/incident"
 	"github.com/gaurangkudale/rca-operator/internal/metrics"
+	rcaotel "github.com/gaurangkudale/rca-operator/internal/otel"
 	"github.com/gaurangkudale/rca-operator/internal/reporter"
 	"github.com/gaurangkudale/rca-operator/internal/signals"
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
@@ -99,6 +100,18 @@ func (c *Consumer) Run(ctx context.Context) {
 }
 
 func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEvent) error {
+	// Instrument each signal with an OTel span — safe no-op when OTel is disabled.
+	var ns, pod string
+	if ev, ok := event.(interface {
+		GetNamespace() string
+		GetPodName() string
+	}); ok {
+		ns = ev.GetNamespace()
+		pod = ev.GetPodName()
+	}
+	ctx, span := rcaotel.StartSignalSpan(ctx, string(event.Type()), ns, pod)
+	defer span.End()
+
 	if c.ruleEngine != nil {
 		c.ruleEngine.Add(event)
 	}

@@ -55,6 +55,32 @@ spec:
           spec:
             description: spec defines the desired state of RCAAgent
             properties:
+              ai:
+                description: AI configures AI/LLM-driven root cause analysis.
+                properties:
+                  autoInvestigate:
+                    default: false
+                    description: |-
+                      AutoInvestigate triggers AI analysis automatically when an incident
+                      transitions to Active phase.
+                    type: boolean
+                  enabled:
+                    default: false
+                    description: Enabled toggles AI-driven RCA analysis.
+                    type: boolean
+                  endpoint:
+                    description: Endpoint is the OpenAI-compatible API endpoint (e.g.
+                      "https://api.openai.com/v1").
+                    type: string
+                  model:
+                    description: Model is the LLM model name (e.g. "gpt-4o", "llama3").
+                    type: string
+                  secretRef:
+                    description: |-
+                      SecretRef is the name of the Secret containing the API key.
+                      The secret must have a key named "apiKey".
+                    type: string
+                type: object
               incidentRetention:
                 default: 30d
                 description: |-
@@ -183,6 +209,61 @@ spec:
                   - incidentType
                   type: object
                 type: array
+              telemetry:
+                description: |-
+                  Telemetry configures connections to external observability backends
+                  for cross-signal incident correlation (traces, metrics, logs).
+                properties:
+                  backend:
+                    default: composite
+                    description: |-
+                      Backend selects the telemetry backend type.
+                      "signoz" uses SigNoz as a unified traces+logs+metrics backend.
+                      "jaeger" uses Jaeger for traces (combine with Prometheus for metrics).
+                      "composite" delegates to separate backends per signal type.
+                    enum:
+                    - signoz
+                    - jaeger
+                    - composite
+                    type: string
+                  jaeger:
+                    description: Jaeger holds Jaeger query API configuration.
+                    properties:
+                      endpoint:
+                        description: Endpoint is the Jaeger query HTTP API URL (e.g.
+                          "http://jaeger-query:16686").
+                        minLength: 1
+                        type: string
+                      grpcEndpoint:
+                        description: GRPCEndpoint is the Jaeger gRPC query endpoint
+                          (e.g. "jaeger-query:16685").
+                        type: string
+                    required:
+                    - endpoint
+                    type: object
+                  prometheus:
+                    description: Prometheus holds Prometheus query API configuration.
+                    properties:
+                      endpoint:
+                        description: Endpoint is the Prometheus HTTP API URL (e.g.
+                          "http://prometheus:9090").
+                        minLength: 1
+                        type: string
+                    required:
+                    - endpoint
+                    type: object
+                  signoz:
+                    description: SigNoz holds SigNoz query service configuration.
+                    properties:
+                      endpoint:
+                        description: Endpoint is the SigNoz query service URL (e.g.
+                          "http://signoz-query-service:8080").
+                        minLength: 1
+                        type: string
+                    required:
+                    - endpoint
+                    type: object
+                type: object
               watchNamespaces:
                 default:
                 - default
@@ -277,4 +358,5 @@ spec:
     storage: true
     subresources:
       status: {}
+
 {{- end }}
