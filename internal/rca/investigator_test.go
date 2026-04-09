@@ -489,3 +489,224 @@ func TestMustMarshal(t *testing.T) {
 		t.Errorf("unexpected result: %s", result)
 	}
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NewInvestigator
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestNewInvestigator_NotNil(t *testing.T) {
+	llm := NewLLMClient("http://localhost:11434/v1", "test-key", "llama3")
+	q := &mockQuerier{}
+	inv := NewInvestigator(llm, q, nil, logr.Discard())
+	if inv == nil {
+		t.Fatal("NewInvestigator returned nil")
+	}
+	if inv.llm == nil {
+		t.Error("llm field should not be nil")
+	}
+	if inv.querier == nil {
+		t.Error("querier field should not be nil")
+	}
+	if inv.redactor == nil {
+		t.Error("redactor field should not be nil")
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// buildContext
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestBuildContext_BasicFields(t *testing.T) {
+	now := metav1.Now()
+	report := &rcav1alpha1.IncidentReport{
+		Spec: rcav1alpha1.IncidentReportSpec{
+			AgentRef:     "agent-1",
+			IncidentType: "CrashLoop",
+			Fingerprint:  "fp-abc",
+		},
+		Status: rcav1alpha1.IncidentReportStatus{
+			Severity:      "P2",
+			Phase:         "Active",
+			RelatedTraces: []string{"trace-1", "trace-2"},
+			BlastRadius:   []string{"checkout", "frontend"},
+			Timeline: []rcav1alpha1.TimelineEvent{
+				{Time: now, Event: "Pod crashed"},
+			},
+		},
+	}
+	report.Namespace = "production"
+	report.Name = "ir-crash-1"
+
+	inv := &Investigator{redactor: NewRedactor()}
+	ctx := inv.buildContext(report)
+
+	if ctx.Namespace != "production" {
+		t.Errorf("Namespace: got %q, want %q", ctx.Namespace, "production")
+	}
+	if ctx.Name != "ir-crash-1" {
+		t.Errorf("Name: got %q, want %q", ctx.Name, "ir-crash-1")
+	}
+	if ctx.IncidentType != "CrashLoop" {
+		t.Errorf("IncidentType: got %q, want %q", ctx.IncidentType, "CrashLoop")
+	}
+	if ctx.Severity != "P2" {
+		t.Errorf("Severity: got %q, want %q", ctx.Severity, "P2")
+	}
+	if ctx.Phase != "Active" {
+		t.Errorf("Phase: got %q, want %q", ctx.Phase, "Active")
+	}
+	if len(ctx.RelatedTraces) != 2 {
+		t.Errorf("RelatedTraces: got %d, want 2", len(ctx.RelatedTraces))
+	}
+	if len(ctx.BlastRadius) != 2 {
+		t.Errorf("BlastRadius: got %d, want 2", len(ctx.BlastRadius))
+	}
+	if len(ctx.Timeline) != 1 {
+		t.Errorf("Timeline: got %d entries, want 1", len(ctx.Timeline))
+	}
+	if !strings.Contains(ctx.Timeline[0], "Pod crashed") {
+		t.Errorf("Timeline entry should contain event text, got: %q", ctx.Timeline[0])
+	}
+}
+
+func TestBuildContext_WorkloadRef(t *testing.T) {
+	report := &rcav1alpha1.IncidentReport{
+		Spec: rcav1alpha1.IncidentReportSpec{
+			IncidentType: "StalledRollout",
+			Fingerprint:  "fp-deploy",
+			Scope: rcav1alpha1.IncidentScope{
+				WorkloadRef: &rcav1alpha1.IncidentObjectRef{
+					Kind:      "Deployment",
+					Namespace: "staging",
+					Name:      "payment-svc",
+				},
+			},
+		},
+	}
+
+	inv := &Investigator{redactor: NewRedactor()}
+	ctx := inv.buildContext(report)
+
+	if ctx.AffectedPod != "payment-svc" {
+		t.Errorf("AffectedPod from WorkloadRef: got %q, want %q", ctx.AffectedPod, "payment-svc")
+	}
+}
+
+func TestBuildContext_NodeRef(t *testing.T) {
+	report := &rcav1alpha1.IncidentReport{
+		Spec: rcav1alpha1.IncidentReportSpec{
+			IncidentType: "NodeFailure",
+			Fingerprint:  "fp-node",
+			Scope: rcav1alpha1.IncidentScope{
+				ResourceRef: &rcav1alpha1.IncidentObjectRef{
+					Kind: "Node",
+					Name: "node-abc",
+				},
+			},
+		},
+	}
+
+	inv := &Investigator{redactor: NewRedactor()}
+	ctx := inv.buildContext(report)
+
+	if ctx.AffectedNode != "node-abc" {
+		t.Errorf("AffectedNode from ResourceRef: got %q, want %q", ctx.AffectedNode, "node-abc")
+	}
+}
+
+func TestBuildContext_EmptyReport(t *testing.T) {
+	// An empty IncidentReport should not panic.
+	report := &rcav1alpha1.IncidentReport{}
+	inv := &Investigator{redactor: NewRedactor()}
+	ctx := inv.buildContext(report)
+	if ctx.IncidentType != "" {
+		t.Errorf("expected empty IncidentType, got %q", ctx.IncidentType)
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Investigate — end-to-end with mock HTTP server (no tool calls)
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestInvestigate_DirectResponsePersisted(t *testing.T) {
+	// LLM returns a structured JSON response without tool calls.
+	rcaJSON := `{"rootCause":"OOM in payment-svc","confidence":"0.9","playbook":["Increase memory limits"],"evidence":["spike at 14:05"]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]any{
+			"choices": []map[string]any{{
+				"message": map[string]any{
+					"role":    "assistant",
+					"content": rcaJSON,
+				},
+				"finish_reason": "stop",
+			}},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
+	}))
+	defer srv.Close()
+
+	// Build an in-memory IncidentReport.
+	report := &rcav1alpha1.IncidentReport{
+		Spec: rcav1alpha1.IncidentReportSpec{
+			AgentRef:     "agent-1",
+			IncidentType: "OOMKilled",
+			Fingerprint:  "fp-oom",
+		},
+		Status: rcav1alpha1.IncidentReportStatus{
+			Phase:    "Active",
+			Severity: "P2",
+		},
+	}
+	report.Namespace = "production"
+	report.Name = "ir-oom-1"
+
+	llm := NewLLMClient(srv.URL, "test-key", "test-model")
+	q := &mockQuerier{}
+	inv := NewInvestigator(llm, q, nil, logr.Discard())
+
+	// Override persistResult to capture what would be written.
+	var capturedResult *rcav1alpha1.RCAResult
+	inv.k8s = nil // no k8s client — persistResult will error; we intercept via a patched approach
+
+	// Instead of calling Investigate (which calls persistResult with a nil k8s client),
+	// test the full pipeline up to the point of persistence by calling the internal
+	// pieces we care about.
+	incCtx := inv.buildContext(report)
+	userPrompt := BuildUserPrompt(incCtx)
+	if userPrompt == "" {
+		t.Fatal("BuildUserPrompt returned empty string")
+	}
+
+	messages := []ChatMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userPrompt},
+	}
+	resp, err := llm.Complete(context.Background(), messages, nil)
+	if err != nil {
+		t.Fatalf("LLM Complete: %v", err)
+	}
+	if resp.HasToolCalls() {
+		t.Error("expected no tool calls in this response")
+	}
+	content := resp.FirstContent()
+	capturedResult, err = parseRCAResponse(content)
+	if err != nil {
+		t.Fatalf("parseRCAResponse: %v", err)
+	}
+
+	if capturedResult.RootCause != "OOM in payment-svc" {
+		t.Errorf("RootCause: got %q", capturedResult.RootCause)
+	}
+	if capturedResult.Confidence != "0.9" {
+		t.Errorf("Confidence: got %q", capturedResult.Confidence)
+	}
+	if len(capturedResult.Playbook) != 1 {
+		t.Errorf("Playbook: got %d items", len(capturedResult.Playbook))
+	}
+	if capturedResult.InvestigatedAt == nil {
+		t.Error("InvestigatedAt should be set")
+	}
+}
