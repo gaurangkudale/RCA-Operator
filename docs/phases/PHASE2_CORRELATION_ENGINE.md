@@ -1,12 +1,12 @@
-# Phase 3 Architecture: Strong Correlation Engine
+# Phase 2 Architecture: Strong Correlation Engine
 
 ## Overview
 
-Phase 3 extends RCA Operator from **telemetry-attached incidents** (Phase 2) to **intelligent cross-signal incident analysis** — a deterministic pattern-matching engine that correlates logs, metrics, and traces together to pinpoint exact root causes without relying exclusively on LLM API calls.
+Phase 2 extends RCA Operator from **telemetry-attached incidents** (Phase 2) to **intelligent cross-signal incident analysis** — a deterministic pattern-matching engine that correlates logs, metrics, and traces together to pinpoint exact root causes without relying exclusively on LLM API calls.
 
 ### Design Principle: Deterministic First, LLM Second
 
-Phase 3 introduces a **parallel RCA strategy**:
+Phase 2 introduces a **parallel RCA strategy**:
 
 | Method | Speed | Cost | Accuracy | Transparency |
 |--------|-------|------|----------|--------------|
@@ -32,7 +32,7 @@ Problem:
   - Network dependency — LLM unavailable = no RCA
 ```
 
-Phase 3 solves this by adding a deterministic pattern-matching stage **before** the LLM call.
+Phase 2 solves this by adding a deterministic pattern-matching stage **before** the LLM call.
 
 ---
 
@@ -495,7 +495,7 @@ type FingerprintMatchResult struct {
 
 ---
 
-## Built-in Patterns (Phase 3 MVP)
+## Built-in Patterns (Phase 2 MVP)
 
 Five patterns ship with the operator in the default `RCACorrelationRule` set (enabled by `defaultRules.enabled: true`).
 
@@ -722,7 +722,7 @@ Marks a pattern match as verified by a human operator. Updates the `RCACorrelati
 
 ---
 
-## CLI Flags (Phase 3 Additions)
+## CLI Flags (Phase 2 Additions)
 
 | Flag | Default | Description |
 |---|---|---|
@@ -735,10 +735,10 @@ Marks a pattern match as verified by a human operator. Updates the `RCACorrelati
 
 ---
 
-## Helm Values (Phase 3 Additions)
+## Helm Values (Phase 2 Additions)
 
 ```yaml
-# Correlation Pattern Matching (Phase 3)
+# Correlation Pattern Matching (Phase 2)
 patternMatching:
   enabled: true
   
@@ -809,7 +809,7 @@ Scenario: Memory leak end-to-end
 
 ## Backward Compatibility
 
-Phase 3 is **100% backward compatible**:
+Phase 2 is **100% backward compatible**:
 
 - Existing `RCACorrelationRule` CRs without `pattern:` or `fingerprint:` blocks continue to work unchanged
 - Pattern matching is opt-in at the rule level (add `pattern:` block to enable)
