@@ -219,9 +219,12 @@ undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.
 #   make docker-build-exporter EXPORTER_IMG=ghcr.io/me/rca-exporter:dev
 EXPORTER_IMG ?= rca-exporter:latest
 
-# Default kind cluster name shared by `kind-create`, `kind-load-exporter`,
-# and the e2e test setup.
-KIND_DEV_CLUSTER ?= rca-dev
+# Auto-detect current kind cluster from kubectl context if available.
+# Extracts cluster name from context (e.g., 'kind-kind' -> 'kind').
+# Falls back to 'rca-dev' if no kind cluster is detected.
+# Override with: make kind-load-exporter KIND_DEV_CLUSTER=my-cluster
+DETECTED_KIND_CLUSTER ?= $(shell kubectl config current-context 2>/dev/null | sed 's/^kind-//' || echo "")
+KIND_DEV_CLUSTER ?= $(if $(DETECTED_KIND_CLUSTER),$(DETECTED_KIND_CLUSTER),rca-dev)
 
 .PHONY: build-exporter
 build-exporter: fmt vet ## Build the rca-exporter binary into bin/rca-exporter.
