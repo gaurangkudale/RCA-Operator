@@ -1,0 +1,26 @@
+# Build the rca-exporter binary.
+#
+# Phase 2 of the RCA-Operator stack: a stateless OTLP logs ingestion service
+# that emits IncidentReport CRDs. Built as a distroless distroless image to
+# match the manager Dockerfile and stay within the same security baseline.
+FROM golang:1.25 AS builder
+ARG TARGETOS
+ARG TARGETARCH
+
+WORKDIR /workspace
+COPY go.mod go.mod
+COPY go.sum go.sum
+RUN go mod download
+
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
+    go build -a -o rca-exporter cmd/rca-exporter/main.go
+
+FROM gcr.io/distroless/static:nonroot
+WORKDIR /
+COPY --from=builder /workspace/rca-exporter .
+USER 65532:65532
+
+EXPOSE 4317 4318 8081
+ENTRYPOINT ["/rca-exporter"]

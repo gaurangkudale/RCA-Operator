@@ -37,6 +37,7 @@ bin/k8s/
 bin/manager
 bin/controller-gen
 bin/controller-gen-*
+rca-exporter
 
 # AI 
 .claude/

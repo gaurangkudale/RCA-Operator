@@ -213,6 +213,78 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
 
+##@ RCA Exporter (Phase 2)
+
+# Image URL for the rca-exporter binary. Override on the command line:
+#   make docker-build-exporter EXPORTER_IMG=ghcr.io/me/rca-exporter:dev
+EXPORTER_IMG ?= rca-exporter:latest
+
+# Default kind cluster name shared by `kind-create`, `kind-load-exporter`,
+# and the e2e test setup.
+KIND_DEV_CLUSTER ?= rca-dev
+
+.PHONY: build-exporter
+build-exporter: fmt vet ## Build the rca-exporter binary into bin/rca-exporter.
+	go build -o bin/rca-exporter cmd/rca-exporter/main.go
+
+.PHONY: run-exporter
+run-exporter: fmt vet ## Run the rca-exporter from your host. Pass args via EXPORTER_ARGS="--flag=value".
+	go run ./cmd/rca-exporter $(EXPORTER_ARGS)
+
+.PHONY: test-exporter
+test-exporter: ## Run unit + integration tests for the rca-exporter packages only.
+	go test ./internal/exporter/... ./cmd/rca-exporter/... -coverprofile cover.exporter.out
+
+.PHONY: docker-build-exporter
+docker-build-exporter: ## Build the rca-exporter container image (uses Dockerfile.exporter).
+	$(CONTAINER_TOOL) build -t ${EXPORTER_IMG} -f Dockerfile.exporter .
+
+.PHONY: docker-push-exporter
+docker-push-exporter: ## Push the rca-exporter image.
+	$(CONTAINER_TOOL) push ${EXPORTER_IMG}
+
+.PHONY: deploy-exporter
+deploy-exporter: kustomize ## Deploy rca-exporter manifests (RBAC + Service + Deployment) into the current cluster.
+	cd config/rca-exporter && "$(KUSTOMIZE)" edit set image rca-exporter=${EXPORTER_IMG} || true
+	"$(KUSTOMIZE)" build config/rca-exporter | "$(KUBECTL)" apply -f -
+
+.PHONY: undeploy-exporter
+undeploy-exporter: kustomize ## Remove the rca-exporter from the current cluster.
+	"$(KUSTOMIZE)" build config/rca-exporter | "$(KUBECTL)" delete --ignore-not-found=true -f -
+
+##@ Kind (local end-to-end)
+
+.PHONY: kind-create
+kind-create: ## Create a local kind cluster (KIND_DEV_CLUSTER=rca-dev) if it does not already exist.
+	@command -v $(KIND) >/dev/null 2>&1 || { echo "kind is not installed; see https://kind.sigs.k8s.io"; exit 1; }
+	@if $(KIND) get clusters | grep -q '^$(KIND_DEV_CLUSTER)$$'; then \
+		echo "kind cluster $(KIND_DEV_CLUSTER) already exists"; \
+	else \
+		echo "creating kind cluster $(KIND_DEV_CLUSTER)..."; \
+		$(KIND) create cluster --name $(KIND_DEV_CLUSTER); \
+	fi
+
+.PHONY: kind-delete
+kind-delete: ## Delete the local kind cluster.
+	$(KIND) delete cluster --name $(KIND_DEV_CLUSTER)
+
+.PHONY: kind-load
+kind-load: docker-build ## Build the operator image and load it into the kind cluster.
+	$(KIND) load docker-image ${IMG} --name $(KIND_DEV_CLUSTER)
+
+.PHONY: kind-load-exporter
+kind-load-exporter: docker-build-exporter ## Build the rca-exporter image and load it into the kind cluster.
+	$(KIND) load docker-image ${EXPORTER_IMG} --name $(KIND_DEV_CLUSTER)
+
+.PHONY: kind-deploy
+kind-deploy: kind-create install kind-load deploy ## Bootstrap a fresh kind cluster, install CRDs, and deploy the operator.
+
+.PHONY: kind-deploy-exporter
+kind-deploy-exporter: kind-create install kind-load-exporter deploy-exporter ## Bootstrap a fresh kind cluster, install CRDs, and deploy the rca-exporter.
+
+.PHONY: kind-deploy-all
+kind-deploy-all: kind-create install kind-load kind-load-exporter deploy deploy-exporter ## Deploy operator + exporter into a fresh kind cluster (full Phase 1 + Phase 2 stack).
+
 ##@ Dependencies
 
 ## Location to install dependencies to
