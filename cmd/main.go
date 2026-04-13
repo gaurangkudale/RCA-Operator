@@ -180,6 +180,12 @@ func main() {
 	webhookServer := webhook.NewServer(webhookServerOptions)
 
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
+<<<<<<< HEAD
+	// More info:
+	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.3/pkg/metrics/server
+	// - https://book.kubebuilder.io/reference/metrics.html
+=======
+>>>>>>> tmp-original-07-04-26-02-30
 	metricsServerOptions := metricsserver.Options{
 		BindAddress:   metricsAddr,
 		SecureServing: secureMetrics,
@@ -187,6 +193,13 @@ func main() {
 	}
 
 	if secureMetrics {
+<<<<<<< HEAD
+		// FilterProvider is used to protect the metrics endpoint with authn/authz.
+		// These configurations ensure that only authorized users and service accounts
+		// can access the metrics endpoint. The RBAC are configured in 'config/rbac/kustomization.yaml'. More info:
+		// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.3/pkg/metrics/filters#WithAuthenticationAndAuthorization
+=======
+>>>>>>> tmp-original-07-04-26-02-30
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
 
