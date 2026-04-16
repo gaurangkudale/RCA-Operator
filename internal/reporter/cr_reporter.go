@@ -21,7 +21,6 @@ import (
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 	"github.com/gaurangkudale/rca-operator/internal/incident"
 	"github.com/gaurangkudale/rca-operator/internal/incidentstatus"
-	"github.com/gaurangkudale/rca-operator/internal/metrics"
 )
 
 const (
@@ -218,7 +217,6 @@ func (r *Reporter) createIncident(ctx context.Context, input incident.Input, fin
 	}
 
 	r.openByFingerprint[fingerprint] = types.NamespacedName{Namespace: report.Namespace, Name: report.Name}
-	metrics.RecordIncidentDetected(input.AgentRef, input.IncidentType, input.Severity)
 	r.log.Info("Created IncidentReport",
 		"namespace", report.Namespace,
 		"name", report.Name,
@@ -607,7 +605,6 @@ func (r *Reporter) reopenIncident(ctx context.Context, report *rcav1alpha1.Incid
 	}
 
 	r.openByFingerprint[fingerprint] = types.NamespacedName{Namespace: report.Namespace, Name: report.Name}
-	metrics.RecordIncidentDetected(input.AgentRef, input.IncidentType, input.Severity)
 	if r.Recorder != nil {
 		r.Recorder.Eventf(report, nil, corev1.EventTypeWarning, "IncidentReopened", "Reopen",
 			"Incident re-opened: %s", input.Summary)

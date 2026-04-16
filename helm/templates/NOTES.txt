@@ -195,11 +195,6 @@ kubectl logs -n {{ $ns }} -l app.kubernetes.io/name=jaeger --tail=20
   --set jaeger.enabled=false \
   --set otelCollector.jaegerEndpoint="my-jaeger.tracing:4317"
 
-  # Production trace storage (Elasticsearch):
-  --set jaeger.storage.type=elasticsearch \
-  --set jaeger.storage.elasticsearch.host=elasticsearch-master \
-  --set jaeger.storage.elasticsearch.port=9200
-
   # Disable log collection (traces only):
   --set otelCollector.filelog.enabled=false
 

@@ -428,22 +428,10 @@ jaeger:
     #      - jaeger.local
 
   # Storage backend.
-  # DEV:  type: memory  (ephemeral — lost on pod restart)
-  # PROD: type: elasticsearch (durable — requires an ES cluster)
+  # Use case: Store traces in memory (ephemeral) or persistent storage backends.
   storage:
-    # Options: memory | badger | elasticsearch | cassandra
+    # Options: memory | badger | cassandra
     type: memory
-    # Elasticsearch backend (used when storage.type=elasticsearch).
-    # Use case: Production-grade, durable trace storage with horizontal scaling.
-    # elasticsearch:
-    #   host: elasticsearch-master
-    #   port: 9200
-    #   user: elastic
-    #   password: changeme
-    #   indexPrefix: jaeger
-    #   tls:
-    #     enabled: false
-    #     secretName: ""
 
   # Jaeger v2 OTEL-style pipeline config (accepted by the all-in-one binary).
   # Use case: Configure which protocols Jaeger listens on and how it processes spans.

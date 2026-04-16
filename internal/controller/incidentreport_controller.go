@@ -35,7 +35,6 @@ import (
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 	"github.com/gaurangkudale/rca-operator/internal/incidentstatus"
-	"github.com/gaurangkudale/rca-operator/internal/metrics"
 	"github.com/gaurangkudale/rca-operator/internal/notify"
 )
 
@@ -194,12 +193,6 @@ func (r *IncidentReportReconciler) transitionToActive(ctx context.Context, repor
 		return ctrl.Result{}, fmt.Errorf("failed to transition IncidentReport %s/%s to Active: %w", report.Namespace, report.Name, err)
 	}
 
-	// Phase 1 metrics: record activation, gauge increment, and detecting→active transition duration.
-	metrics.RecordIncidentActivated(report.Spec.AgentRef, report.Status.IncidentType, report.Status.Severity)
-	metrics.IncActiveIncidents(report.Spec.AgentRef, report.Status.IncidentType, report.Status.Severity)
-	if start := incidentstatus.EffectiveStartTime(base.Status); start != nil {
-		metrics.ObserveIncidentTransition("detecting", "active", now.Sub(start.Time).Seconds())
-	}
 
 	if r.Recorder != nil {
 		r.Recorder.Eventf(report, nil, corev1.EventTypeWarning, "IncidentActive", "Activate",
@@ -216,18 +209,6 @@ func (r *IncidentReportReconciler) transitionToResolved(ctx context.Context, rep
 		return ctrl.Result{}, fmt.Errorf("failed to resolve IncidentReport %s/%s: %w", report.Namespace, report.Name, err)
 	}
 
-	// Phase 1 metrics: record the phase transition duration and update the active gauge.
-	switch base.Status.Phase {
-	case phaseDetecting:
-		if start := incidentstatus.EffectiveStartTime(base.Status); start != nil {
-			metrics.ObserveIncidentTransition("detecting", "resolved", now.Sub(start.Time).Seconds())
-		}
-	case phaseActive:
-		metrics.DecActiveIncidents(report.Spec.AgentRef, report.Status.IncidentType, report.Status.Severity)
-		if base.Status.ActiveAt != nil {
-			metrics.ObserveIncidentTransition("active", "resolved", now.Sub(base.Status.ActiveAt.Time).Seconds())
-		}
-	}
 
 	if r.Recorder != nil {
 		r.Recorder.Eventf(report, nil, corev1.EventTypeNormal, "IncidentResolved", "Resolve",
@@ -465,8 +446,6 @@ func (r *IncidentReportReconciler) recordResolvedMetric(ctx context.Context, rep
 	if report.Annotations != nil && report.Annotations[resolvedMetricRecordedKey] == annotationTrue {
 		return nil
 	}
-
-	metrics.RecordIncidentResolved(report.Spec.AgentRef, report.Status.IncidentType, report.Status.Severity)
 
 	base := report.DeepCopy()
 	if report.Annotations == nil {

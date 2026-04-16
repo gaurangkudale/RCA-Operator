@@ -19,7 +19,7 @@ import (
 
 // Config holds the settings needed to initialise the OTel SDK.
 type Config struct {
-	// Endpoint is the OTLP gRPC collector address (e.g. "signoz-collector:4317").
+	// Endpoint is the OTLP gRPC collector address (e.g. "otel-collector.observability.svc.cluster.local:4317").
 	// Empty means OTel is disabled — no-op providers are used.
 	Endpoint string
 
@@ -34,8 +34,8 @@ type Config struct {
 }
 
 // Setup initialises the global OTel TracerProvider with an OTLP gRPC exporter
-// pointing at the configured endpoint (typically SigNoz). It returns a shutdown
-// function that must be deferred by the caller.
+// pointing at the configured endpoint. It returns a shutdown function that
+// must be deferred by the caller.
 //
 // When cfg.Endpoint is empty the function is a no-op — the default no-op
 // providers stay in place.

@@ -96,7 +96,6 @@ func (d *Detector) tick(ctx context.Context) {
 			d.log.Error(err, "Failed to create auto-rule", "pattern", rec.Pair.Key())
 		} else if rec.RuleName != "" {
 			rulesCreatedThisTick++
-			RecordRuleCreated()
 		}
 	}
 
@@ -108,14 +107,6 @@ func (d *Detector) tick(ctx context.Context) {
 	}
 	countAfter, _ := d.creator.CountAutoRules(ctx)
 	expired := countBefore - countAfter
-	for range expired {
-		RecordRuleExpired()
-	}
-
-	// 6. Update metrics.
-	SetPatternsTracked(d.accumulator.Count())
-	SetRulesActive(countAfter)
-	ObserveAnalysisDuration(time.Since(start).Seconds())
 
 	if rulesCreatedThisTick > 0 || expired > 0 {
 		d.log.Info("Analysis tick completed",

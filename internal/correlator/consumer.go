@@ -13,7 +13,6 @@ import (
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 	"github.com/gaurangkudale/rca-operator/internal/incident"
-	"github.com/gaurangkudale/rca-operator/internal/metrics"
 	"github.com/gaurangkudale/rca-operator/internal/reporter"
 	"github.com/gaurangkudale/rca-operator/internal/signals"
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
@@ -109,7 +108,6 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 	}
 
 	// ── Signal Processing Pipeline: Normalize → Enrich → Rule Engine ──
-	startTime := time.Now()
 	sig, ok := c.normalizer.Normalize(event)
 	if !ok {
 		return nil
@@ -117,14 +115,9 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 	sig = c.enricher.Enrich(ctx, sig)
 	input := sig.Input
 
-	// Record signal processing metrics.
-	metrics.RecordSignalProcessed(string(event.Type()), input.AgentRef)
-	metrics.ObserveSignalDuration(string(event.Type()), time.Since(startTime).Seconds())
-
 	// ── Rule Engine evaluation ──
 	if c.ruleEngine != nil {
 		if result := c.ruleEngine.Evaluate(event); result.Fired {
-			metrics.RecordRuleEvaluation(result.Rule, true)
 			input.Severity = result.Severity
 			input.Summary = result.Summary
 			input.Message = result.Summary
