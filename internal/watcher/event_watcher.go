@@ -332,7 +332,7 @@ func (w *EventWatcher) sweepDedupMap(_ context.Context) {
 // shouldEmit returns true and records the current time when the given key has
 // not been seen within the configured DedupWindow. Returns false otherwise.
 // Thread-safe.
-func (w *EventWatcher) shouldEmit(key, eventType string) bool {
+func (w *EventWatcher) shouldEmit(key, _ string) bool {
 	now := w.clock()
 	w.mu.Lock()
 	defer w.mu.Unlock()

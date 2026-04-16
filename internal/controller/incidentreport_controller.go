@@ -193,7 +193,6 @@ func (r *IncidentReportReconciler) transitionToActive(ctx context.Context, repor
 		return ctrl.Result{}, fmt.Errorf("failed to transition IncidentReport %s/%s to Active: %w", report.Namespace, report.Name, err)
 	}
 
-
 	if r.Recorder != nil {
 		r.Recorder.Eventf(report, nil, corev1.EventTypeWarning, "IncidentActive", "Activate",
 			"Incident confirmed active type=%s severity=%s", report.Status.IncidentType, report.Status.Severity)
@@ -208,7 +207,6 @@ func (r *IncidentReportReconciler) transitionToResolved(ctx context.Context, rep
 	if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to resolve IncidentReport %s/%s: %w", report.Namespace, report.Name, err)
 	}
-
 
 	if r.Recorder != nil {
 		r.Recorder.Eventf(report, nil, corev1.EventTypeNormal, "IncidentResolved", "Resolve",
