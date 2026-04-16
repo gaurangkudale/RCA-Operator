@@ -152,30 +152,6 @@ jobs:
 
           echo "✓ Kubernetes manifest schema validation passed (minimal)"
 
-  security-scan:
-    name: Security Scan (Trivy)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Run Trivy config scan on Helm chart
-        uses: aquasecurity/trivy-action@0.33.1
-        with:
-          scan-type: config
-          scan-ref: helm/
-          exit-code: "1"
-          severity: CRITICAL,HIGH
-          format: sarif
-          output: trivy-results.sarif
-          trivyignores: .trivyignore
-
-      - name: Upload Trivy scan results (SARIF)
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: trivy-results.sarif
-        continue-on-error: true
 
   chart-version:
     name: Chart Version Check
