@@ -336,6 +336,16 @@ instrumentation:
   dotnet: {}
   go: {}
 
+  # Additional namespaces to receive a copy of the Instrumentation CR.
+  # Workloads in these namespaces with inject-python/java/nodejs: "true"
+  # will find a local Instrumentation CR pointing to the collector FQDN.
+  # The primary CR is always created in the release namespace.
+  # Use case: auto-instrument apps in rca-demo, production, staging, etc.
+  targetNamespaces:
+    - rca-demo
+  # - production
+  # - staging
+
 # ────────────────────────────────────────────────────────────────────────────
 # Jaeger sub-chart
 # Jaeger v2 all-in-one — trace storage and query UI.

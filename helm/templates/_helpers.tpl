@@ -116,16 +116,21 @@ rca-operator.jaegerEndpoint continue to work.
 {{/*
 OTLP HTTP endpoint that auto-instrumented workloads send spans to.
 Points at the OTel Collector DaemonSet service (HTTP port 4318).
+
+IMPORTANT: Must use the fully-qualified cluster DNS name so that pods in
+OTHER namespaces (e.g. rca-demo) can resolve the service that lives in the
+Helm release namespace (e.g. rca-system). A bare service name like
+"rca-operator-otel-collector:4318" resolves only within the same namespace.
+
 Priority:
   1. instrumentation.otlpEndpoint — explicit full override (http://host:port)
-  2. Auto-computed: http://<collectorServiceName>:4318
-     The OTel Operator creates a Service named "<CR-name>-collector"
-     which resolves to "<fullname>-otel-collector" (see rca-operator.collectorServiceName).
+  2. Auto-computed FQDN:
+     http://<collectorServiceName>.<releaseNamespace>.svc.cluster.local:4318
 */}}
 {{- define "rca-operator.otlpEndpoint" -}}
 {{- if .Values.instrumentation.otlpEndpoint -}}
 {{- .Values.instrumentation.otlpEndpoint }}
 {{- else -}}
-{{- printf "http://%s:4318" (include "rca-operator.collectorServiceName" .) }}
+{{- printf "http://%s.%s.svc.cluster.local:4318" (include "rca-operator.collectorServiceName" .) (include "rca-operator.namespace" .) }}
 {{- end -}}
 {{- end }}
