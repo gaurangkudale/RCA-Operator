@@ -189,6 +189,11 @@ opentelemetryOperator:
   # Set to false to skip installing the operator (use if already installed cluster-wide).
   enabled: true
 
+  # Force a lowercase RFC-1123-compliant name for all sub-chart resources.
+  # Without this, Helm uses the alias "opentelemetryOperator" as Chart.Name
+  # which produces invalid Secret/Service names containing uppercase letters.
+  nameOverride: "opentelemetry-operator"
+
   # Admission webhooks — auto-generate TLS certs without cert-manager.
   # Use case: Validate/mutate OpenTelemetryCollector and Instrumentation resources.
   admissionWebhooks:
