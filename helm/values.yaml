@@ -222,11 +222,6 @@ opentelemetryOperator:
     runAsNonRoot: true
     seccompProfile:
       type: RuntimeDefault
-    readOnlyRootFilesystem: true
-    allowPrivilegeEscalation: false
-    capabilities:
-      drop:
-        - ALL
 
 # ────────────────────────────────────────────────────────────────────────────
 # OpenTelemetryCollector CR
