@@ -9,6 +9,8 @@
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-1.26+-326CE5?logo=kubernetes)](https://kubernetes.io)
 [![kubebuilder](https://img.shields.io/badge/Built%20with-kubebuilder-FF6B6B)](https://book.kubebuilder.io)
 
+**[rca-operator.tech](https://rca-operator.tech)**
+
 </div>
 
 ## What RCA Operator Does
@@ -26,7 +28,7 @@ The operator avoids AI systems, external databases, and log-scraping dependencie
 
 ## Architecture
 
-![alt text](<architecture.png>)
+![Architecture](architecture.png)
 
 More detail lives in [Architecture](docs/concepts/Architecture.md) and [Phase 1 Architecture](docs/phases/PHASE1_ARCHITECTURE.md).
 
@@ -42,18 +44,27 @@ More detail lives in [Architecture](docs/concepts/Architecture.md) and [Phase 1 
 | Notifications | Sends Slack and PagerDuty notifications and emits Kubernetes events |
 | Dashboard | Built-in incident dashboard with light/dark theme toggle |
 | Retention | Automatically prunes old resolved incidents |
-| OpenTelemetry | Optional OTLP trace/metric export |
+| OpenTelemetry | Optional OTLP trace export for the operator's own spans |
 
 ## Quick Install
 
-### Helm
+### Helm (recommended)
 
 ```bash
-helm repo add rca-operator https://gaurangkudale.github.io/rca-operator.github.io/charts
+# Add repositories (one-time)
+helm repo add rca-operator  https://gaurangkudale.github.io/rca-operator.github.io/charts
+helm repo add opentelemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+helm repo add jaegertracing  https://jaegertracing.github.io/helm-charts
 helm repo update
-helm install rca-operator rca-operator/rca-operator \
-  --namespace rca-system --create-namespace
+
+# Install
+helm upgrade --install rca-operator rca-operator/rca-operator \
+  --namespace rca-system --create-namespace \
+  --wait --timeout 10m
 ```
+
+> `--wait` is required — the `OpenTelemetryCollector` and `Instrumentation` CRs are applied
+> as post-install hooks after the otel-operator webhook is confirmed Ready.
 
 ### kubectl
 
@@ -61,8 +72,6 @@ helm install rca-operator rca-operator/rca-operator \
 kubectl apply -f https://github.com/gaurangkudale/RCA-Operator/releases/latest/download/install.yaml
 kubectl apply -f config/samples/rca_v1alpha1_rcaagent.yaml
 ```
-
-The checked-in sample is minimal and does not require notification secrets. If you enable notifications, create the referenced Slack and PagerDuty secrets first.
 
 ## Documentation
 
@@ -82,8 +91,7 @@ The checked-in sample is minimal and does not require notification secrets. If y
 | [RBAC Reference](docs/reference/rbac.md) | Permissions used by the operator |
 | [Local Development](docs/development/local-setup.md) | Run locally against a cluster |
 | [Testing Guide](docs/development/testing.md) | Unit, envtest, and e2e coverage |
-| [Fixtures](test/fixtures/README.md) | Manual scenarios for incident testing |
-| [Helm Chart Setup](docs/HELM_PAGES_SETUP.md) | Helm repo publishing to GitHub Pages |
+| [Helm Installation](docs/helm-installation.md) | Helm install with OTel + Jaeger stack |
 | [Helm Upgrade Guide](docs/HELM_UPGRADE.md) | CRD upgrade and migration steps |
 
 ## Custom Resources
@@ -115,7 +123,7 @@ kubectl get rcacorrelationrules
 kubectl describe rcacorrelationrule <name>
 ```
 
-Four default rules ship with the Helm chart:
+Four default rules are installed with the Helm chart (`defaultRules.enabled: true`):
 
 | Rule | Trigger | Condition | Severity |
 |---|---|---|---|

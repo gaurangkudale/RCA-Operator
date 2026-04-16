@@ -62,20 +62,24 @@ manager:
     - --health-probe-bind-address=:8081
     - --dashboard-bind-address=:9090
 
-# OpenTelemetry configuration
-# Use case: Export operator traces/telemetry to an OTLP backend for observability.
+# Operator self-telemetry — exports the operator's OWN reconcile/signal/rule spans via OTLP.
+# This is SEPARATE from the opentelemetryOperator/otelCollector/jaeger stack below,
+# which instruments your application workloads.
+# Set enabled: true and provide an endpoint to trace the operator itself.
 otel:
   enabled: false
-  # OTLP gRPC collector address (e.g. "signoz-otel-collector.platform:4317")
+  # Any OTLP gRPC endpoint, e.g. the bundled collector:
+  # "rca-operator-otel-collector.rca-system.svc.cluster.local:4317"
   endpoint: ""
   serviceName: "rca-operator"
   samplingRate: "1.0"
   insecure: true
 
 # Default RCACorrelationRule CRDs
-# Use case: Seed built-in correlation knowledge so RCA works immediately after installation.
+# Four production-ready rules that cover the most common failure patterns.
+# Enabled by default so the operator detects incidents out of the box.
 defaultRules:
-  enabled: false
+  enabled: true
 
 # Automatic correlation rule detection
 # Use case: Learn new recurring incident patterns and create rules automatically.
