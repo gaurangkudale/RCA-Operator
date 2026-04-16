@@ -77,14 +77,27 @@ Keeps all collector RBAC resources consistently named.
 {{- end }}
 
 {{/*
+OTel Collector Service name.
+The OpenTelemetry Operator creates a Service for every OpenTelemetryCollector CR
+using the pattern: <CR-name>-collector.
+  CR name  = <fullname>-otel         (set in otel-collector.yaml)
+  Service  = <fullname>-otel-collector
+This helper is used both internally (otlpEndpoint) and in NOTES.txt.
+*/}}
+{{- define "rca-operator.collectorServiceName" -}}
+{{- printf "%s-otel-collector" (include "rca-operator.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
 Jaeger OTLP gRPC endpoint used by the OTel Collector exporter.
 Priority:
-  1. otelCollector.jaegerEndpoint (explicit override)
-  2. Auto-computed: <release-name>-jaeger:<port>
-     The Jaeger sub-chart creates a service named "<release-name>-jaeger"
-     that listens on port 4317 for OTLP gRPC.
+  1. otelCollector.jaegerEndpoint  — explicit full override (host:port)
+  2. Auto-computed: <release-name>-jaeger:4317
+     The jaeger sub-chart (named "jaeger") creates a Service whose fullname
+     follows Helm's standard convention: <release-name>-jaeger.
+     Port 4317 is Jaeger's OTLP gRPC receiver.
 */}}
-{{- define "rca-operator.jaegerEndpoint" -}}
+{{- define "rca-operator.jaegerOtlpEndpoint" -}}
 {{- if .Values.otelCollector.jaegerEndpoint -}}
 {{- .Values.otelCollector.jaegerEndpoint }}
 {{- else -}}
@@ -93,19 +106,26 @@ Priority:
 {{- end }}
 
 {{/*
+Keep the old alias so any external templates or tests that still call
+rca-operator.jaegerEndpoint continue to work.
+*/}}
+{{- define "rca-operator.jaegerEndpoint" -}}
+{{- include "rca-operator.jaegerOtlpEndpoint" . }}
+{{- end }}
+
+{{/*
 OTLP HTTP endpoint that auto-instrumented workloads send spans to.
-Points at the OpenTelemetryCollector DaemonSet service (port 4318).
+Points at the OTel Collector DaemonSet service (HTTP port 4318).
 Priority:
-  1. instrumentation.otlpEndpoint (explicit override)
-  2. Auto-computed: http://<release-name>-otel-collector:<port>
-     The OTel Operator creates a service for the collector named
-     "<collector-cr-name>-collector" by convention. We use the full
-     CR name (rca-operator.fullname + "-otel") to derive the service name.
+  1. instrumentation.otlpEndpoint — explicit full override (http://host:port)
+  2. Auto-computed: http://<collectorServiceName>:4318
+     The OTel Operator creates a Service named "<CR-name>-collector"
+     which resolves to "<fullname>-otel-collector" (see rca-operator.collectorServiceName).
 */}}
 {{- define "rca-operator.otlpEndpoint" -}}
 {{- if .Values.instrumentation.otlpEndpoint -}}
 {{- .Values.instrumentation.otlpEndpoint }}
 {{- else -}}
-{{- printf "http://%s-otel-collector:4318" (include "rca-operator.fullname" .) }}
+{{- printf "http://%s:4318" (include "rca-operator.collectorServiceName" .) }}
 {{- end -}}
 {{- end }}

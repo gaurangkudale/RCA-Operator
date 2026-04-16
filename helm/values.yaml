@@ -239,7 +239,9 @@ otelCollector:
   mode: daemonset
 
   # Collector image (contrib bundle includes k8sattributes, filelog, etc.).
-  image: otel/opentelemetry-collector-contrib:latest
+  # Pin to a specific version for reproducible production deployments.
+  # Find releases: https://github.com/open-telemetry/opentelemetry-collector-releases/releases
+  image: otel/opentelemetry-collector-contrib:0.121.0
 
   # Resources for each collector pod (daemonset: per node).
   # Use case: Reserve and cap CPU/memory to prevent noisy-neighbour issues.

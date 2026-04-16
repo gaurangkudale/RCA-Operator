@@ -1,7 +1,19 @@
 {{- if and .Values.otelCollector.enabled .Values.opentelemetryOperator.enabled }}
 # OpenTelemetryCollector CR — reconciled by the OpenTelemetry Operator.
-# The operator creates the underlying DaemonSet (or Deployment/StatefulSet)
-# and wires up the collector's ServiceAccount, Pods, and Services automatically.
+#
+# ┌─ HOOK RATIONALE ──────────────────────────────────────────────────────────┐
+# │ This CR is a Helm post-install/post-upgrade hook so it is applied AFTER   │
+# │ the otel-operator Deployment is Ready and its admission webhook is        │
+# │ serving. Applying it as a regular template races with the operator         │
+# │ startup and causes "no endpoints available for service" webhook errors.   │
+# │                                                                            │
+# │ Ordering guarantee (helm upgrade --install --wait):                        │
+# │   1. Jaeger sub-chart Deployment  ──► Ready                               │
+# │   2. otel-operator Deployment     ──► Ready (webhook available)           │
+# │   3. RBAC (ServiceAccount etc.)   ──► Created                             │
+# │   4. [hook weight=10] OpenTelemetryCollector CR ──► operator reconciles   │
+# │   5. [hook weight=20] Instrumentation CR        ──► operator reconciles   │
+# └───────────────────────────────────────────────────────────────────────────┘
 #
 # Pipeline overview:
 #   logs  : filelog → k8sattributes, batch → debug
@@ -14,6 +26,15 @@ metadata:
   labels:
     {{- include "rca-operator.labels" . | nindent 4 }}
     app.kubernetes.io/component: otel-collector
+  annotations:
+    # Post-install: runs after the main chart resources are created.
+    # Post-upgrade: runs after existing resources are updated.
+    # hook-weight=10: applied before the Instrumentation CR (weight=20).
+    # before-hook-creation: previous CR is removed before re-applying so
+    #   the operator always sees a clean resource during upgrades.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
 spec:
   # Deployment mode — daemonset ensures one collector pod per node for log tailing.
   mode: {{ .Values.otelCollector.mode }}
@@ -124,7 +145,7 @@ spec:
       # OTLP exporter — forwards traces to Jaeger's OTLP gRPC endpoint.
       # Retry and queue settings make the pipeline resilient to transient Jaeger downtime.
       otlp/jaeger:
-        endpoint: {{ include "rca-operator.jaegerEndpoint" . | quote }}
+        endpoint: {{ include "rca-operator.jaegerOtlpEndpoint" . | quote }}
         tls:
           insecure: true
         retry_on_failure:

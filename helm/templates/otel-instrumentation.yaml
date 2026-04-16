@@ -1,5 +1,12 @@
 {{- if and .Values.instrumentation.enabled .Values.opentelemetryOperator.enabled }}
 # Instrumentation CR — reconciled by the OpenTelemetry Operator.
+#
+# ┌─ HOOK RATIONALE ──────────────────────────────────────────────────────────┐
+# │ Applied as a post-install/post-upgrade hook (weight=20) so it is created  │
+# │ after the otel-operator webhook is ready (guaranteed by --wait) and after │
+# │ the OpenTelemetryCollector CR (weight=10) has been submitted.             │
+# └───────────────────────────────────────────────────────────────────────────┘
+#
 # Workloads opt-in to auto-instrumentation via pod annotations, e.g.:
 #   instrumentation.opentelemetry.io/inject-python: "true"
 #   instrumentation.opentelemetry.io/inject-java:   "true"
@@ -15,6 +22,10 @@ metadata:
   labels:
     {{- include "rca-operator.labels" . | nindent 4 }}
     app.kubernetes.io/component: instrumentation
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "20"
+    "helm.sh/hook-delete-policy": before-hook-creation
 spec:
   # OTLP endpoint that instrumented pods send spans to.
   # Points at the OTel Collector DaemonSet service (HTTP, port 4318).
@@ -52,5 +63,3 @@ spec:
     {{- toYaml .Values.instrumentation.go | nindent 4 }}
   {{- end }}
 {{- end }}
-
-
