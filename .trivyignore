@@ -1,0 +1,7 @@
+# Trivy ignore file for RCA Operator
+# Add CVE IDs or rule IDs here to suppress known false-positives
+# Format: <CVE-ID> or <RULE-ID> [optional expiry date YYYY-MM-DD]
+#
+# Example:
+# CVE-2023-12345
+# DS026 exp:2025-12-31

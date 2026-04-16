@@ -1,0 +1,154 @@
+{{- if and .Values.otelCollector.enabled .Values.opentelemetryOperator.enabled }}
+# OpenTelemetryCollector CR — reconciled by the OpenTelemetry Operator.
+# The operator creates the underlying DaemonSet (or Deployment/StatefulSet)
+# and wires up the collector's ServiceAccount, Pods, and Services automatically.
+#
+# Pipeline overview:
+#   logs  : filelog → k8sattributes, batch → debug
+#   traces: otlp   → memory_limiter, k8sattributes, batch → debug, otlp/jaeger
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: {{ include "rca-operator.fullname" . }}-otel
+  namespace: {{ include "rca-operator.namespace" . }}
+  labels:
+    {{- include "rca-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+spec:
+  # Deployment mode — daemonset ensures one collector pod per node for log tailing.
+  mode: {{ .Values.otelCollector.mode }}
+
+  # Collector image (contrib build includes k8sattributes, filelog, and more).
+  image: {{ .Values.otelCollector.image }}
+
+  # Use the pre-created SA that has ClusterRole bindings for k8sattributes.
+  serviceAccount: {{ include "rca-operator.otelCollectorName" . }}
+
+  resources:
+    {{- toYaml .Values.otelCollector.resources | nindent 4 }}
+
+  # Expose OTLP gRPC and HTTP ports so instrumented workloads can send spans.
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
+
+  {{- if .Values.otelCollector.filelog.enabled }}
+  # Mount the host log directory so the filelog receiver can tail pod logs.
+  volumes:
+    - name: varlogpods
+      hostPath:
+        path: /var/log/pods
+  volumeMounts:
+    - name: varlogpods
+      mountPath: /var/log/pods
+      readOnly: true
+  {{- end }}
+
+  # ── Collector pipeline config ──────────────────────────────────────────────
+  config:
+    receivers:
+      # OTLP receiver — accepts traces (and optionally metrics) from workloads.
+      otlp:
+        protocols:
+          grpc: {}
+          http: {}
+
+      {{- if .Values.otelCollector.filelog.enabled }}
+      # Filelog receiver — tails log files written by the container runtime.
+      # The `container` operator parses CRI log format and enriches with
+      # pod/container metadata extracted from the file path.
+      filelog:
+        include:
+          - /var/log/pods/*/*/*.log
+          - /var/log/containers/*.log
+        exclude:
+          - /var/log/pods/*/kube-system_*/*.log
+          - /var/log/pods/*/otc-container/*.log
+        start_at: beginning
+        include_file_path: true
+        include_file_name: true
+        poll_interval: 500ms
+        operators:
+          - type: container
+            add_metadata_from_filepath: true
+      {{- end }}
+
+    processors:
+      # k8sattributes — enriches every span/log with Kubernetes resource metadata
+      # (pod name, uid, deployment name, namespace, node name, start time).
+      k8sattributes:
+        auth_type: serviceAccount
+        passthrough: false
+        extract:
+          metadata:
+            - k8s.pod.name
+            - k8s.pod.uid
+            - k8s.deployment.name
+            - k8s.namespace.name
+            - k8s.node.name
+            - k8s.pod.start_time
+        pod_association:
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.ip
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.uid
+          - sources:
+              - from: connection
+
+      # Batch processor — buffers telemetry to reduce export round-trips.
+      batch:
+        send_batch_size: {{ .Values.otelCollector.batch.sendBatchSize }}
+        send_batch_max_size: {{ .Values.otelCollector.batch.sendBatchMaxSize }}
+        timeout: {{ .Values.otelCollector.batch.timeout }}
+
+      # Memory limiter — sheds load when the collector pod approaches its memory limit.
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: {{ .Values.otelCollector.memoryLimiter.limitPercentage }}
+        spike_limit_percentage: {{ .Values.otelCollector.memoryLimiter.spikeLimitPercentage }}
+
+    exporters:
+      # Debug exporter — writes telemetry to the collector's own stdout.
+      # Useful for troubleshooting; set verbosity to "basic" in production.
+      debug:
+        verbosity: {{ .Values.otelCollector.debugVerbosity }}
+
+      # OTLP exporter — forwards traces to Jaeger's OTLP gRPC endpoint.
+      # Retry and queue settings make the pipeline resilient to transient Jaeger downtime.
+      otlp/jaeger:
+        endpoint: {{ include "rca-operator.jaegerEndpoint" . | quote }}
+        tls:
+          insecure: true
+        retry_on_failure:
+          enabled: {{ .Values.otelCollector.exporterRetry.enabled }}
+          initial_interval: {{ .Values.otelCollector.exporterRetry.initialInterval }}
+          max_interval: {{ .Values.otelCollector.exporterRetry.maxInterval }}
+          max_elapsed_time: {{ .Values.otelCollector.exporterRetry.maxElapsedTime }}
+        sending_queue:
+          enabled: {{ .Values.otelCollector.exporterQueue.enabled }}
+          num_consumers: {{ .Values.otelCollector.exporterQueue.numConsumers }}
+          queue_size: {{ .Values.otelCollector.exporterQueue.queueSize }}
+
+    service:
+      pipelines:
+        {{- if .Values.otelCollector.filelog.enabled }}
+        # Logs pipeline: tail files → enrich with k8s metadata → export to stdout.
+        logs:
+          receivers: [filelog]
+          processors: [k8sattributes, batch]
+          exporters: [debug]
+        {{- end }}
+        # Traces pipeline: receive OTLP → guard memory → enrich → forward to Jaeger.
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, k8sattributes, batch]
+          exporters: [debug, otlp/jaeger]
+{{- end }}

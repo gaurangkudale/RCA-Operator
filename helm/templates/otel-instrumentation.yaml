@@ -1,0 +1,56 @@
+{{- if and .Values.instrumentation.enabled .Values.opentelemetryOperator.enabled }}
+# Instrumentation CR — reconciled by the OpenTelemetry Operator.
+# Workloads opt-in to auto-instrumentation via pod annotations, e.g.:
+#   instrumentation.opentelemetry.io/inject-python: "true"
+#   instrumentation.opentelemetry.io/inject-java:   "true"
+#   instrumentation.opentelemetry.io/inject-nodejs: "true"
+#
+# The operator injects an init-container that installs the SDK and sets
+# OTEL_* env vars so the app sends traces to the collector without code changes.
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: {{ include "rca-operator.fullname" . }}-instrumentation
+  namespace: {{ include "rca-operator.namespace" . }}
+  labels:
+    {{- include "rca-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: instrumentation
+spec:
+  # OTLP endpoint that instrumented pods send spans to.
+  # Points at the OTel Collector DaemonSet service (HTTP, port 4318).
+  exporter:
+    endpoint: {{ include "rca-operator.otlpEndpoint" . | quote }}
+
+  # Context propagators ensure trace IDs flow across HTTP/gRPC hops.
+  propagators:
+    {{- toYaml .Values.instrumentation.propagators | nindent 4 }}
+
+  # Sampler controls what fraction of requests generate a trace.
+  sampler:
+    type: {{ .Values.instrumentation.sampler.type }}
+    argument: {{ .Values.instrumentation.sampler.argument | quote }}
+
+  # Per-language SDK overrides (empty = operator defaults).
+  {{- if .Values.instrumentation.python }}
+  python:
+    {{- toYaml .Values.instrumentation.python | nindent 4 }}
+  {{- end }}
+  {{- if .Values.instrumentation.java }}
+  java:
+    {{- toYaml .Values.instrumentation.java | nindent 4 }}
+  {{- end }}
+  {{- if .Values.instrumentation.nodejs }}
+  nodejs:
+    {{- toYaml .Values.instrumentation.nodejs | nindent 4 }}
+  {{- end }}
+  {{- if .Values.instrumentation.dotnet }}
+  dotnet:
+    {{- toYaml .Values.instrumentation.dotnet | nindent 4 }}
+  {{- end }}
+  {{- if .Values.instrumentation.go }}
+  go:
+    {{- toYaml .Values.instrumentation.go | nindent 4 }}
+  {{- end }}
+{{- end }}
+
+

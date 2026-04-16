@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+env:
+  HELM_VERSION: "v3.17.3"
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -21,7 +24,7 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
-          version: v4.0.4
+          version: ${{ env.HELM_VERSION }}
 
       - name: Get chart version
         id: chart_version
@@ -30,9 +33,38 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Chart version: $VERSION"
 
+      - name: Add Helm repositories
+        run: |
+          helm repo add opentelemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+          helm repo add jaegertracing https://jaegertracing.github.io/helm-charts
+          helm repo update
+          echo "✓ Helm repositories added and updated"
+
+      - name: Update Helm dependencies
+        run: |
+          helm dep update helm/
+          echo "✓ Helm dependencies resolved"
+          echo "--- Dependency list ---"
+          helm dep list helm/
+
+      - name: Lint before packaging
+        run: |
+          helm lint helm/ --strict
+          echo "✓ Pre-package lint passed"
+
       - name: Package Helm chart
         run: |
           helm package helm/ -d .
+          echo "✓ Helm chart packaged"
+          ls -lh rca-operator-*.tgz
+
+      - name: Verify package contents
+        run: |
+          PACKAGE=$(ls rca-operator-*.tgz)
+          helm show chart "$PACKAGE"
+          echo "--- Packaged sub-charts ---"
+          tar -tzf "$PACKAGE" | grep "charts/" | head -20
+          echo "✓ Package verification passed"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -41,7 +73,13 @@ jobs:
           name: Helm Chart v${{ steps.chart_version.outputs.version }}
           make_latest: false
           body: |
-            ## Helm Chart Release
+            ## Helm Chart Release v${{ steps.chart_version.outputs.version }}
+
+            ### Included Sub-Charts
+            | Chart | Version |
+            |-------|---------|
+            | opentelemetry-operator | 0.148.0 |
+            | jaeger | 2.17.0 |
 
             ### Install via Helm repository (recommended)
             ```bash
@@ -56,6 +94,16 @@ jobs:
             helm install rca-operator \
               https://github.com/${{ github.repository }}/releases/download/helm-v${{ steps.chart_version.outputs.version }}/rca-operator-${{ steps.chart_version.outputs.version }}.tgz \
               --namespace rca-system --create-namespace
+            ```
+
+            ### Install with observability stack disabled
+            ```bash
+            helm install rca-operator rca-operator/rca-operator \
+              --namespace rca-system --create-namespace \
+              --set opentelemetryOperator.enabled=false \
+              --set jaeger.enabled=false \
+              --set otelCollector.enabled=false \
+              --set instrumentation.enabled=false
             ```
           files: |
             rca-operator-*.tgz

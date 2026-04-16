@@ -2,8 +2,8 @@ apiVersion: v2
 name: rca-operator
 description: A Kubernetes-native incident detection operator with durable incident state and a built-in dashboard
 type: application
-version: 0.0.15
-appVersion: "0.0.15"
+version: 0.0.16
+appVersion: "0.0.16"
 keywords:
   - kubernetes
   - operator
@@ -11,6 +11,9 @@ keywords:
   - rca
   - root-cause-analysis
   - incident-management
+  - opentelemetry
+  - tracing
+  - jaeger
 home: https://github.com/gaurangkudale/RCA-Operator
 sources:
   - https://github.com/gaurangkudale/RCA-Operator
@@ -19,3 +22,17 @@ maintainers:
     url: https://github.com/gaurangkudale
 icon: https://raw.githubusercontent.com/gaurangkudale/RCA-Operator/main-gk/docs/images/logo.png
 kubeVersion: ">=1.26.0-0"
+dependencies:
+  # OpenTelemetry Operator manages OpenTelemetryCollector and Instrumentation CRDs/CRs.
+  # Uses auto-generated TLS certs (no cert-manager required).
+  - name: opentelemetry-operator
+    version: "0.109.2"
+    repository: "https://open-telemetry.github.io/opentelemetry-helm-charts"
+    alias: opentelemetryOperator
+    condition: opentelemetryOperator.enabled
+  # Jaeger v2 all-in-one for distributed trace storage and UI.
+  # The OTel collector forwards traces to Jaeger via OTLP gRPC.
+  - name: jaeger
+    version: "4.7.0"
+    repository: "https://jaegertracing.github.io/helm-charts"
+    condition: jaeger.enabled

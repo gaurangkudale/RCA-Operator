@@ -1,0 +1,71 @@
+{{- if and .Values.otelCollector.enabled .Values.opentelemetryOperator.enabled }}
+# ServiceAccount used by the OTel Collector DaemonSet pods.
+# The OpenTelemetryCollector CR references this SA so that the collector can
+# call the Kubernetes API (k8sattributes processor needs pod/node metadata).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "rca-operator.otelCollectorName" . }}
+  namespace: {{ include "rca-operator.namespace" . }}
+  labels:
+    {{- include "rca-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+---
+# ClusterRole grants the collector the read-only Kubernetes API access required by:
+#   - k8sattributes processor: resolve pod/node/namespace metadata for every span/log
+#   - replicaset lookup: map pod → deployment name
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "rca-operator.otelCollectorName" . }}
+  labels:
+    {{- include "rca-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+rules:
+  # k8sattributes: resolve pod/node/namespace attributes
+  - apiGroups: [""]
+    resources:
+      - pods
+      - nodes
+      - namespaces
+    verbs:
+      - get
+      - list
+      - watch
+  # k8sattributes: resolve service endpoints
+  - apiGroups: [""]
+    resources:
+      - endpoints
+    verbs:
+      - get
+      - list
+      - watch
+  # k8sattributes: map pod to owning replicaset/deployment/statefulset/daemonset
+  - apiGroups: ["apps"]
+    resources:
+      - replicasets
+      - deployments
+      - statefulsets
+      - daemonsets
+    verbs:
+      - get
+      - list
+      - watch
+---
+# ClusterRoleBinding wires the ClusterRole to the collector ServiceAccount.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "rca-operator.otelCollectorName" . }}
+  labels:
+    {{- include "rca-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "rca-operator.otelCollectorName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "rca-operator.otelCollectorName" . }}
+    namespace: {{ include "rca-operator.namespace" . }}
+{{- end }}
