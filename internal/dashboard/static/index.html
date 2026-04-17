@@ -867,7 +867,9 @@ select { font-family: inherit; }
       findRes(i,'DaemonSet')||findRes(i,'Job')||findRes(i,'CronJob')||
       findRes(i,'ReplicaSet')||findRes(i,'Pod');
   }
-  function dname(i){var r=primaryRef(i);return(r&&r.name)||i.podName||i.name}
+  function isHiddenUIName(v){return /otelingest/i.test(String(v||''))}
+  function uiName(v){var s=String(v||'');return isHiddenUIName(s)?'telemetry-agent':s}
+  function dname(i){var r=primaryRef(i);return uiName((r&&r.name)||i.podName||i.name)}
   function pad(n){return n<10?'0'+n:''+n}
 
   function copyToClip(text,btn){
@@ -1007,13 +1009,16 @@ select { font-family: inherit; }
 
   function renderAgents(){
     var el=document.getElementById('sb-agents');
-    var agents=stats.agents||[];
+    var agents=(stats.agents||[]).filter(function(a){
+      var name=typeof a==='string'?a:a.name;
+      return !isHiddenUIName(name);
+    });
     if(!agents.length){el.innerHTML='<div style="padding:8px;font-size:11px;color:var(--text-tertiary)">No agents</div>';return}
     el.innerHTML=agents.map(function(a){
-      var name=typeof a==='string'?a:a.name;
+      var name=uiName(typeof a==='string'?a:a.name);
       var healthy=typeof a==='string'?true:a.healthy!==false;
       var dot=healthy?pulseDot('var(--green)',5):'<span style="width:5px;height:5px;border-radius:50%;background:var(--red);display:inline-block"></span>';
-      var ns=typeof a!=='string'&&a.watchNamespaces?a.watchNamespaces:[];
+      var ns=typeof a!=='string'&&a.watchNamespaces?a.watchNamespaces.map(uiName):[];
       return '<div class="agent-item">'+dot+'<span class="name">'+esc(name)+'</span>'+
         '<span class="label">'+(healthy?'OK':'ERR')+'</span></div>'+
         (ns.length?'<div class="agent-sub">watching: '+ns.map(esc).join(', ')+'</div>':'');
@@ -1188,7 +1193,7 @@ select { font-family: inherit; }
     p+='<span class="phase phase-'+esc(selected.phase||'Resolved')+'">'+esc(selected.phase||'Resolved')+'</span>';
     p+='<span class="tag tag-default">'+esc(selected.incidentType||'')+'</span></div>';
     p+='<div class="detail-title">Incident Topology</div>';
-    p+='<div class="detail-subtitle"><span class="val">'+esc(selected.namespace)+'</span><span class="sep">\u00b7</span><span class="val">'+esc(selected.name)+'</span><span class="sep">\u00b7</span><span class="val">'+traces+' trace id'+(traces===1?'':'s')+'</span></div>';
+    p+='<div class="detail-subtitle"><span class="val">'+esc(selected.namespace)+'</span><span class="sep">\u00b7</span><span class="val">'+esc(uiName(selected.name))+'</span><span class="sep">\u00b7</span><span class="val">'+traces+' trace id'+(traces===1?'':'s')+'</span></div>';
     p+='</div>';
     p+='<div class="detail-body">';
     p+='<div><div class="section-title">Service Graph</div>';
@@ -1222,7 +1227,7 @@ select { font-family: inherit; }
     h+='</div>';
     h+='<div class="detail-title">'+esc(name)+'</div>';
     h+='<div class="detail-subtitle"><span class="val">'+esc(inc.namespace)+'</span><span class="sep">\u00b7</span>';
-    h+='<span class="val">'+esc(inc.agentRef)+'</span><span class="sep">\u00b7</span>';
+    h+='<span class="val">'+esc(uiName(inc.agentRef))+'</span><span class="sep">\u00b7</span>';
     h+='<span>started </span><span class="val">'+absTime(startTime(inc))+'</span>';
     if(resolvedTime(inc))h+=' \u2192 <span style="color:var(--green)">'+absTime(resolvedTime(inc))+'</span>';
     h+='</div>';
@@ -1510,15 +1515,18 @@ select { font-family: inherit; }
     var el=document.getElementById('list-pane');
     document.getElementById('detail-panel').style.display='none';
     el.className='list-pane full';
-    var agents=stats.agents||[];
+    var agents=(stats.agents||[]).filter(function(a){
+      var name=typeof a==='string'?a:a.name;
+      return !isHiddenUIName(name);
+    });
     if(!agents.length){
       el.innerHTML='<div class="empty-state"><div class="empty-state-title">No RCAAgent resources found</div></div>';return;
     }
     var h='<div class="list-header"><span style="width:20px"></span><span style="flex:1">Name</span>'+
       '<span style="min-width:200px">Watch Namespaces</span><span style="min-width:80px">Status</span></div>';
     agents.forEach(function(a){
-      var name=typeof a==='string'?a:a.name;var healthy=typeof a==='string'?true:a.healthy!==false;
-      var ns=(typeof a!=='string'&&a.watchNamespaces)?a.watchNamespaces:[];
+      var name=uiName(typeof a==='string'?a:a.name);var healthy=typeof a==='string'?true:a.healthy!==false;
+      var ns=(typeof a!=='string'&&a.watchNamespaces)?a.watchNamespaces.map(uiName):[];
       h+='<div class="data-row"><span style="width:20px"><span style="width:8px;height:8px;border-radius:50%;background:'+(healthy?'var(--green)':'var(--red)')+';display:inline-block"></span></span>';
       h+='<div style="flex:1;font-size:13px;font-weight:500">'+esc(name)+'</div>';
       h+='<span style="font-size:12px;color:var(--text-secondary);min-width:200px">'+ns.map(esc).join(', ')+'</span>';
