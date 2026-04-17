@@ -9,6 +9,8 @@
 <link rel="apple-touch-icon" sizes="192x192" href="/images/favicon-192x192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/vis-network@9.1.9/styles/vis-network.min.css">
+<script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js" defer></script>
 <style>
 /* ── Theme Variables ─────────────────────────────── */
 :root {
@@ -939,6 +941,12 @@ select { font-family: inherit; }
       h+='</div>';
     }
 
+    /* Incident Topology (Phase 2 Milestone D) */
+    h+='<div><div class="section-title">Incident Topology</div>';
+    h+='<div id="graph-canvas" style="height:360px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--bg-raised)"></div>';
+    h+='<div id="graph-status" style="font-size:12px;color:var(--text-tertiary);margin-top:6px">Loading topology…</div>';
+    h+='</div>';
+
     /* Evidence */
     h+='<div><div class="section-title">Evidence Summary</div>';
     h+='<div class="evidence-card"><div class="evidence-label"><span class="evidence-dot"></span>';
@@ -967,6 +975,70 @@ select { font-family: inherit; }
 
     h+='</div>';
     p.innerHTML=h;
+    loadIncidentGraph(inc.namespace,inc.name);
+  }
+
+  /* ── Incident Topology (Phase 2 Milestone D) ─── */
+  var _graphNet=null;
+  function loadIncidentGraph(ns,name){
+    var status=document.getElementById('graph-status');
+    var canvas=document.getElementById('graph-canvas');
+    if(!status||!canvas)return;
+    if(_graphNet){try{_graphNet.destroy()}catch(e){}_graphNet=null}
+    fetch('/api/incidents/'+encodeURIComponent(ns)+'/'+encodeURIComponent(name)+'/graph',{headers:{'Accept':'application/json'}})
+      .then(function(r){
+        if(r.status===204)return null;
+        if(!r.ok)throw new Error('http '+r.status);
+        return r.json();
+      })
+      .then(function(g){
+        if(!g||!g.nodes||!g.nodes.length){
+          status.textContent='No topology graph available for this incident yet.';
+          canvas.innerHTML='';
+          return;
+        }
+        renderIncidentGraph(canvas,g);
+        var truncNote=g.truncated?' \u00b7 truncated to fit size budget':'';
+        status.textContent=g.nodes.length+' nodes \u00b7 '+(g.edges?g.edges.length:0)+' edges'+truncNote;
+      })
+      .catch(function(err){
+        status.textContent='Unable to load topology: '+(err&&err.message?err.message:'unknown error');
+      });
+  }
+
+  function renderIncidentGraph(canvas,g){
+    if(typeof vis==='undefined'||!vis.Network){
+      canvas.innerHTML='<div style="padding:12px;font-size:12px;color:var(--text-tertiary)">vis-network failed to load (CDN blocked?). Topology unavailable.</div>';
+      return;
+    }
+    var KIND_COLOR={Pod:'#4dabf7',Deployment:'#63e6be',Node:'#ffa94d',Service:'#b197fc',Span:'#ffd43b',Incident:'#ff6b6b'};
+    var nodes=(g.nodes||[]).map(function(n){
+      return{
+        id:n.id,
+        label:(n.name||n.id),
+        title:(n.kind||'')+(n.namespace?' \u00b7 '+n.namespace:'')+(n.service?' \u00b7 '+n.service:''),
+        shape:n.kind==='Incident'?'star':(n.kind==='Span'?'diamond':'dot'),
+        size:n.kind==='Incident'?22:14,
+        color:{background:KIND_COLOR[n.kind]||'#868e96',border:'#212529'},
+        font:{color:'#dee2e6',size:12}
+      };
+    });
+    var edges=(g.edges||[]).map(function(e,i){
+      return{
+        id:'e'+i,
+        from:e.from,
+        to:e.to,
+        label:e.kind||'',
+        arrows:'to',
+        font:{color:'#909296',size:10,align:'middle'},
+        color:{color:'#495057',highlight:'#adb5bd'}
+      };
+    });
+    _graphNet=new vis.Network(canvas,{nodes:nodes,edges:edges},{
+      physics:{stabilization:{iterations:150},barnesHut:{gravitationalConstant:-3500,springLength:120}},
+      interaction:{hover:true,tooltipDelay:100},
+      edges:{smooth:{type:'dynamic'}}
+    });
   }
 
   /* ── Tab content renderers ─────────────────── */

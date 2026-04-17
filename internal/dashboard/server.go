@@ -371,11 +371,13 @@ func (s *Server) handleIncidentDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract incident name from path: /api/incidents/{namespace}/{name}
+	// Supported shapes:
+	//   /api/incidents/{namespace}/{name}        → detail JSON
+	//   /api/incidents/{namespace}/{name}/graph  → raw IncidentGraph JSON
 	path := strings.TrimPrefix(r.URL.Path, "/api/incidents/")
-	parts := strings.SplitN(path, "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		http.Error(w, "path must be /api/incidents/{namespace}/{name}", http.StatusBadRequest)
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		http.Error(w, "path must be /api/incidents/{namespace}/{name}[/graph]", http.StatusBadRequest)
 		return
 	}
 	namespace, name := parts[0], parts[1]
@@ -384,6 +386,15 @@ func (s *Server) handleIncidentDetail(w http.ResponseWriter, r *http.Request) {
 	if err := s.client.Get(r.Context(), client.ObjectKey{Namespace: namespace, Name: name}, item); err != nil {
 		s.log.Error(err, "Failed to get IncidentReport", "namespace", namespace, "name", name)
 		http.Error(w, "incident not found", http.StatusNotFound)
+		return
+	}
+
+	if len(parts) >= 3 && parts[2] == "graph" {
+		s.writeIncidentGraph(w, item)
+		return
+	}
+	if len(parts) > 2 {
+		http.Error(w, "unknown sub-resource; expected /graph", http.StatusNotFound)
 		return
 	}
 
@@ -397,6 +408,22 @@ func (s *Server) handleIncidentDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, detail)
+}
+
+// writeIncidentGraph streams the opaque IncidentGraph payload stored on
+// status.incidentGraph. Returns 204 when the graph has not been built or was
+// pruned by the retention subsystem so the UI can render an empty-state
+// message without treating this as an error.
+func (s *Server) writeIncidentGraph(w http.ResponseWriter, item *rcav1alpha1.IncidentReport) {
+	raw := item.Status.IncidentGraph
+	if raw == nil || len(raw.Raw) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if _, err := w.Write(raw.Raw); err != nil {
+		s.log.V(1).Info("failed to write incident graph", "error", err.Error())
+	}
 }
 
 func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {

@@ -42,8 +42,10 @@ import (
 	"github.com/gaurangkudale/rca-operator/internal/autodetect"
 	"github.com/gaurangkudale/rca-operator/internal/collectors"
 	"github.com/gaurangkudale/rca-operator/internal/controller"
+	"github.com/gaurangkudale/rca-operator/internal/correlator/graph"
 	"github.com/gaurangkudale/rca-operator/internal/dashboard"
 	"github.com/gaurangkudale/rca-operator/internal/engine"
+	"github.com/gaurangkudale/rca-operator/internal/jaeger"
 	"github.com/gaurangkudale/rca-operator/internal/notify"
 	rcaotel "github.com/gaurangkudale/rca-operator/internal/otel"
 	"github.com/gaurangkudale/rca-operator/internal/otelingest"
@@ -133,6 +135,14 @@ func main() {
 		"Emit OTelSpanLatencySpike signals when span duration exceeds this threshold in milliseconds (0 disables).")
 	flag.StringVar(&otelIngestMinLogSeverity, "otel-ingest-filter-min-log-severity", "WARN",
 		"Minimum OTel log severity to ingest (TRACE|DEBUG|INFO|WARN|ERROR|FATAL).")
+
+	// Jaeger Query URL (Phase 2 Milestone D). When set, the incident graph
+	// builder enriches topology with service-to-service edges resolved from
+	// trace-ids captured on OTel signals. Empty disables trace enrichment;
+	// the builder falls back to the signal-only graph.
+	var jaegerQueryURL string
+	flag.StringVar(&jaegerQueryURL, "jaeger-query-url", "",
+		"Base URL of the Jaeger Query API (e.g. http://jaeger-query:16686). Empty disables trace enrichment.")
 
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
@@ -356,11 +366,30 @@ func main() {
 		setupLog.Error(err, "Failed to create controller", "controller", "RCAAgent")
 		os.Exit(1)
 	}
+	// --- Incident Graph Builder (Phase 2 Milestone D) ---
+	// The graph builder stitches K8s resources from the IncidentReport together
+	// with OTel signals recorded in the correlator buffer and (optionally)
+	// service-to-service spans fetched from Jaeger. A nil buffer or client is
+	// tolerated — the builder degrades gracefully to a signal-only or empty
+	// graph rather than blocking the Active transition.
+	var graphBuilder controller.IncidentGraphBuilder
+	if crdFactory.Engine != nil {
+		var jaegerClient *jaeger.Client
+		if jaegerQueryURL != "" {
+			jaegerClient = jaeger.New(jaegerQueryURL)
+			setupLog.Info("Jaeger query enrichment enabled", "url", jaegerQueryURL)
+		} else {
+			setupLog.Info("Jaeger query enrichment disabled (pass --jaeger-query-url to enable)")
+		}
+		graphBuilder = graph.NewBuilder(crdFactory.Engine.Buffer(), jaegerClient, ctrl.Log)
+	}
+
 	if err := (&controller.IncidentReportReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorder("incidentreport-controller"),
-		Notifier: notify.NewDispatcher(mgr.GetClient(), ctrl.Log),
+		Client:       mgr.GetClient(),
+		Scheme:       mgr.GetScheme(),
+		Recorder:     mgr.GetEventRecorder("incidentreport-controller"),
+		Notifier:     notify.NewDispatcher(mgr.GetClient(), ctrl.Log),
+		GraphBuilder: graphBuilder,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "IncidentReport")
 		os.Exit(1)

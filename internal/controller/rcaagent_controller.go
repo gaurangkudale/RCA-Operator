@@ -224,6 +224,10 @@ func (r *RCAAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
+	if err := r.pruneStaleIncidentGraphs(ctx, agent); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	// ── 5. UPDATE STATUS — AVAILABLE ─────────────────────────────────────────
 	if err := r.setCondition(ctx, agent, ConditionTypeAvailable, metav1.ConditionTrue,
 		"AgentReady",
@@ -679,6 +683,88 @@ func (r *RCAAgentReconciler) cleanupResolvedIncidents(ctx context.Context, agent
 	}
 
 	return nil
+}
+
+// pruneStaleIncidentGraphs drops the opaque status.incidentGraph payload after
+// incidentRetention/4 has elapsed since the incident was first observed. The
+// topology panel is primarily useful while an incident is fresh — holding the
+// graph bytes past that point just bloats etcd for no UI benefit. The incident
+// record itself, including timeline and signals, is kept until full retention.
+func (r *RCAAgentReconciler) pruneStaleIncidentGraphs(ctx context.Context, agent *rcav1alpha1.RCAAgent) error {
+	retentionDuration, err := retention.ParseIncidentRetention(agent.Spec.IncidentRetention, agent.Spec.IncidentRetentionDays)
+	if err != nil {
+		return fmt.Errorf("invalid incident retention for RCAAgent %s/%s: %w", agent.Namespace, agent.Name, err)
+	}
+
+	// Fractional cutoff: incidents older than retention/4 lose their graph.
+	// Guard against pathological tiny durations so the test clock does not
+	// immediately evict graphs that were just written.
+	graphTTL := retentionDuration / 4
+	if graphTTL <= 0 {
+		return nil
+	}
+
+	namespaces, err := r.retentionNamespaces(ctx, agent)
+	if err != nil {
+		return err
+	}
+
+	now := r.now()
+	prunedCount := 0
+	for _, namespace := range namespaces {
+		list := &rcav1alpha1.IncidentReportList{}
+		if err := r.List(ctx, list, client.InNamespace(namespace)); err != nil {
+			return fmt.Errorf("failed to list IncidentReports in namespace %q for graph pruning: %w", namespace, err)
+		}
+
+		for i := range list.Items {
+			report := &list.Items[i]
+			if !belongsToAgent(report, agent.Name) {
+				continue
+			}
+			if report.Status.IncidentGraph == nil {
+				continue
+			}
+			anchor := incidentGraphAnchor(report)
+			if anchor.IsZero() {
+				continue
+			}
+			if now.Sub(anchor) <= graphTTL {
+				continue
+			}
+
+			base := report.DeepCopy()
+			report.Status.IncidentGraph = nil
+			if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
+				if errors.IsNotFound(err) {
+					continue
+				}
+				return fmt.Errorf("failed to prune incidentGraph on IncidentReport %s/%s: %w", report.Namespace, report.Name, err)
+			}
+			prunedCount++
+		}
+	}
+
+	if prunedCount > 0 {
+		logf.FromContext(ctx).Info("Pruned stale incident graphs past retention/4",
+			"agent", agent.Name,
+			"prunedCount", prunedCount,
+			"graphTTL", graphTTL.String(),
+		)
+	}
+	return nil
+}
+
+// incidentGraphAnchor picks the best wall-clock anchor for measuring graph age.
+// Preference order: FirstObservedAt → ActiveAt → CreationTimestamp.
+func incidentGraphAnchor(report *rcav1alpha1.IncidentReport) time.Time {
+	if report.Status.FirstObservedAt != nil && !report.Status.FirstObservedAt.IsZero() {
+		return report.Status.FirstObservedAt.Time
+	}
+	if report.Status.ActiveAt != nil && !report.Status.ActiveAt.IsZero() {
+		return report.Status.ActiveAt.Time
+	}
+	return report.CreationTimestamp.Time
 }
 
 func (r *RCAAgentReconciler) retentionNamespaces(ctx context.Context, agent *rcav1alpha1.RCAAgent) ([]string, error) {

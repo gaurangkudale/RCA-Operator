@@ -18,16 +18,23 @@ type Entry struct {
 
 // Buffer is a sliding-window event store. Events older than the configured
 // window are discarded on each write. It is safe for concurrent use.
+//
+// In addition to the primary chronological entries slice, Buffer maintains a
+// secondary byTrace index that maps each OTel trace-id to the list of entries
+// it has seen so SnapshotByTrace can return a per-trace slice in O(k) rather
+// than scanning the full window. The byTrace index is rebuilt on every purge
+// so it stays consistent with entries without requiring deletion bookkeeping.
 type Buffer struct {
 	mu      sync.Mutex
 	entries []Entry
+	byTrace map[string][]Entry
 	window  time.Duration
 	nowFn   func() time.Time // injectable for tests
 }
 
 // NewBuffer returns a Buffer with the given time window.
 func NewBuffer(window time.Duration) *Buffer {
-	return &Buffer{window: window, nowFn: time.Now}
+	return &Buffer{window: window, nowFn: time.Now, byTrace: make(map[string][]Entry)}
 }
 
 // Add appends event e to the buffer, pruning entries that have fallen outside
@@ -37,10 +44,15 @@ func (b *Buffer) Add(e watcher.CorrelatorEvent) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.purgeOld(now)
-	b.entries = append(b.entries, Entry{Event: e, AddedAt: now})
+	entry := Entry{Event: e, AddedAt: now}
+	b.entries = append(b.entries, entry)
+	if traceID := extractTraceID(e); traceID != "" {
+		b.byTrace[traceID] = append(b.byTrace[traceID], entry)
+	}
 }
 
-// purgeOld removes entries whose addedAt timestamp is before now-window.
+// purgeOld removes entries whose addedAt timestamp is before now-window, and
+// rebuilds the byTrace index from the remaining entries.
 // Must be called with b.mu held.
 func (b *Buffer) purgeOld(now time.Time) {
 	cutoff := now.Add(-b.window)
@@ -48,7 +60,18 @@ func (b *Buffer) purgeOld(now time.Time) {
 	for i < len(b.entries) && b.entries[i].AddedAt.Before(cutoff) {
 		i++
 	}
+	if i == 0 {
+		return
+	}
 	b.entries = b.entries[i:]
+	// Rebuild the byTrace index from the surviving entries. This is cheaper
+	// than per-entry deletion bookkeeping and keeps the index consistent.
+	b.byTrace = make(map[string][]Entry, len(b.byTrace))
+	for _, entry := range b.entries {
+		if traceID := extractTraceID(entry.Event); traceID != "" {
+			b.byTrace[traceID] = append(b.byTrace[traceID], entry)
+		}
+	}
 }
 
 // Snapshot returns a copy of the current entries after purging stale ones.
@@ -60,6 +83,45 @@ func (b *Buffer) Snapshot() []Entry {
 	out := make([]Entry, len(b.entries))
 	copy(out, b.entries)
 	return out
+}
+
+// SnapshotByTrace returns a copy of the entries in the window whose event
+// carries the given trace-id. Returns an empty slice when traceID is empty
+// or unknown. Like Snapshot, stale entries are purged before the read.
+func (b *Buffer) SnapshotByTrace(traceID string) []Entry {
+	if traceID == "" {
+		return nil
+	}
+	now := b.nowFn()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.purgeOld(now)
+	src := b.byTrace[traceID]
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]Entry, len(src))
+	copy(out, src)
+	return out
+}
+
+// extractTraceID pulls the W3C trace-id carried by OTel-sourced events. It
+// returns an empty string for K8s-sourced events that have no trace context.
+// Kept as a package-private helper so the buffer stays decoupled from the
+// signals package's public API.
+func extractTraceID(e watcher.CorrelatorEvent) string {
+	switch ev := e.(type) {
+	case watcher.OTelSpanErrorEvent:
+		return ev.TraceID
+	case watcher.OTelSpanLatencySpikeEvent:
+		return ev.TraceID
+	case watcher.OTelLogMatchEvent:
+		return ev.TraceID
+	case watcher.OTelSpanEventEvent:
+		return ev.TraceID
+	default:
+		return ""
+	}
 }
 
 // CorrelationResult is returned by Correlator.Evaluate. When Fired is true the
@@ -131,6 +193,13 @@ func NewCorrelator(window time.Duration, opts ...CorrelatorOption) *Correlator {
 		opt(c)
 	}
 	return c
+}
+
+// Buffer exposes the underlying sliding-window buffer so external subsystems
+// (notably the incident graph builder) can snapshot events for a trace without
+// needing to share the Correlator's private state.
+func (c *Correlator) Buffer() *Buffer {
+	return c.buf
 }
 
 // Add records event e in the buffer so future calls to Evaluate can correlate

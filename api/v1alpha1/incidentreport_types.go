@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -214,6 +215,16 @@ type IncidentReportStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// incidentGraph is the serialized incident topology graph — nodes for
+	// the affected Kubernetes resources + services observed via OTel spans,
+	// and edges for ownership, scheduling, and service-to-service calls. It
+	// is written by the controller on transition to Active and pruned by the
+	// retention subsystem after incidentRetention/4 to keep etcd footprint
+	// bounded. Clients should treat the payload as opaque JSON; the
+	// schema is defined by internal/correlator/graph.IncidentGraph.
+	// +optional
+	IncidentGraph *runtime.RawExtension `json:"incidentGraph,omitempty"`
 }
 
 // +kubebuilder:object:root=true

@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -34,9 +35,18 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
+	"github.com/gaurangkudale/rca-operator/internal/correlator/graph"
 	"github.com/gaurangkudale/rca-operator/internal/incidentstatus"
 	"github.com/gaurangkudale/rca-operator/internal/notify"
 )
+
+// IncidentGraphBuilder is the minimum interface the reconciler needs to build
+// the incident topology graph on transition to Active. It is satisfied by
+// *graph.Builder; declared as an interface so tests can inject fakes and so
+// the dependency is optional (a nil builder skips graph construction).
+type IncidentGraphBuilder interface {
+	Build(ctx context.Context, incident *rcav1alpha1.IncidentReport) (*graph.IncidentGraph, error)
+}
 
 const (
 	stabilizationDelay          = 5 * time.Minute
@@ -52,10 +62,11 @@ const (
 
 type IncidentReportReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	Recorder events.EventRecorder
-	Notifier *notify.Dispatcher
-	nowFn    func() time.Time
+	Scheme       *runtime.Scheme
+	Recorder     events.EventRecorder
+	Notifier     *notify.Dispatcher
+	GraphBuilder IncidentGraphBuilder
+	nowFn        func() time.Time
 }
 
 func (r *IncidentReportReconciler) now() time.Time {
@@ -186,9 +197,13 @@ func (r *IncidentReportReconciler) reconcileResolved(ctx context.Context, _ logr
 }
 
 func (r *IncidentReportReconciler) transitionToActive(ctx context.Context, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
 	now := metav1.NewTime(r.now())
 	base := report.DeepCopy()
 	incidentstatus.MarkActive(report, now, "Incident confirmed active after stabilisation period")
+	if raw := r.buildIncidentGraph(ctx, log, report); raw != nil {
+		report.Status.IncidentGraph = raw
+	}
 	if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to transition IncidentReport %s/%s to Active: %w", report.Namespace, report.Name, err)
 	}
@@ -198,6 +213,33 @@ func (r *IncidentReportReconciler) transitionToActive(ctx context.Context, repor
 			"Incident confirmed active type=%s severity=%s", report.Status.IncidentType, report.Status.Severity)
 	}
 	return ctrl.Result{RequeueAfter: healthyResolveWindow}, nil
+}
+
+// buildIncidentGraph invokes the graph builder (if configured) and returns a
+// runtime.RawExtension ready to embed in status.incidentGraph. Returns nil —
+// not an error — when the builder is unset, when building fails, or when the
+// graph serializes to an empty object. The graph is best-effort: a build
+// failure must not block the Active transition.
+func (r *IncidentReportReconciler) buildIncidentGraph(ctx context.Context, log logr.Logger, report *rcav1alpha1.IncidentReport) *runtime.RawExtension {
+	if r.GraphBuilder == nil {
+		return nil
+	}
+	g, err := r.GraphBuilder.Build(ctx, report)
+	if err != nil {
+		log.V(1).Info("Incident graph build failed; skipping graph persistence",
+			"namespace", report.Namespace, "name", report.Name, "err", err.Error())
+		return nil
+	}
+	if g == nil || len(g.Nodes) == 0 {
+		return nil
+	}
+	encoded, err := json.Marshal(g)
+	if err != nil {
+		log.V(1).Info("Incident graph marshal failed; skipping graph persistence",
+			"namespace", report.Namespace, "name", report.Name, "err", err.Error())
+		return nil
+	}
+	return &runtime.RawExtension{Raw: encoded}
 }
 
 func (r *IncidentReportReconciler) transitionToResolved(ctx context.Context, report *rcav1alpha1.IncidentReport, reason string) (ctrl.Result, error) {

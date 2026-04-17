@@ -33,8 +33,8 @@ func TestNormalize_PopulatesTraceIDForOTelEvents(t *testing.T) {
 			if !ok {
 				t.Fatalf("expected normalize to succeed for %s", tc.name)
 			}
-			if sig.Input.TraceID != traceID {
-				t.Errorf("TraceID = %q, want %q", sig.Input.TraceID, traceID)
+			if sig.TraceID != traceID {
+				t.Errorf("TraceID = %q, want %q", sig.TraceID, traceID)
 			}
 		})
 	}
@@ -60,8 +60,8 @@ func TestNormalize_NoTraceIDForKubernetesEvents(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected normalize to succeed for %s", ev.Type())
 		}
-		if sig.Input.TraceID != "" {
-			t.Errorf("TraceID should be empty for %s, got %q", ev.Type(), sig.Input.TraceID)
+		if sig.TraceID != "" {
+			t.Errorf("TraceID should be empty for %s, got %q", ev.Type(), sig.TraceID)
 		}
 	}
 }
