@@ -25,19 +25,19 @@
 }
 
 [data-theme="dark"] {
-  --bg: #0f1117;
-  --bg-raised: #161822;
-  --bg-card: #1c1f2e;
-  --bg-hover: #242738;
-  --bg-selected: #2a2d42;
-  --bg-input: #1c1f2e;
+  --bg: #070b14;
+  --bg-raised: #0d1322;
+  --bg-card: #121a2e;
+  --bg-hover: #19243a;
+  --bg-selected: #1a2950;
+  --bg-input: #11182b;
   --border: rgba(255,255,255,0.08);
   --border-strong: rgba(255,255,255,0.14);
-  --text-primary: #e8eaed;
-  --text-secondary: #9aa0b0;
-  --text-tertiary: #5c6175;
-  --accent: #6c8cff;
-  --accent-soft: rgba(108,140,255,0.12);
+  --text-primary: #e5edf9;
+  --text-secondary: #97a6bf;
+  --text-tertiary: #63718b;
+  --accent: #7ea2ff;
+  --accent-soft: rgba(126,162,255,0.18);
   --red: #ff6b6b;
   --red-soft: rgba(255,107,107,0.12);
   --amber: #fbbf24;
@@ -87,6 +87,7 @@ body {
   color: var(--text-primary);
   background: var(--bg);
   overflow-x: hidden;
+  overflow-y: hidden;
   -webkit-font-smoothing: antialiased;
 }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -107,11 +108,95 @@ select { font-family: inherit; }
 /* ── Layout ──────────────────────────────────────── */
 .app { display: flex; flex-direction: column; min-height: 100vh; }
 
+.workspace {
+  display: flex;
+  min-height: 100vh;
+  width: 100%;
+  background:
+    radial-gradient(1200px 500px at 10% -10%, rgba(126,162,255,0.12), transparent 60%),
+    radial-gradient(1000px 400px at 90% -20%, rgba(52,211,153,0.08), transparent 65%),
+    var(--bg);
+}
+
+.global-nav {
+  width: 170px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(13,19,34,0.98), rgba(9,14,24,0.96));
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 12px 0 10px;
+  box-shadow: inset -1px 0 0 rgba(255,255,255,0.03);
+}
+
+.nav-logo {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  background: linear-gradient(145deg, #4e7cff, #1e53ff);
+  color: #fff;
+  margin: 0 auto 8px;
+  box-shadow: 0 8px 24px rgba(35, 84, 255, 0.3);
+}
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 100vh;
+}
+
+.nav-rail {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.nav-btn {
+  width: 100%;
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 0;
+  border-left: 3px solid transparent;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  transition: all var(--transition);
+}
+
+.nav-icon { width: 20px; text-align: center; font-size: 16px; }
+.nav-label { font-size: 12px; letter-spacing: 0.4px; text-transform: uppercase; }
+
+.nav-btn:hover {
+  color: var(--text-primary);
+  background: rgba(126,162,255,0.08);
+}
+
+.nav-btn.nav-item.active {
+  border-left-color: var(--accent);
+  background: linear-gradient(90deg, var(--accent-soft), transparent 80%);
+  color: var(--accent);
+}
+
 /* ── Header ──────────────────────────────────────── */
 .header {
-  height: 56px; display: flex; align-items: center; justify-content: space-between;
+  height: 58px; display: flex; align-items: center; justify-content: space-between;
   padding: 0 20px; background: var(--bg-raised); border-bottom: 1px solid var(--border);
   flex-shrink: 0; gap: 16px;
+  backdrop-filter: blur(10px);
 }
 .header-left { display: flex; align-items: center; gap: 14px; }
 .logo {
@@ -132,6 +217,18 @@ select { font-family: inherit; }
 .nav-item.active:hover { background: var(--accent-soft); }
 
 .header-right { display: flex; align-items: center; gap: 10px; }
+
+.cluster-chip {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 11px;
+  background: var(--bg-input);
+}
 .header-pill {
   display: flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 20px;
   font-family: var(--font-mono); font-size: 11px; font-weight: 500;
@@ -163,12 +260,16 @@ select { font-family: inherit; }
 }
 
 /* ── Main Body ───────────────────────────────────── */
-.main { display: flex; flex: 1; overflow: hidden; }
+.main { display: flex; flex: 1; overflow: hidden; min-height: 0; }
 
 /* ── Sidebar ─────────────────────────────────────── */
 .sidebar {
   width: 220px; flex-shrink: 0; background: var(--bg-raised); border-right: 1px solid var(--border);
   overflow-y: auto; padding: 16px 0; display: flex; flex-direction: column; gap: 24px;
+}
+
+.sidebar.compact {
+  width: 280px;
 }
 .sidebar-section { padding: 0 12px; }
 .sidebar-title {
@@ -234,7 +335,7 @@ select { font-family: inherit; }
 .split { flex: 1; display: flex; overflow: hidden; }
 .list-pane { overflow-y: auto; }
 .list-pane.full { width: 100%; }
-.list-pane.compact { width: 320px; flex-shrink: 0; border-right: 1px solid var(--border); }
+.list-pane.compact { width: 360px; flex-shrink: 0; border-right: 1px solid var(--border); }
 
 /* ── Table Headers ───────────────────────────────── */
 .list-header {
@@ -252,10 +353,29 @@ select { font-family: inherit; }
   display: flex; align-items: center; gap: 12px; padding: 12px 16px;
   border-bottom: 1px solid var(--border); cursor: pointer; transition: background var(--transition);
 }
-.inc-row:hover { background: var(--bg-hover); }
+.inc-row:hover { background: rgba(126,162,255,0.08); }
 .inc-row.selected { background: var(--bg-selected); }
 .inc-row.compact { padding: 10px 12px; gap: 10px; }
 .inc-row.resolved { opacity: 0.6; }
+
+.inc-topo-btn {
+  border: 1px solid var(--border) !important;
+  background: var(--bg-input) !important;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  flex-shrink: 0;
+}
+
+.inc-topo-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong) !important;
+  background: var(--bg-hover) !important;
+}
 
 .inc-num { font-family: var(--font-mono); font-size: 11px; color: var(--text-tertiary); min-width: 22px; text-align: right; }
 
@@ -357,6 +477,7 @@ select { font-family: inherit; }
 .card {
   padding: 10px 12px; border-radius: var(--radius-md); background: var(--bg-card);
   border: 1px solid var(--border); display: flex; align-items: center; gap: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.12);
 }
 .card + .card { margin-top: 6px; }
 
@@ -420,7 +541,7 @@ select { font-family: inherit; }
 
 /* ── Status Bar ──────────────────────────────────── */
 .status-bar {
-  height: 28px; display: flex; align-items: center; gap: 12px; padding: 0 16px;
+  height: 30px; display: flex; align-items: center; gap: 12px; padding: 0 16px;
   background: var(--bg-raised); border-top: 1px solid var(--border); flex-shrink: 0;
 }
 .status-bar span { font-size: 10px; color: var(--text-tertiary); }
@@ -454,67 +575,209 @@ select { font-family: inherit; }
 }
 .data-row:hover { background: var(--bg-hover); }
 
+.timeline-strip-head {
+  height: 30px;
+  padding: 0;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  font-size: 10px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+.timeline-strip-track {
+  display: flex;
+  gap: 10px;
+  min-width: min-content;
+  align-items: stretch;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 10px 0 2px;
+}
+
+.timeline-pill {
+  min-width: 240px;
+  max-width: 280px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  padding: 9px 10px;
+}
+
+.timeline-pill.p1 { border-color: rgba(255,107,107,0.45); }
+.timeline-pill.p2 { border-color: rgba(251,191,36,0.35); }
+
+.timeline-pill-time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.timeline-pill-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.timeline-pill-meta {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.log-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 14px;
+}
+
+.log-row {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  padding: 9px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.log-level {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  border-radius: 10px;
+  padding: 1px 6px;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  padding: 14px;
+}
+
+.metric-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  padding: 14px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.14);
+}
+
+.metric-panel-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--text-tertiary);
+  margin-bottom: 9px;
+}
+
+.metric-panel-value {
+  font-family: var(--font-mono);
+  font-size: 24px;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.mini-bars {
+  display: flex;
+  align-items: end;
+  gap: 4px;
+  height: 70px;
+}
+
+.mini-bars span {
+  flex: 1;
+  border-radius: 3px 3px 0 0;
+  background: var(--accent);
+  opacity: 0.75;
+}
+
 @media (max-width: 980px) {
   .sidebar { display: none; }
   .header { flex-wrap: wrap; height: auto; padding: 10px 16px; }
-  .nav { order: 3; width: 100%; }
+  .global-nav { width: 56px; }
+  .nav-label { display: none; }
+  .nav-btn { justify-content: center; padding: 0; }
+  .metrics-grid { grid-template-columns: 1fr; }
+  .list-pane.compact { width: 100%; }
+  .detail { display: none !important; }
 }
 </style>
 </head>
 <body>
 <div class="app">
-  <!-- Header -->
-  <header class="header">
-    <div class="header-left">
-      <div id="conn-dot"></div>
-      <div class="logo">
-        <img src="/images/logo.png" alt="RCA Operator" class="logo-img">
-      </div>
-      <span class="version">v0.0.15</span>
-      <nav class="nav" id="nav">
-        <div class="nav-item" data-tab="topology" onclick="window._tab('topology')">Topology</div>
-        <div class="nav-item active" data-tab="incidents" onclick="window._tab('incidents')">Incidents</div>
-        <div class="nav-item" data-tab="rules" onclick="window._tab('rules')">Rules</div>
-        <div class="nav-item" data-tab="agents" onclick="window._tab('agents')">Agents</div>
-        <div class="nav-item" data-tab="namespaces" onclick="window._tab('namespaces')">Namespaces</div>
+  <div class="workspace">
+    <aside class="global-nav">
+      <div class="nav-logo">◎</div>
+      <nav class="nav-rail" id="nav">
+        <button class="nav-btn nav-item" data-tab="topology" onclick="window._tab('topology')" title="Topology"><span class="nav-icon">⟷</span><span class="nav-label">Topology</span></button>
+        <button class="nav-btn nav-item active" data-tab="incidents" onclick="window._tab('incidents')" title="Incidents"><span class="nav-icon">⚠</span><span class="nav-label">Incidents</span></button>
+        <button class="nav-btn nav-item" data-tab="metrics" onclick="window._tab('metrics')" title="Metrics"><span class="nav-icon">◔</span><span class="nav-label">Metrics</span></button>
+        <button class="nav-btn nav-item" data-tab="logs" onclick="window._tab('logs')" title="Logs"><span class="nav-icon">☰</span><span class="nav-label">Logs</span></button>
+        <button class="nav-btn nav-item" data-tab="rules" onclick="window._tab('rules')" title="Rules"><span class="nav-icon">✶</span><span class="nav-label">Rules</span></button>
+        <button class="nav-btn nav-item" data-tab="agents" onclick="window._tab('agents')" title="Agents"><span class="nav-icon">⚙</span><span class="nav-label">Agents</span></button>
+        <button class="nav-btn nav-item" data-tab="namespaces" onclick="window._tab('namespaces')" title="Namespaces"><span class="nav-icon">⌘</span><span class="nav-label">Namespaces</span></button>
       </nav>
-    </div>
-    <div class="header-right" id="header-right"></div>
-  </header>
-
-  <div class="main">
-    <!-- Sidebar -->
-    <aside class="sidebar">
-      <div class="sidebar-section">
-        <div class="sidebar-title">Overview</div>
-        <div class="metric-grid" id="sb-metrics"></div>
-      </div>
-      <div class="sidebar-section">
-        <div class="sidebar-title">Namespaces</div>
-        <div id="sb-ns"></div>
-      </div>
-      <div class="sidebar-section">
-        <div class="sidebar-title">Severity</div>
-        <div id="sb-sev"></div>
-      </div>
-      <div class="sidebar-section">
-        <div class="sidebar-title">Agents</div>
-        <div id="sb-agents"></div>
-      </div>
-      <div class="sidebar-section">
-        <div class="sidebar-title">Rule Engine</div>
-        <div id="sb-rules"></div>
-      </div>
     </aside>
 
-    <!-- Content -->
-    <div class="content">
-      <div class="toolbar" id="toolbar"></div>
-      <div class="split">
-        <div class="list-pane full" id="list-pane"></div>
-        <div class="detail" id="detail-panel" style="display:none"></div>
+    <div class="shell">
+      <header class="header">
+        <div class="header-left">
+          <div id="conn-dot"></div>
+          <div class="logo">
+            <img src="/images/logo.png" alt="RCA Operator" class="logo-img">
+          </div>
+          <span class="version">v0.0.15</span>
+          <span class="cluster-chip">prod-cluster-01 / payment-system</span>
+        </div>
+        <div class="header-right" id="header-right"></div>
+      </header>
+
+      <div class="main">
+        <aside class="sidebar compact">
+          <div class="sidebar-section">
+            <div class="sidebar-title">Overview</div>
+            <div class="metric-grid" id="sb-metrics"></div>
+          </div>
+          <div class="sidebar-section">
+            <div class="sidebar-title">Namespaces</div>
+            <div id="sb-ns"></div>
+          </div>
+          <div class="sidebar-section">
+            <div class="sidebar-title">Severity</div>
+            <div id="sb-sev"></div>
+          </div>
+          <div class="sidebar-section">
+            <div class="sidebar-title">Agents</div>
+            <div id="sb-agents"></div>
+          </div>
+          <div class="sidebar-section">
+            <div class="sidebar-title">Rule Engine</div>
+            <div id="sb-rules"></div>
+          </div>
+        </aside>
+
+        <div class="content">
+          <div class="toolbar" id="toolbar"></div>
+          <div class="split">
+            <div class="list-pane full" id="list-pane"></div>
+            <div class="detail" id="detail-panel" style="display:none"></div>
+          </div>
+          <div class="status-bar" id="status-bar"></div>
+          <div class="timeline-strip" id="timeline-strip"></div>
+        </div>
       </div>
-      <div class="status-bar" id="status-bar"></div>
     </div>
   </div>
 </div>
@@ -677,10 +940,12 @@ select { font-family: inherit; }
     renderAgents();renderRuleEngine();renderToolbar();
     if(activeTab==='topology'){renderTopologyTab()}
     else if(activeTab==='incidents'){renderIncidents();renderDetail()}
+    else if(activeTab==='metrics'){renderMetricsTab()}
+    else if(activeTab==='logs'){renderLogsTab()}
     else if(activeTab==='rules'){renderRulesTab()}
     else if(activeTab==='agents'){renderAgentsTab()}
     else if(activeTab==='namespaces'){renderNsTab()}
-    renderStatusBar();
+    renderStatusBar();renderTimelineStrip();
   }
 
   function renderHeader(){
@@ -688,6 +953,7 @@ select { font-family: inherit; }
     var active=stats.active||0;
     var p1=incidents.filter(function(i){return i.severity==='P1'&&i.phase!=='Resolved'}).length;
     var h='';
+    if(active>0)h+='<span class="header-pill pill-active">ACTIVE INCIDENT</span>';
     if(p1>0)h+='<span class="header-pill pill-p1">'+pulseDot('var(--red)',5)+' '+p1+' P1</span>';
     h+='<span class="header-pill pill-active">'+pulseDot('var(--red)',4)+' '+active+' active</span>';
     h+='<select class="tz-select" id="tz-sel" onchange="window._setTZ(this.value)">';
@@ -771,6 +1037,11 @@ select { font-family: inherit; }
 
   function renderToolbar(){
     var el=document.getElementById('toolbar');
+    if(activeTab==='metrics'||activeTab==='logs'){
+      var title=activeTab==='metrics'?'Cluster Metrics':'Unified Log Stream';
+      el.innerHTML='<span class="filter-label">'+title+'</span><span class="toolbar-spacer"></span><span class="toolbar-meta">UI-only view • will bind dedicated APIs later</span>';
+      return;
+    }
     var types={};incidents.forEach(function(i){if(i.incidentType)types[i.incidentType]=true});
     var typeList=Object.keys(types);var f=getFiltered();
     var h='<div class="filter-group"><span class="filter-label">Phase</span>';
@@ -826,6 +1097,56 @@ select { font-family: inherit; }
         h+='</div>';
       });
     }
+    el.innerHTML=h;
+  }
+
+  function renderMetricsTab(){
+    var el=document.getElementById('list-pane');
+    document.getElementById('detail-panel').style.display='none';
+    el.className='list-pane full';
+    var active=stats.active||0;
+    var resolved=stats.resolved||0;
+    var total=incidents.length||0;
+    var p1=incidents.filter(function(i){return i.severity==='P1'&&i.phase!=='Resolved'}).length;
+    var bars=[28,42,51,63,72,88];
+    var html='';
+    html+='<div class="metrics-grid">';
+    html+='<div class="metric-panel"><div class="metric-panel-title">Active Incidents</div><div class="metric-panel-value" style="color:var(--red)">'+active+'</div><div class="mini-bars">'+bars.map(function(h){return '<span style="height:'+h+'%"></span>'}).join('')+'</div></div>';
+    html+='<div class="metric-panel"><div class="metric-panel-title">Resolved Incidents</div><div class="metric-panel-value" style="color:var(--green)">'+resolved+'</div><div class="mini-bars">'+bars.slice().reverse().map(function(h){return '<span style="height:'+h+'%;background:var(--green)"></span>'}).join('')+'</div></div>';
+    html+='<div class="metric-panel"><div class="metric-panel-title">P1 Open</div><div class="metric-panel-value" style="color:var(--amber)">'+p1+'</div><div class="mini-bars">'+[20,24,33,46,58,67].map(function(h){return '<span style="height:'+h+'%;background:var(--amber)"></span>'}).join('')+'</div></div>';
+    html+='</div>';
+    html+='<div style="padding:0 12px 12px 12px;font-size:12px;color:var(--text-secondary)">'
+      +'Total observed incidents: <span style="font-family:var(--font-mono);color:var(--text-primary)">'+total+'</span>. '
+      +'This panel is UI-only for now and uses existing stats/incidents endpoints.</div>';
+    el.innerHTML=html;
+  }
+
+  function renderLogsTab(){
+    var el=document.getElementById('list-pane');
+    document.getElementById('detail-panel').style.display='none';
+    el.className='list-pane full';
+    var items=[];
+    incidents.slice().sort(function(a,b){return startTime(b).localeCompare(startTime(a))}).slice(0,10).forEach(function(inc){
+      items.push({
+        time:startTime(inc),
+        level:inc.phase==='Resolved'?'INFO':(inc.severity==='P1'?'ERROR':'WARN'),
+        src:dname(inc),
+        msg:(inc.summary||inc.message||inc.incidentType||'Incident signal observed')
+      });
+    });
+    if(!items.length){
+      el.innerHTML='<div class="empty-state"><div class="empty-state-title">No log-like events available</div><div class="empty-state-sub">Logs view will bind to a dedicated feed later</div></div>';
+      return;
+    }
+    var h='<div class="log-stream">';
+    items.forEach(function(it){
+      var c=it.level==='ERROR'?'var(--red)':(it.level==='WARN'?'var(--amber)':'var(--green)');
+      h+='<div class="log-row"><span style="color:var(--text-tertiary)">'+esc(absTime(it.time)||'--:--:--')+'</span>'
+        +'<span class="log-level" style="background:'+c+'22;color:'+c+'">'+esc(it.level)+'</span>'
+        +'<span style="color:var(--text-secondary)">['+esc(it.src)+']</span>'
+        +'<span style="color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(it.msg)+'</span></div>';
+    });
+    h+='</div>';
     el.innerHTML=h;
   }
 
@@ -1241,6 +1562,49 @@ select { font-family: inherit; }
       '<div style="flex:1"></div><span>RCA Operator v0.0.15</span>';
   }
 
+  function renderTimelineStrip(){
+    var el=document.getElementById('timeline-strip');
+    if(!el)return;
+    var events=[];
+    incidents.forEach(function(inc){
+      var t=inc.timeline||[];
+      if(t.length){
+        t.forEach(function(ev){
+          events.push({
+            time:ev.time,
+            title:ev.event||inc.incidentType||'Incident event',
+            ns:inc.namespace,
+            service:dname(inc),
+            sev:inc.severity||'P4'
+          });
+        });
+      } else if(startTime(inc)) {
+        events.push({
+          time:startTime(inc),
+          title:inc.incidentType||'Incident detected',
+          ns:inc.namespace,
+          service:dname(inc),
+          sev:inc.severity||'P4'
+        });
+      }
+    });
+    events.sort(function(a,b){return String(b.time||'').localeCompare(String(a.time||''))});
+    events=events.slice(0,12);
+    if(!events.length){
+      el.innerHTML='<div class="timeline-strip-head">Live Correlation Stream</div><div class="timeline-strip-track"><div class="timeline-pill"><div class="timeline-pill-title">No correlation events yet</div><div class="timeline-pill-meta">Timeline strip will populate when incidents arrive</div></div></div>';
+      return;
+    }
+    var h='<div class="timeline-strip-head">Live Correlation Stream</div><div class="timeline-strip-track">';
+    events.forEach(function(ev){
+      var cls=String(ev.sev||'').toLowerCase();
+      h+='<div class="timeline-pill '+cls+'"><div class="timeline-pill-time">'+esc(absTime(ev.time)||'--:--:--')+'</div>'
+        +'<div class="timeline-pill-title">'+esc(ev.title)+'</div>'
+        +'<div class="timeline-pill-meta">'+esc(ev.ns)+' · '+esc(ev.service)+' · '+esc(ev.sev)+'</div></div>';
+    });
+    h+='</div>';
+    el.innerHTML=h;
+  }
+
   /* ── Event Handlers ────────────────────────── */
   window._sel=function(key){
     selectedKey=selectedKey===key?null:key;
@@ -1264,9 +1628,9 @@ select { font-family: inherit; }
     activeTab=tab;selectedKey=null;
     document.querySelectorAll('#nav .nav-item').forEach(function(el){
       if(el.getAttribute('data-tab')===tab){
-        el.className='nav-item active';
+        el.className='nav-btn nav-item active';
       } else {
-        el.className='nav-item';
+        el.className='nav-btn nav-item';
       }
     });
     render();
