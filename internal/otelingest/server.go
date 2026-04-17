@@ -1,11 +1,16 @@
 package otelingest
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -153,7 +158,7 @@ func readLimited(r *http.Request, max int64) ([]byte, error) {
 	}
 	reader := http.MaxBytesReader(nil, r.Body, max)
 	defer func() { _ = r.Body.Close() }()
-	body, err := io.ReadAll(reader)
+	rawBody, err := io.ReadAll(reader)
 	if err != nil {
 		var mbe *http.MaxBytesError
 		if errors.As(err, &mbe) {
@@ -161,7 +166,38 @@ func readLimited(r *http.Request, max int64) ([]byte, error) {
 		}
 		return nil, err
 	}
+	body, err := decodeContentEncoding(r.Header.Get("Content-Encoding"), rawBody, max)
+	if err != nil {
+		return nil, err
+	}
 	return body, nil
+}
+
+func decodeContentEncoding(contentEncoding string, body []byte, max int64) ([]byte, error) {
+	encoding := strings.ToLower(strings.TrimSpace(contentEncoding))
+	switch encoding {
+	case "", "identity":
+		return body, nil
+	case "gzip":
+		zr, err := gzip.NewReader(bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = zr.Close() }()
+
+		// Guard against gzip bombs on decompressed payload size.
+		limited := io.LimitReader(zr, max+1)
+		decoded, err := io.ReadAll(limited)
+		if err != nil {
+			return nil, err
+		}
+		if int64(len(decoded)) > max {
+			return nil, &oversizedError{limit: max}
+		}
+		return decoded, nil
+	default:
+		return nil, fmt.Errorf("unsupported content encoding: %s", contentEncoding)
+	}
 }
 
 func statusForError(err error) int {
@@ -175,14 +211,22 @@ func statusForError(err error) int {
 // decodeOTLP dispatches on Content-Type. Unknown content types default to
 // protobuf (the OTLP/HTTP default) which matches collector behavior.
 func decodeOTLP(contentType string, body []byte, msg proto.Message) error {
-	if contentType == contentTypeJSON {
+	if isJSONContentType(contentType) {
 		return protojson.Unmarshal(body, msg)
 	}
 	return proto.Unmarshal(body, msg)
 }
 
+func isJSONContentType(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err == nil {
+		return mediaType == contentTypeJSON
+	}
+	return strings.EqualFold(strings.TrimSpace(contentType), contentTypeJSON)
+}
+
 func writeOTLPResponse(w http.ResponseWriter, reqContentType string, msg proto.Message) {
-	if reqContentType == contentTypeJSON {
+	if isJSONContentType(reqContentType) {
 		data, err := protojson.Marshal(msg)
 		if err != nil {
 			http.Error(w, "encode error", http.StatusInternalServerError)

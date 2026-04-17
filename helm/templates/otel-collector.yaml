@@ -190,6 +190,9 @@ spec:
       # writes matching signals into the shared correlator channel.
       otlphttp/rca-operator:
         endpoint: {{ include "rca-operator.ingestEndpoint" . | quote }}
+        # Keep payloads uncompressed for compatibility with lightweight
+        # in-operator ingest decoders and easier troubleshooting.
+        compression: none
         tls:
           insecure: true
         retry_on_failure:

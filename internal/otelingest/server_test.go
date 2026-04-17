@@ -2,6 +2,7 @@ package otelingest
 
 import (
 	"bytes"
+	"compress/gzip"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -196,6 +197,83 @@ func TestServer_TracesBadProtobufReturns400(t *testing.T) {
 	rec := invoke(s, r)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestServer_TracesGzipProtobufHappyPath(t *testing.T) {
+	s, em := newTestServer(t)
+
+	req := &coltracepb.ExportTraceServiceRequest{
+		ResourceSpans: []*tracepb.ResourceSpans{{
+			Resource: &resourcepb.Resource{Attributes: []*commonpb.KeyValue{
+				kvStr("service.name", "checkout"),
+				kvStr("k8s.namespace.name", "demo"),
+			}},
+			ScopeSpans: []*tracepb.ScopeSpans{{Spans: []*tracepb.Span{{
+				TraceId: []byte{0x1, 0x2},
+				SpanId:  []byte{0x3, 0x4},
+				Status:  &tracepb.Status{Code: tracepb.Status_STATUS_CODE_ERROR},
+			}}}},
+		}},
+	}
+	body, err := proto.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var gzBuf bytes.Buffer
+	gz := gzip.NewWriter(&gzBuf)
+	if _, err := gz.Write(body); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/traces", bytes.NewReader(gzBuf.Bytes()))
+	r.Header.Set("Content-Type", contentTypeProtobuf)
+	r.Header.Set("Content-Encoding", "gzip")
+	rec := invoke(s, r)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(em.all()) != 1 {
+		t.Fatalf("expected 1 emitted event, got %d", len(em.all()))
+	}
+}
+
+func TestServer_TracesJSONContentTypeWithCharset(t *testing.T) {
+	s, em := newTestServer(t)
+
+	payload := `{
+		"resourceSpans":[{
+			"resource":{"attributes":[
+				{"key":"service.name","value":{"stringValue":"checkout"}},
+				{"key":"k8s.namespace.name","value":{"stringValue":"demo"}},
+				{"key":"k8s.pod.name","value":{"stringValue":"api-0"}}
+			]},
+			"scopeSpans":[{"spans":[{
+				"traceId":"0102030405060708090a0b0c0d0e0f10",
+				"spanId":"1112131415161718",
+				"name":"server-op",
+				"kind":2,
+				"status":{"code":2}
+			}]}]
+		}]
+	}`
+	r := httptest.NewRequest(http.MethodPost, "/v1/traces", strings.NewReader(payload))
+	r.Header.Set("Content-Type", "application/json; charset=utf-8")
+	rec := invoke(s, r)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(em.all()) != 1 {
+		t.Fatalf("expected 1 emitted event, got %d", len(em.all()))
+	}
+	if rec.Header().Get("Content-Type") != contentTypeJSON {
+		t.Errorf("response content-type = %q", rec.Header().Get("Content-Type"))
 	}
 }
 

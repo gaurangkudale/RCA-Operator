@@ -32,6 +32,14 @@ spec:
           podSelector:
             matchLabels:
               app.kubernetes.io/component: otel-collector
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ include "rca-operator.namespace" . }}
+          podSelector:
+            matchLabels:
+              # Some OTel Operator versions label collector pods with
+              # "opentelemetry-collector" instead of "otel-collector".
+              app.kubernetes.io/component: opentelemetry-collector
       ports:
         - port: {{ .Values.rcaIngest.bindPort }}
           protocol: TCP

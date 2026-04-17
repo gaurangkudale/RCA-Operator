@@ -40,9 +40,14 @@ type Input struct {
 }
 
 // Fingerprint returns a stable canonical identity for the incident based on its
-// scope. The fingerprint intentionally excludes IncidentType so that different
-// signal types affecting the same resource (e.g. ImagePullBackOff and
-// StalledRollout on the same Deployment) map to a single incident.
+// scope.
+//
+// For Kubernetes-native incident types, fingerprinting remains scope-based so
+// related controller/platform symptoms on the same resource can coalesce.
+//
+// For OTel incident types, IncidentType is included so service-runtime errors
+// (span errors, log matches, latency spikes) are not collapsed into unrelated
+// Kubernetes lifecycle incidents for the same workload.
 func (in Input) Fingerprint() string {
 	scope := in.Scope
 	var parts []string
@@ -83,7 +88,17 @@ func (in Input) Fingerprint() string {
 		}
 	}
 
+	if IsOTelIncidentType(in.IncidentType) {
+		parts = append(parts, "type", in.IncidentType)
+	}
+
 	return strings.Join(parts, "|")
+}
+
+// IsOTelIncidentType returns true when the incident type originates from
+// telemetry ingest (spans/logs/span-events) rather than Kubernetes watchers.
+func IsOTelIncidentType(incidentType string) bool {
+	return strings.HasPrefix(strings.TrimSpace(incidentType), "OTel")
 }
 
 func FingerprintHash(fingerprint string) string {

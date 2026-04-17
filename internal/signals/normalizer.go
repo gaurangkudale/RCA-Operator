@@ -21,10 +21,8 @@ type SignalMapping struct {
 }
 
 // DefaultMappings returns the built-in event→incident type mappings.
-// IncidentType mirrors the raw EventType so that incident types are
-// self-describing rather than hardcoded aliases. This avoids creating
-// duplicate incidents when different event types (e.g. ImagePullBackOff and
-// StalledRollout) affect the same workload.
+// IncidentType mirrors the raw EventType so incident classes remain
+// self-describing rather than hardcoded aliases.
 func DefaultMappings() []SignalMapping {
 	return []SignalMapping{
 		{EventType: "CrashLoopBackOff", IncidentType: "CrashLoopBackOff", Severity: "P3", ScopeLevel: "Pod"},
@@ -241,9 +239,122 @@ func (n *Normalizer) buildInput(event watcher.CorrelatorEvent, mapping SignalMap
 		input.AffectedResources = []rcav1alpha1.AffectedResource{
 			{APIVersion: "batch/v1", Kind: "CronJob", Namespace: ev.Namespace, Name: ev.CronJobName},
 		}
+	case watcher.OTelSpanErrorEvent, watcher.OTelSpanLatencySpikeEvent, watcher.OTelLogMatchEvent, watcher.OTelSpanEventEvent:
+		applyOTelScopeOverrides(&input, event)
 	}
 
 	return input
+}
+
+// applyOTelScopeOverrides upgrades OTel signals to a stable workload identity
+// when pod metadata is unavailable. Priority:
+//  1. k8s workload attrs (deployment/statefulset/daemonset/job/cronjob)
+//  2. service identity (service.name + namespace)
+//
+// This ensures trace/log-derived incidents are still created and grouped by
+// service/workload instead of being dropped due missing pod scope.
+func applyOTelScopeOverrides(input *incident.Input, event watcher.CorrelatorEvent) {
+	serviceName, resourceAttrs, ok := extractOTelResourceIdentity(event)
+	if !ok {
+		return
+	}
+
+	namespace := firstNonEmpty(
+		input.Namespace,
+		resourceAttrs["k8s.namespace.name"],
+		resourceAttrs["service.namespace"],
+	)
+	if namespace != "" {
+		input.Namespace = namespace
+		input.Scope.Namespace = namespace
+	}
+
+	if ref, affected, hasWorkload := workloadFromOTelResourceAttrs(namespace, resourceAttrs); hasWorkload {
+		input.Scope.Level = incident.ScopeLevelWorkload
+		input.Scope.WorkloadRef = ref
+		input.Scope.ResourceRef = ref
+		input.AffectedResources = []rcav1alpha1.AffectedResource{affected}
+		return
+	}
+
+	serviceName = firstNonEmpty(serviceName, resourceAttrs["service.name"])
+	if serviceName == "" || namespace == "" {
+		return
+	}
+
+	ref := &rcav1alpha1.IncidentObjectRef{
+		APIVersion: "v1",
+		Kind:       "Service",
+		Namespace:  namespace,
+		Name:       serviceName,
+	}
+	input.Scope.Level = incident.ScopeLevelWorkload
+	input.Scope.WorkloadRef = ref
+	input.Scope.ResourceRef = ref
+	input.AffectedResources = []rcav1alpha1.AffectedResource{
+		{APIVersion: "v1", Kind: "Service", Namespace: namespace, Name: serviceName},
+	}
+}
+
+func extractOTelResourceIdentity(event watcher.CorrelatorEvent) (serviceName string, resourceAttrs map[string]string, ok bool) {
+	switch e := event.(type) {
+	case watcher.OTelSpanErrorEvent:
+		return e.ServiceName, e.ResourceAttrs, true
+	case watcher.OTelSpanLatencySpikeEvent:
+		return e.ServiceName, e.ResourceAttrs, true
+	case watcher.OTelLogMatchEvent:
+		return e.ServiceName, e.ResourceAttrs, true
+	case watcher.OTelSpanEventEvent:
+		return e.ServiceName, e.ResourceAttrs, true
+	default:
+		return "", nil, false
+	}
+}
+
+func workloadFromOTelResourceAttrs(namespace string, attrs map[string]string) (*rcav1alpha1.IncidentObjectRef, rcav1alpha1.AffectedResource, bool) {
+	type workloadKey struct {
+		attrKey    string
+		apiVersion string
+		kind       string
+	}
+
+	candidates := []workloadKey{
+		{attrKey: "k8s.deployment.name", apiVersion: "apps/v1", kind: "Deployment"},
+		{attrKey: "k8s.statefulset.name", apiVersion: "apps/v1", kind: "StatefulSet"},
+		{attrKey: "k8s.daemonset.name", apiVersion: "apps/v1", kind: "DaemonSet"},
+		{attrKey: "k8s.job.name", apiVersion: "batch/v1", kind: "Job"},
+		{attrKey: "k8s.cronjob.name", apiVersion: "batch/v1", kind: "CronJob"},
+	}
+
+	for _, candidate := range candidates {
+		name := strings.TrimSpace(attrs[candidate.attrKey])
+		if name == "" || namespace == "" {
+			continue
+		}
+		ref := &rcav1alpha1.IncidentObjectRef{
+			APIVersion: candidate.apiVersion,
+			Kind:       candidate.kind,
+			Namespace:  namespace,
+			Name:       name,
+		}
+		return ref, rcav1alpha1.AffectedResource{
+			APIVersion: candidate.apiVersion,
+			Kind:       candidate.kind,
+			Namespace:  namespace,
+			Name:       name,
+		}, true
+	}
+
+	return nil, rcav1alpha1.AffectedResource{}, false
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func extractBase(event watcher.CorrelatorEvent) watcher.BaseEvent {

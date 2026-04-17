@@ -463,7 +463,7 @@ func (r *Reporter) findExistingByWorkloadRef(ctx context.Context, input incident
 
 	for i := range list.Items {
 		report := &list.Items[i]
-		if !reportMatchesWorkloadRef(report, workloadRef) {
+		if !reportMatchesWorkloadRef(report, workloadRef, input.IncidentType) {
 			continue
 		}
 		if report.Status.Phase != PhaseResolved {
@@ -490,9 +490,22 @@ func (r *Reporter) findExistingByWorkloadRef(ctx context.Context, input incident
 // reportMatchesWorkloadRef returns true when the given incident covers the
 // provided workload ref, checking both Spec.Scope.WorkloadRef and every
 // entry in Status.AffectedResources. Kind, Namespace, and Name must all match.
-func reportMatchesWorkloadRef(report *rcav1alpha1.IncidentReport, workloadRef *rcav1alpha1.IncidentObjectRef) bool {
+//
+// For OTel incident types, the report's incident type must also match the
+// incoming incident type so telemetry incidents are not merged into unrelated
+// Kubernetes lifecycle incidents on the same workload.
+func reportMatchesWorkloadRef(report *rcav1alpha1.IncidentReport, workloadRef *rcav1alpha1.IncidentObjectRef, incomingIncidentType string) bool {
 	if workloadRef == nil {
 		return false
+	}
+	if incident.IsOTelIncidentType(incomingIncidentType) {
+		reportIncidentType := report.Spec.IncidentType
+		if reportIncidentType == "" {
+			reportIncidentType = report.Status.IncidentType
+		}
+		if reportIncidentType != incomingIncidentType {
+			return false
+		}
 	}
 	if ref := report.Spec.Scope.WorkloadRef; ref != nil {
 		if ref.Kind == workloadRef.Kind && ref.Namespace == workloadRef.Namespace && ref.Name == workloadRef.Name {
@@ -801,9 +814,9 @@ func trimAffectedResources(in []rcav1alpha1.AffectedResource) []rcav1alpha1.Affe
 }
 
 // reportFingerprint computes the fingerprint for an existing IncidentReport.
-// The fingerprint is purely scope-based (no incident type), matching
-// Input.Fingerprint(). This ensures that different signal types targeting the
-// same resource share a single incident.
+// Kubernetes-native incidents remain scope-based; OTel incidents include
+// incident type to avoid collapsing service-runtime errors into unrelated
+// Kubernetes lifecycle incidents for the same workload.
 func reportFingerprint(report *rcav1alpha1.IncidentReport) string {
 	if report == nil {
 		return ""
@@ -847,17 +860,37 @@ func reportFingerprint(report *rcav1alpha1.IncidentReport) string {
 		for _, res := range report.Status.AffectedResources {
 			switch res.Kind {
 			case "Node":
-				return strings.Join([]string{"Cluster", "node", res.Name}, "|")
+				parts := []string{"Cluster", "node", res.Name}
+				if incident.IsOTelIncidentType(report.Spec.IncidentType) {
+					parts = append(parts, "type", report.Spec.IncidentType)
+				}
+				return strings.Join(parts, "|")
 			case "Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "ReplicaSet":
-				return strings.Join([]string{"Workload", res.Namespace, strings.ToLower(res.Kind), res.Name}, "|")
+				parts := []string{"Workload", res.Namespace, strings.ToLower(res.Kind), res.Name}
+				if incident.IsOTelIncidentType(report.Spec.IncidentType) {
+					parts = append(parts, "type", report.Spec.IncidentType)
+				}
+				return strings.Join(parts, "|")
 			case "Pod":
-				return strings.Join([]string{"Pod", res.Namespace, "pod", res.Name}, "|")
+				parts := []string{"Pod", res.Namespace, "pod", res.Name}
+				if incident.IsOTelIncidentType(report.Spec.IncidentType) {
+					parts = append(parts, "type", report.Spec.IncidentType)
+				}
+				return strings.Join(parts, "|")
 			}
 		}
 		if report.Namespace != "" {
-			return strings.Join([]string{"Namespace", report.Namespace}, "|")
+			parts := []string{"Namespace", report.Namespace}
+			if incident.IsOTelIncidentType(report.Spec.IncidentType) {
+				parts = append(parts, "type", report.Spec.IncidentType)
+			}
+			return strings.Join(parts, "|")
 		}
 		return report.Name
+	}
+
+	if incident.IsOTelIncidentType(report.Spec.IncidentType) {
+		parts = append(parts, "type", report.Spec.IncidentType)
 	}
 
 	return strings.Join(parts, "|")
