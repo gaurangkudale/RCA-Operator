@@ -41,6 +41,14 @@ func DefaultMappings() []SignalMapping {
 		{EventType: "StalledDaemonSet", IncidentType: "StalledDaemonSet", Severity: "P2", ScopeLevel: "Workload"},
 		{EventType: "JobFailed", IncidentType: "JobFailed", Severity: "P3", ScopeLevel: "Workload"},
 		{EventType: "CronJobFailed", IncidentType: "CronJobFailed", Severity: "P3", ScopeLevel: "Workload"},
+		// OTel-sourced signals. ScopeLevel defaults to Workload because spans
+		// carry service identity; the Enricher promotes pod→deployment scope
+		// when k8s.pod.name resource attributes are populated by the
+		// collector's k8sattributes processor.
+		{EventType: "OTelSpanError", IncidentType: "OTelSpanError", Severity: "P3", ScopeLevel: "Workload"},
+		{EventType: "OTelSpanLatencySpike", IncidentType: "OTelSpanLatencySpike", Severity: "P4", ScopeLevel: "Workload"},
+		{EventType: "OTelLogMatch", IncidentType: "OTelLogMatch", Severity: "P4", ScopeLevel: "Workload"},
+		{EventType: "OTelSpanEvent", IncidentType: "OTelSpanEvent", Severity: "P3", ScopeLevel: "Workload"},
 	}
 }
 
@@ -267,6 +275,14 @@ func extractBase(event watcher.CorrelatorEvent) watcher.BaseEvent {
 		return e.BaseEvent
 	case watcher.CronJobFailedEvent:
 		return e.BaseEvent
+	case watcher.OTelSpanErrorEvent:
+		return e.BaseEvent
+	case watcher.OTelSpanLatencySpikeEvent:
+		return e.BaseEvent
+	case watcher.OTelLogMatchEvent:
+		return e.BaseEvent
+	case watcher.OTelSpanEventEvent:
+		return e.BaseEvent
 	default:
 		return watcher.BaseEvent{}
 	}
@@ -302,6 +318,14 @@ func extractReason(event watcher.CorrelatorEvent) string {
 		return e.Reason
 	case watcher.CronJobFailedEvent:
 		return e.Reason
+	case watcher.OTelSpanErrorEvent:
+		return e.StatusCode
+	case watcher.OTelSpanLatencySpikeEvent:
+		return "LatencySpike"
+	case watcher.OTelLogMatchEvent:
+		return e.Severity
+	case watcher.OTelSpanEventEvent:
+		return e.EventName
 	default:
 		return ""
 	}
@@ -344,6 +368,17 @@ func buildSummary(event watcher.CorrelatorEvent) string {
 		return fmt.Sprintf("Job failed reason=%s message=%s", e.Reason, e.Message)
 	case watcher.CronJobFailedEvent:
 		return fmt.Sprintf("CronJob failed lastJob=%s reason=%s message=%s", e.LastJobName, e.Reason, e.Message)
+	case watcher.OTelSpanErrorEvent:
+		return fmt.Sprintf("Error span service=%s span=%s status=%s message=%s",
+			e.ServiceName, e.SpanName, e.StatusCode, e.StatusMessage)
+	case watcher.OTelSpanLatencySpikeEvent:
+		return fmt.Sprintf("Latency spike service=%s span=%s durationNs=%d thresholdNs=%d",
+			e.ServiceName, e.SpanName, e.DurationNanos, e.ThresholdNs)
+	case watcher.OTelLogMatchEvent:
+		return fmt.Sprintf("Log match service=%s severity=%s body=%s",
+			e.ServiceName, e.Severity, e.Body)
+	case watcher.OTelSpanEventEvent:
+		return fmt.Sprintf("Span event service=%s event=%s", e.ServiceName, e.EventName)
 	default:
 		return ""
 	}

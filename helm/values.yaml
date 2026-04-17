@@ -184,6 +184,57 @@ dashboard:
     #      - rca-operator.local
 
 # ────────────────────────────────────────────────────────────────────────────
+# Phase 2 — RCA OTLP ingest server
+# The controller-manager exposes an OTLP/HTTP endpoint that the cluster-wide
+# OTel Collector DaemonSet forwards a filtered subset of traces/logs to.
+# This feeds the correlation engine with OTel-native signals alongside the
+# existing Kubernetes-event-driven signals.
+# ────────────────────────────────────────────────────────────────────────────
+rcaIngest:
+  # When true, the controller-manager starts an OTLP/HTTP server on bindPort
+  # and the Helm chart renders the matching Service + NetworkPolicy + collector
+  # pipeline branch that forwards error spans / warn logs to this endpoint.
+  enabled: true
+
+  # TCP port the operator binds its OTLP/HTTP ingest on.
+  # The corresponding Service targets the container port named "otel-ingest".
+  bindPort: 4319
+
+  # Explicit endpoint override used by the DaemonSet collector's
+  # otlphttp/rca-operator exporter. Leave empty to auto-compute:
+  #   http://<ingestServiceName>.<releaseNamespace>.svc.cluster.local:<bindPort>
+  endpoint: ""
+
+  # NetworkPolicy restricting ingress on bindPort to the OTel Collector
+  # DaemonSet's ServiceAccount only. Prevents arbitrary workloads from pushing
+  # OTLP traffic into the correlation pipeline.
+  networkPolicy:
+    enabled: true
+
+# ────────────────────────────────────────────────────────────────────────────
+# Phase 2 — OTLP ingest filter settings
+# These thresholds are applied both in the DaemonSet collector (via
+# filter/errors + filter/severity OTTL processors) AND inside the operator's
+# ingest server (as a second pass). The collector filter keeps the RCA
+# pipeline small; the operator filter is the hard gate on what enters the
+# correlator buffer.
+# ────────────────────────────────────────────────────────────────────────────
+otelIngest:
+  filters:
+    traces:
+      # Keep spans where Status.Code == STATUS_CODE_ERROR.
+      statusCodeERROR: true
+      # Keep spans whose http.status_code / http.response.status_code is
+      # greater than or equal to this value. 0 disables the filter.
+      httpStatusGte: 500
+      # Keep spans whose duration is >= this value (milliseconds). 0 disables.
+      latencyP99Ms: 5000
+    logs:
+      # Minimum OTel severity text that enters the correlator.
+      # One of: TRACE | DEBUG | INFO | WARN | ERROR | FATAL
+      minSeverity: "WARN"
+
+# ────────────────────────────────────────────────────────────────────────────
 # OpenTelemetry Operator sub-chart (alias: opentelemetryOperator)
 # Manages the OpenTelemetryCollector and Instrumentation CRDs/resources.
 # Chart: open-telemetry/opentelemetry-operator v0.148.0

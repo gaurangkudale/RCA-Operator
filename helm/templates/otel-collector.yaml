@@ -16,8 +16,14 @@
 # └───────────────────────────────────────────────────────────────────────────┘
 #
 # Pipeline overview:
-#   logs  : filelog → k8sattributes, batch → debug
-#   traces: otlp   → memory_limiter, k8sattributes, batch → debug, otlp/jaeger
+#   logs      : filelog → k8sattributes, batch → debug
+#   traces    : otlp   → memory_limiter, k8sattributes, batch → debug, otlp/jaeger
+#
+# When .Values.rcaIngest.enabled is true, two parallel pipelines forward a
+# filtered subset to the operator's OTLP ingest endpoint:
+#   traces/rca: otlp   → memory_limiter, k8sattributes, filter/errors, batch → otlphttp/rca-operator
+#   logs/rca  : filelog → k8sattributes, filter/severity, batch            → otlphttp/rca-operator
+# The Jaeger pipeline is left untouched so UI/topology fidelity is preserved.
 apiVersion: opentelemetry.io/v1beta1
 kind: OpenTelemetryCollector
 metadata:
@@ -136,6 +142,26 @@ spec:
         limit_percentage: {{ .Values.otelCollector.memoryLimiter.limitPercentage }}
         spike_limit_percentage: {{ .Values.otelCollector.memoryLimiter.spikeLimitPercentage }}
 
+      {{- if .Values.rcaIngest.enabled }}
+      # filter/errors — OTTL-based processor that keeps only spans with
+      # STATUS_CODE_ERROR or attributes["http.status_code"] >= httpStatusGte.
+      # Used by the RCA-bound traces/rca pipeline so the operator sees only
+      # the subset of telemetry it actually correlates on.
+      filter/errors:
+        error_mode: ignore
+        traces:
+          span:
+            - >-
+              not (status.code == STATUS_CODE_ERROR{{ if gt (int .Values.otelIngest.filters.traces.httpStatusGte) 0 }} or attributes["http.status_code"] >= {{ .Values.otelIngest.filters.traces.httpStatusGte }} or attributes["http.response.status_code"] >= {{ .Values.otelIngest.filters.traces.httpStatusGte }}{{ end }})
+
+      # filter/severity — keep only log records with severity >= minSeverity.
+      filter/severity:
+        error_mode: ignore
+        logs:
+          log_record:
+            - severity_number < SEVERITY_NUMBER_{{ upper .Values.otelIngest.filters.logs.minSeverity }}
+      {{- end }}
+
     exporters:
       # Debug exporter — writes telemetry to the collector's own stdout.
       # Useful for troubleshooting; set verbosity to "basic" in production.
@@ -158,6 +184,25 @@ spec:
           num_consumers: {{ .Values.otelCollector.exporterQueue.numConsumers }}
           queue_size: {{ .Values.otelCollector.exporterQueue.queueSize }}
 
+      {{- if .Values.rcaIngest.enabled }}
+      # OTLP/HTTP exporter — forwards the RCA-pipeline subset to the operator's
+      # in-process ingest server. The operator re-filters at ingest time and
+      # writes matching signals into the shared correlator channel.
+      otlphttp/rca-operator:
+        endpoint: {{ include "rca-operator.ingestEndpoint" . | quote }}
+        tls:
+          insecure: true
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 120s
+        sending_queue:
+          enabled: true
+          num_consumers: 4
+          queue_size: 1000
+      {{- end }}
+
     service:
       pipelines:
         {{- if .Values.otelCollector.filelog.enabled }}
@@ -166,10 +211,24 @@ spec:
           receivers: [filelog]
           processors: [k8sattributes, batch]
           exporters: [debug]
+        {{- if .Values.rcaIngest.enabled }}
+        # logs/rca: filtered by severity → forward to operator ingest.
+        logs/rca:
+          receivers: [filelog]
+          processors: [k8sattributes, filter/severity, batch]
+          exporters: [otlphttp/rca-operator]
+        {{- end }}
         {{- end }}
         # Traces pipeline: receive OTLP → guard memory → enrich → forward to Jaeger.
         traces:
           receivers: [otlp]
           processors: [memory_limiter, k8sattributes, batch]
           exporters: [debug, otlp/jaeger]
+        {{- if .Values.rcaIngest.enabled }}
+        # traces/rca: filtered by error-status → forward to operator ingest.
+        traces/rca:
+          receivers: [otlp]
+          processors: [memory_limiter, k8sattributes, filter/errors, batch]
+          exporters: [otlphttp/rca-operator]
+        {{- end }}
 {{- end }}

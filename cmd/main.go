@@ -46,6 +46,7 @@ import (
 	"github.com/gaurangkudale/rca-operator/internal/engine"
 	"github.com/gaurangkudale/rca-operator/internal/notify"
 	rcaotel "github.com/gaurangkudale/rca-operator/internal/otel"
+	"github.com/gaurangkudale/rca-operator/internal/otelingest"
 	"github.com/gaurangkudale/rca-operator/internal/rulengine"
 	rcawebhook "github.com/gaurangkudale/rca-operator/internal/webhook"
 	// +kubebuilder:scaffold:imports
@@ -115,6 +116,23 @@ func main() {
 		"How often to analyze the buffer for patterns.")
 	flag.DurationVar(&autoDetectExpiry, "autodetect-expiry", time.Hour,
 		"Duration without observation before an auto-generated rule expires.")
+
+	// OTel ingest (Phase 2 Milestone A). Empty bind address disables the server.
+	var otelIngestBindAddr string
+	var otelIngestErrorStatus bool
+	var otelIngestHTTPStatusGte int
+	var otelIngestLatencyMs int
+	var otelIngestMinLogSeverity string
+	flag.StringVar(&otelIngestBindAddr, "otel-ingest-bind-address", "",
+		"The address the OTLP/HTTP ingest server binds to (e.g. ':4319'). Empty disables the ingest server.")
+	flag.BoolVar(&otelIngestErrorStatus, "otel-ingest-filter-error-status", true,
+		"Emit OTelSpanError signals when a span carries STATUS_CODE_ERROR.")
+	flag.IntVar(&otelIngestHTTPStatusGte, "otel-ingest-filter-http-status-gte", 500,
+		"Emit OTelSpanError signals when an http.status_code attribute meets or exceeds this value (0 disables).")
+	flag.IntVar(&otelIngestLatencyMs, "otel-ingest-filter-latency-ms", 5000,
+		"Emit OTelSpanLatencySpike signals when span duration exceeds this threshold in milliseconds (0 disables).")
+	flag.StringVar(&otelIngestMinLogSeverity, "otel-ingest-filter-min-log-severity", "WARN",
+		"Minimum OTel log severity to ingest (TRACE|DEBUG|INFO|WARN|ERROR|FATAL).")
 
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
@@ -295,6 +313,37 @@ func main() {
 	if err := mgr.Add(dashboardServer); err != nil {
 		setupLog.Error(err, "Failed to add dashboard server")
 		os.Exit(1)
+	}
+
+	// --- OTLP/HTTP Ingest Server (Phase 2 Milestone A) ---
+	// The DaemonSet OTel collector fans out filtered error spans and warn logs
+	// to this endpoint; the ingest server turns them into watcher.CorrelatorEvents
+	// and writes them to the same `signals` channel as K8s-event watchers.
+	if otelIngestBindAddr != "" {
+		ingestCfg := otelingest.DefaultConfig()
+		ingestCfg.BindAddress = otelIngestBindAddr
+		ingestCfg.TraceFilters.StatusCodeERROR = otelIngestErrorStatus
+		ingestCfg.TraceFilters.HTTPStatusGte = otelIngestHTTPStatusGte
+		ingestCfg.TraceFilters.LatencyP99Ms = otelIngestLatencyMs
+		ingestCfg.LogFilters.MinSeverity = otelIngestMinLogSeverity
+		// Milestone A: no user-configured redaction patterns yet; Helm chart will
+		// wire values.yaml insights.defaultRedactionPatterns into this list in
+		// Milestone E when the agent-level config is plumbed.
+		ingestCfg.Redaction = nil
+		ingestServer := otelingest.NewServer(ingestCfg, signalEmitter, ctrl.Log)
+		if err := mgr.Add(ingestServer); err != nil {
+			setupLog.Error(err, "Failed to add OTLP ingest server")
+			os.Exit(1)
+		}
+		setupLog.Info("OTLP ingest server registered",
+			"bindAddress", ingestCfg.BindAddress,
+			"errorStatus", ingestCfg.TraceFilters.StatusCodeERROR,
+			"httpStatusGte", ingestCfg.TraceFilters.HTTPStatusGte,
+			"latencyMs", ingestCfg.TraceFilters.LatencyP99Ms,
+			"minLogSeverity", ingestCfg.LogFilters.MinSeverity,
+		)
+	} else {
+		setupLog.Info("OTLP ingest server disabled (pass --otel-ingest-bind-address to enable)")
 	}
 
 	if err := (&controller.RCAAgentReconciler{

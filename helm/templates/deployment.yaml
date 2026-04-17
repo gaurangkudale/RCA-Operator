@@ -52,6 +52,13 @@ spec:
             - --autodetect-interval={{ .Values.autoDetect.interval }}
             - --autodetect-expiry={{ .Values.autoDetect.expiry }}
             {{- end }}
+            {{- if .Values.rcaIngest.enabled }}
+            - --otel-ingest-bind-address=:{{ .Values.rcaIngest.bindPort }}
+            - --otel-ingest-filter-error-status={{ .Values.otelIngest.filters.traces.statusCodeERROR }}
+            - --otel-ingest-filter-http-status-gte={{ .Values.otelIngest.filters.traces.httpStatusGte }}
+            - --otel-ingest-filter-latency-ms={{ .Values.otelIngest.filters.traces.latencyP99Ms }}
+            - --otel-ingest-filter-min-log-severity={{ .Values.otelIngest.filters.logs.minSeverity }}
+            {{- end }}
           env:
             {{- if .Values.otel.enabled }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
@@ -75,6 +82,11 @@ spec:
             {{- if .Values.metrics.enabled }}
             - name: metrics
               containerPort: {{ .Values.metrics.service.port }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.rcaIngest.enabled }}
+            - name: otel-ingest
+              containerPort: {{ .Values.rcaIngest.bindPort }}
               protocol: TCP
             {{- end }}
           {{- with .Values.livenessProbe }}

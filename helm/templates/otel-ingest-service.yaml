@@ -1,0 +1,22 @@
+{{- if .Values.rcaIngest.enabled }}
+# Phase 2 Milestone A — ClusterIP Service fronting the operator's OTLP/HTTP
+# ingest port. The OTel Collector DaemonSet's otlphttp/rca-operator exporter
+# routes to this Service; the selector matches the controller-manager pods.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rca-operator.ingestServiceName" . }}
+  namespace: {{ include "rca-operator.namespace" . }}
+  labels:
+    {{- include "rca-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-ingest
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "rca-operator.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: otel-ingest
+      port: {{ .Values.rcaIngest.bindPort }}
+      targetPort: otel-ingest
+      protocol: TCP
+{{- end }}

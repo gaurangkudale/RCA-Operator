@@ -134,3 +134,28 @@ Priority:
 {{- printf "http://%s.%s.svc.cluster.local:4318" (include "rca-operator.collectorServiceName" .) (include "rca-operator.namespace" .) }}
 {{- end -}}
 {{- end }}
+
+{{/*
+  rca-operator.ingestServiceName — ClusterIP service that fronts the operator's
+  OTLP/HTTP ingest port. Named separately from the controller-manager Deployment
+  so traffic from the OTel Collector DaemonSet can be routed without colliding
+  with dashboard or health ports.
+*/}}
+{{- define "rca-operator.ingestServiceName" -}}
+{{- printf "%s-otel-ingest" (include "rca-operator.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+  rca-operator.ingestEndpoint — fully-qualified OTLP/HTTP URL for the operator's
+  ingest port. Used by the DaemonSet collector's otlphttp/rca-operator exporter.
+  Priority:
+    1. .Values.rcaIngest.endpoint — explicit override
+    2. Auto-computed FQDN: http://<ingestServiceName>.<releaseNamespace>.svc.cluster.local:<bindPort>
+*/}}
+{{- define "rca-operator.ingestEndpoint" -}}
+{{- if .Values.rcaIngest.endpoint -}}
+{{- .Values.rcaIngest.endpoint }}
+{{- else -}}
+{{- printf "http://%s.%s.svc.cluster.local:%d" (include "rca-operator.ingestServiceName" .) (include "rca-operator.namespace" .) (int .Values.rcaIngest.bindPort) }}
+{{- end -}}
+{{- end }}

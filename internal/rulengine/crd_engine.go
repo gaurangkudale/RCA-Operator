@@ -6,7 +6,9 @@ package rulengine
 import (
 	"bytes"
 	"context"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"text/template"
@@ -153,10 +155,14 @@ func (e *CRDRuleEngine) conditionsMet(trigger watcher.CorrelatorEvent, condition
 			if string(en.Event.Type()) != cond.EventType {
 				continue
 			}
-			if e.scopeMatches(trigger, en.Event, cond.Scope) {
-				found = true
-				break
+			if !e.scopeMatches(trigger, en.Event, cond.Scope) {
+				continue
 			}
+			if !attributesMatch(en.Event, cond.Attributes) {
+				continue
+			}
+			found = true
+			break
 		}
 		if cond.Negate {
 			if found {
@@ -182,11 +188,107 @@ func (e *CRDRuleEngine) scopeMatches(trigger, candidate watcher.CorrelatorEvent,
 		return triggerBase.NodeName == candidateBase.NodeName && triggerBase.NodeName != ""
 	case "sameNamespace":
 		return triggerBase.Namespace == candidateBase.Namespace && triggerBase.Namespace != ""
+	case "sameTrace":
+		return sameTraceID(trigger, candidate)
 	case "any":
 		return true
 	default:
 		return triggerBase.Namespace == candidateBase.Namespace && triggerBase.PodName == candidateBase.PodName
 	}
+}
+
+// sameTraceID returns true when both events expose a non-empty "trace.id" in
+// their AttributesEvent map (or the promoted TraceID field surfaced via
+// Attributes()). Events that do not implement AttributesEvent always compare
+// unequal so rules using sameTrace can never cross the OTel ↔ K8s signal boundary.
+func sameTraceID(a, b watcher.CorrelatorEvent) bool {
+	aid := traceIDOf(a)
+	bid := traceIDOf(b)
+	return aid != "" && aid == bid
+}
+
+func traceIDOf(ev watcher.CorrelatorEvent) string {
+	ae, ok := ev.(watcher.AttributesEvent)
+	if !ok {
+		return ""
+	}
+	attrs := ae.Attributes()
+	if id, ok := attrs["trace.id"]; ok && id != "" {
+		return id
+	}
+	// Fallback to direct struct field for span/log events (promoted via mergedAttrs
+	// under the canonical "trace.id" key; this fallback covers legacy attributes).
+	return attrs["trace_id"]
+}
+
+// attributesMatch evaluates every predicate in matches against an event. Events
+// that do not implement watcher.AttributesEvent are treated as having no
+// attributes — every predicate except NotExists fails for them, preserving
+// backward compatibility with K8s-event-only rules that never set Attributes.
+func attributesMatch(ev watcher.CorrelatorEvent, matches []rcav1alpha1.AttributeMatch) bool {
+	if len(matches) == 0 {
+		return true
+	}
+	var attrs map[string]string
+	if ae, ok := ev.(watcher.AttributesEvent); ok {
+		attrs = ae.Attributes()
+	}
+	for _, m := range matches {
+		if !evaluateAttribute(attrs, m) {
+			return false
+		}
+	}
+	return true
+}
+
+func evaluateAttribute(attrs map[string]string, m rcav1alpha1.AttributeMatch) bool {
+	val, present := attrs[m.Key]
+	switch m.Op {
+	case "", "Equals":
+		return present && val == m.Value
+	case "NotEquals":
+		return !present || val != m.Value
+	case "Contains":
+		return present && strings.Contains(val, m.Value)
+	case "NotContains":
+		return !present || !strings.Contains(val, m.Value)
+	case "Regex":
+		if !present {
+			return false
+		}
+		re, err := regexp.Compile(m.Value)
+		if err != nil {
+			return false
+		}
+		return re.MatchString(val)
+	case "Exists":
+		return present && val != ""
+	case "NotExists":
+		return !present || val == ""
+	case "Gte", "Lte", "Gt", "Lt":
+		if !present {
+			return false
+		}
+		lhs, err := strconv.ParseFloat(val, 64)
+		if err != nil {
+			return false
+		}
+		rhs, err := strconv.ParseFloat(m.Value, 64)
+		if err != nil {
+			return false
+		}
+		switch m.Op {
+		case "Gte":
+			return lhs >= rhs
+		case "Lte":
+			return lhs <= rhs
+		case "Gt":
+			return lhs > rhs
+		case "Lt":
+			return lhs < rhs
+		}
+	}
+	return false
 }
 
 // ExtractBase extracts the BaseEvent fields from any CorrelatorEvent.
@@ -220,6 +322,14 @@ func ExtractBase(event watcher.CorrelatorEvent) watcher.BaseEvent {
 	case watcher.JobFailedEvent:
 		return e.BaseEvent
 	case watcher.CronJobFailedEvent:
+		return e.BaseEvent
+	case watcher.OTelSpanErrorEvent:
+		return e.BaseEvent
+	case watcher.OTelSpanLatencySpikeEvent:
+		return e.BaseEvent
+	case watcher.OTelLogMatchEvent:
+		return e.BaseEvent
+	case watcher.OTelSpanEventEvent:
 		return e.BaseEvent
 	default:
 		return watcher.BaseEvent{}

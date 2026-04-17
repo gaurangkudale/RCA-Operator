@@ -125,6 +125,59 @@ spec:
                   description: RuleCondition specifies an additional signal that must
                     be present in the buffer.
                   properties:
+                    attributes:
+                      description: |-
+                        attributes is an optional list of key/value predicates evaluated against
+                        candidate events that implement the AttributesEvent interface (OTel span
+                        and log signals). All predicates must match (AND logic). Events that do
+                        not expose attributes are treated as having no attributes — any predicate
+                        other than `NotExists` fails for such events.
+                      items:
+                        description: |-
+                          AttributeMatch is a single key/value predicate applied to an event's
+                          attributes map. It is used by RuleCondition.Attributes to match against
+                          OTel resource/span/log attributes (e.g. http.status_code, service.name).
+                        properties:
+                          key:
+                            description: |-
+                              key is the attribute name, e.g. "http.status_code" or "service.name".
+                              Dotted OTel semantic-convention keys are supported as-is.
+                            minLength: 1
+                            type: string
+                          op:
+                            default: Equals
+                            description: |-
+                              op is the predicate operator applied to the attribute value.
+                                Equals      — attribute value equals `value`
+                                NotEquals   — attribute value does not equal `value`
+                                Contains    — attribute value contains `value` as a substring
+                                NotContains — attribute value does not contain `value`
+                                Regex       — attribute value matches the RE2 regex in `value`
+                                Exists      — attribute is present with a non-empty value (`value` ignored)
+                                NotExists   — attribute is absent or empty (`value` ignored)
+                                Gte/Lte/Gt/Lt — numeric comparison against `value` (parses both sides as float64)
+                            enum:
+                            - Equals
+                            - NotEquals
+                            - Contains
+                            - NotContains
+                            - Regex
+                            - Exists
+                            - NotExists
+                            - Gte
+                            - Lte
+                            - Gt
+                            - Lt
+                            type: string
+                          value:
+                            description: value is the comparison target. Ignored for
+                              Exists/NotExists.
+                            type: string
+                        required:
+                        - key
+                        - op
+                        type: object
+                      type: array
                     eventType:
                       description: eventType is the signal type that must be present.
                       minLength: 1
@@ -142,6 +195,7 @@ spec:
                       - samePod
                       - sameNode
                       - sameNamespace
+                      - sameTrace
                       - any
                       type: string
                   required:
