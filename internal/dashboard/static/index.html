@@ -721,10 +721,8 @@ select { font-family: inherit; }
     <aside class="global-nav">
       <div class="nav-logo">◎</div>
       <nav class="nav-rail" id="nav">
-        <button class="nav-btn nav-item" data-tab="topology" onclick="window._tab('topology')" title="Topology"><span class="nav-icon">⟷</span><span class="nav-label">Topology</span></button>
         <button class="nav-btn nav-item active" data-tab="incidents" onclick="window._tab('incidents')" title="Incidents"><span class="nav-icon">⚠</span><span class="nav-label">Incidents</span></button>
-        <button class="nav-btn nav-item" data-tab="metrics" onclick="window._tab('metrics')" title="Metrics"><span class="nav-icon">◔</span><span class="nav-label">Metrics</span></button>
-        <button class="nav-btn nav-item" data-tab="logs" onclick="window._tab('logs')" title="Logs"><span class="nav-icon">☰</span><span class="nav-label">Logs</span></button>
+        <button class="nav-btn nav-item" data-tab="topology" onclick="window._tab('topology')" title="Topology"><span class="nav-icon">⟷</span><span class="nav-label">Topology</span></button>
         <button class="nav-btn nav-item" data-tab="rules" onclick="window._tab('rules')" title="Rules"><span class="nav-icon">✶</span><span class="nav-label">Rules</span></button>
         <button class="nav-btn nav-item" data-tab="agents" onclick="window._tab('agents')" title="Agents"><span class="nav-icon">⚙</span><span class="nav-label">Agents</span></button>
         <button class="nav-btn nav-item" data-tab="namespaces" onclick="window._tab('namespaces')" title="Namespaces"><span class="nav-icon">⌘</span><span class="nav-label">Namespaces</span></button>
@@ -775,7 +773,6 @@ select { font-family: inherit; }
             <div class="detail" id="detail-panel" style="display:none"></div>
           </div>
           <div class="status-bar" id="status-bar"></div>
-          <div class="timeline-strip" id="timeline-strip"></div>
         </div>
       </div>
     </div>
@@ -942,12 +939,10 @@ select { font-family: inherit; }
     renderAgents();renderRuleEngine();renderToolbar();
     if(activeTab==='topology'){renderTopologyTab()}
     else if(activeTab==='incidents'){renderIncidents();renderDetail()}
-    else if(activeTab==='metrics'){renderMetricsTab()}
-    else if(activeTab==='logs'){renderLogsTab()}
     else if(activeTab==='rules'){renderRulesTab()}
     else if(activeTab==='agents'){renderAgentsTab()}
     else if(activeTab==='namespaces'){renderNsTab()}
-    renderStatusBar();renderTimelineStrip();
+    renderStatusBar();
   }
 
   function renderHeader(){
@@ -1042,11 +1037,6 @@ select { font-family: inherit; }
 
   function renderToolbar(){
     var el=document.getElementById('toolbar');
-    if(activeTab==='metrics'||activeTab==='logs'){
-      var title=activeTab==='metrics'?'Cluster Metrics':'Unified Log Stream';
-      el.innerHTML='<span class="filter-label">'+title+'</span><span class="toolbar-spacer"></span><span class="toolbar-meta">UI-only view • will bind dedicated APIs later</span>';
-      return;
-    }
     var types={};incidents.forEach(function(i){if(i.incidentType)types[i.incidentType]=true});
     var typeList=Object.keys(types);var f=getFiltered();
     var h='<div class="filter-group"><span class="filter-label">Phase</span>';
@@ -1077,7 +1067,8 @@ select { font-family: inherit; }
     if(!hasSel){
       h+='<div class="list-header"><span style="width:22px">#</span><span style="width:36px">Sev</span>'+
         '<span style="flex:2">Service</span><span style="width:100px">Namespace</span>'+
-        '<span style="width:90px">Phase</span><span style="width:80px;text-align:right">Started</span></div>';
+        '<span style="width:90px">Phase</span><span style="width:80px;text-align:right">Started</span>'+
+        '<span style="width:86px;text-align:center">Action</span></div>';
     }
     if(!list.length){
       h+='<div class="empty-state"><div class="empty-state-title">No incidents match</div>'+
@@ -1098,60 +1089,11 @@ select { font-family: inherit; }
         if(!hasSel){
           h+='<div class="inc-time"><div class="inc-time-rel">'+relTime(startTime(inc))+'</div>';
           h+='<div class="inc-time-abs">'+absTime(startTime(inc))+'</div></div>';
+          h+='<button class="inc-topo-btn" title="Open topology for this incident" onclick="event.stopPropagation();window._goTopo(\''+esc(key)+'\')">Topology \u2192</button>';
         }
         h+='</div>';
       });
     }
-    el.innerHTML=h;
-  }
-
-  function renderMetricsTab(){
-    var el=document.getElementById('list-pane');
-    document.getElementById('detail-panel').style.display='none';
-    el.className='list-pane full';
-    var active=stats.active||0;
-    var resolved=stats.resolved||0;
-    var total=incidents.length||0;
-    var p1=incidents.filter(function(i){return i.severity==='P1'&&i.phase!=='Resolved'}).length;
-    var bars=[28,42,51,63,72,88];
-    var html='';
-    html+='<div class="metrics-grid">';
-    html+='<div class="metric-panel"><div class="metric-panel-title">Active Incidents</div><div class="metric-panel-value" style="color:var(--red)">'+active+'</div><div class="mini-bars">'+bars.map(function(h){return '<span style="height:'+h+'%"></span>'}).join('')+'</div></div>';
-    html+='<div class="metric-panel"><div class="metric-panel-title">Resolved Incidents</div><div class="metric-panel-value" style="color:var(--green)">'+resolved+'</div><div class="mini-bars">'+bars.slice().reverse().map(function(h){return '<span style="height:'+h+'%;background:var(--green)"></span>'}).join('')+'</div></div>';
-    html+='<div class="metric-panel"><div class="metric-panel-title">P1 Open</div><div class="metric-panel-value" style="color:var(--amber)">'+p1+'</div><div class="mini-bars">'+[20,24,33,46,58,67].map(function(h){return '<span style="height:'+h+'%;background:var(--amber)"></span>'}).join('')+'</div></div>';
-    html+='</div>';
-    html+='<div style="padding:0 12px 12px 12px;font-size:12px;color:var(--text-secondary)">'
-      +'Total observed incidents: <span style="font-family:var(--font-mono);color:var(--text-primary)">'+total+'</span>. '
-      +'This panel is UI-only for now and uses existing stats/incidents endpoints.</div>';
-    el.innerHTML=html;
-  }
-
-  function renderLogsTab(){
-    var el=document.getElementById('list-pane');
-    document.getElementById('detail-panel').style.display='none';
-    el.className='list-pane full';
-    var items=[];
-    incidents.slice().sort(function(a,b){return startTime(b).localeCompare(startTime(a))}).slice(0,10).forEach(function(inc){
-      items.push({
-        time:startTime(inc),
-        level:inc.phase==='Resolved'?'INFO':(inc.severity==='P1'?'ERROR':'WARN'),
-        src:dname(inc),
-        msg:(inc.summary||inc.message||inc.incidentType||'Incident signal observed')
-      });
-    });
-    if(!items.length){
-      el.innerHTML='<div class="empty-state"><div class="empty-state-title">No log-like events available</div><div class="empty-state-sub">Logs view will bind to a dedicated feed later</div></div>';
-      return;
-    }
-    var h='<div class="log-stream">';
-    items.forEach(function(it){
-      var c=it.level==='ERROR'?'var(--red)':(it.level==='WARN'?'var(--amber)':'var(--green)');
-      h+='<div class="log-row"><span style="color:var(--text-tertiary)">'+esc(absTime(it.time)||'--:--:--')+'</span>'
-        +'<span class="log-level" style="background:'+c+'22;color:'+c+'">'+esc(it.level)+'</span>'
-        +'<span style="color:var(--text-secondary)">['+esc(it.src)+']</span>'
-        +'<span style="color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(it.msg)+'</span></div>';
-    });
-    h+='</div>';
     el.innerHTML=h;
   }
 
@@ -1199,6 +1141,7 @@ select { font-family: inherit; }
     p+='<div><div class="section-title">Service Graph</div>';
     p+='<div id="topo-graph-canvas" style="height:460px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--bg-raised)"></div>';
     p+='<div id="topo-graph-status" style="font-size:12px;color:var(--text-tertiary);margin-top:6px">Loading topology…</div></div>';
+    p+='<div><div class="section-title">Live Correlation Stream</div>'+buildCorrelationStream(selected)+'</div>';
     p+='<div class="card" style="justify-content:space-between"><span style="font-size:12px;color:var(--text-secondary)">Last observed</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--text-primary)">'+esc(absTime(startTime(selected))||'n/a')+'</span></div>';
     p+='</div>';
     panel.innerHTML=p;
@@ -1570,47 +1513,37 @@ select { font-family: inherit; }
       '<div style="flex:1"></div><span>RCA Operator v0.0.15</span>';
   }
 
-  function renderTimelineStrip(){
-    var el=document.getElementById('timeline-strip');
-    if(!el)return;
+  function buildCorrelationStream(inc){
+    if(!inc)return'';
     var events=[];
-    incidents.forEach(function(inc){
-      var t=inc.timeline||[];
-      if(t.length){
-        t.forEach(function(ev){
-          events.push({
-            time:ev.time,
-            title:ev.event||inc.incidentType||'Incident event',
-            ns:inc.namespace,
-            service:dname(inc),
-            sev:inc.severity||'P4'
-          });
-        });
-      } else if(startTime(inc)) {
-        events.push({
-          time:startTime(inc),
-          title:inc.incidentType||'Incident detected',
-          ns:inc.namespace,
-          service:dname(inc),
-          sev:inc.severity||'P4'
-        });
-      }
+    var tl=inc.timeline||[];
+    if(tl.length){
+      tl.forEach(function(ev){
+        events.push({time:ev.time,title:ev.event||inc.incidentType||'Incident event'});
+      });
+    } else if(startTime(inc)){
+      events.push({time:startTime(inc),title:inc.incidentType||'Incident detected'});
+    }
+    (inc.correlatedSignals||[]).forEach(function(s){
+      events.push({time:startTime(inc),title:s,signal:true});
     });
     events.sort(function(a,b){return String(b.time||'').localeCompare(String(a.time||''))});
     events=events.slice(0,12);
+    var sev=inc.severity||'P4';
+    var ns=inc.namespace||'';
+    var svc=dname(inc);
     if(!events.length){
-      el.innerHTML='<div class="timeline-strip-head">Live Correlation Stream</div><div class="timeline-strip-track"><div class="timeline-pill"><div class="timeline-pill-title">No correlation events yet</div><div class="timeline-pill-meta">Timeline strip will populate when incidents arrive</div></div></div>';
-      return;
+      return '<div class="timeline-strip-track"><div class="timeline-pill"><div class="timeline-pill-title">No correlation events yet</div><div class="timeline-pill-meta">Stream will populate when signals arrive</div></div></div>';
     }
-    var h='<div class="timeline-strip-head">Live Correlation Stream</div><div class="timeline-strip-track">';
+    var h='<div class="timeline-strip-track">';
     events.forEach(function(ev){
-      var cls=String(ev.sev||'').toLowerCase();
+      var cls=String(sev).toLowerCase();
       h+='<div class="timeline-pill '+cls+'"><div class="timeline-pill-time">'+esc(absTime(ev.time)||'--:--:--')+'</div>'
         +'<div class="timeline-pill-title">'+esc(ev.title)+'</div>'
-        +'<div class="timeline-pill-meta">'+esc(ev.ns)+' · '+esc(ev.service)+' · '+esc(ev.sev)+'</div></div>';
+        +'<div class="timeline-pill-meta">'+esc(ns)+' · '+esc(svc)+' · '+esc(sev)+'</div></div>';
     });
     h+='</div>';
-    el.innerHTML=h;
+    return h;
   }
 
   /* ── Event Handlers ────────────────────────── */
@@ -1624,6 +1557,15 @@ select { font-family: inherit; }
   window._selTopo=function(key){
     selectedKey=key;
     renderTopologyTab();
+    hydrateIncidentDetail(key,function(){if(selectedKey===key&&activeTab==='topology')renderTopologyTab()});
+  };
+  window._goTopo=function(key){
+    activeTab='topology';
+    selectedKey=key;
+    document.querySelectorAll('#nav .nav-item').forEach(function(el){
+      el.className='nav-btn nav-item'+(el.getAttribute('data-tab')==='topology'?' active':'');
+    });
+    render();
     hydrateIncidentDetail(key,function(){if(selectedKey===key&&activeTab==='topology')renderTopologyTab()});
   };
   window._close=function(){selectedKey=null;renderIncidents();renderDetail()};
