@@ -41,9 +41,9 @@ import (
 )
 
 // IncidentGraphBuilder is the minimum interface the reconciler needs to build
-// the incident topology graph on transition to Active. It is satisfied by
-// *graph.Builder; declared as an interface so tests can inject fakes and so
-// the dependency is optional (a nil builder skips graph construction).
+// the incident topology graph. It is satisfied by *graph.Builder; declared as
+// an interface so tests can inject fakes and so the dependency is optional (a
+// nil builder skips graph construction).
 type IncidentGraphBuilder interface {
 	Build(ctx context.Context, incident *rcav1alpha1.IncidentReport) (*graph.IncidentGraph, error)
 }
@@ -109,7 +109,15 @@ func (r *IncidentReportReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 }
 
-func (r *IncidentReportReconciler) reconcileDetecting(ctx context.Context, _ logr.Logger, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+func (r *IncidentReportReconciler) reconcileDetecting(ctx context.Context, log logr.Logger, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+	if changed, err := r.ensureIncidentGraph(ctx, log, report); err != nil {
+		return ctrl.Result{}, err
+	} else if changed {
+		if err := r.Get(ctx, types.NamespacedName{Namespace: report.Namespace, Name: report.Name}, report); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+	}
+
 	firstObserved := incidentstatus.EffectiveStartTime(report.Status)
 	if firstObserved == nil {
 		return r.transitionToActive(ctx, report)
@@ -140,7 +148,15 @@ func (r *IncidentReportReconciler) reconcileDetecting(ctx context.Context, _ log
 	return r.transitionToResolved(ctx, report, "Incident cleared before activation")
 }
 
-func (r *IncidentReportReconciler) reconcileActive(ctx context.Context, _ logr.Logger, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+func (r *IncidentReportReconciler) reconcileActive(ctx context.Context, log logr.Logger, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+	if changed, err := r.ensureIncidentGraph(ctx, log, report); err != nil {
+		return ctrl.Result{}, err
+	} else if changed {
+		if err := r.Get(ctx, types.NamespacedName{Namespace: report.Namespace, Name: report.Name}, report); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+	}
+
 	if !report.Status.Notified {
 		if err := r.sendOpenNotifications(ctx, report); err != nil {
 			return ctrl.Result{}, err
@@ -180,7 +196,15 @@ func (r *IncidentReportReconciler) reconcileActive(ctx context.Context, _ logr.L
 		fmt.Sprintf("No confirming signals for %.0f minutes and issue state cleared", healthyResolveWindow.Minutes()))
 }
 
-func (r *IncidentReportReconciler) reconcileResolved(ctx context.Context, _ logr.Logger, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+func (r *IncidentReportReconciler) reconcileResolved(ctx context.Context, log logr.Logger, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+	if changed, err := r.ensureIncidentGraph(ctx, log, report); err != nil {
+		return ctrl.Result{}, err
+	} else if changed {
+		if err := r.Get(ctx, types.NamespacedName{Namespace: report.Namespace, Name: report.Name}, report); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+	}
+
 	if err := r.recordResolvedMetric(ctx, report); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -240,6 +264,28 @@ func (r *IncidentReportReconciler) buildIncidentGraph(ctx context.Context, log l
 		return nil
 	}
 	return &runtime.RawExtension{Raw: encoded}
+}
+
+// ensureIncidentGraph backfills status.incidentGraph when it is currently
+// empty. This allows the dashboard to render topology during Detecting/Resolved
+// phases as well, rather than only after Detecting -> Active transition.
+// Returns changed=true when a status patch was applied.
+func (r *IncidentReportReconciler) ensureIncidentGraph(ctx context.Context, log logr.Logger, report *rcav1alpha1.IncidentReport) (bool, error) {
+	if report.Status.IncidentGraph != nil && len(report.Status.IncidentGraph.Raw) > 0 {
+		return false, nil
+	}
+
+	raw := r.buildIncidentGraph(ctx, log, report)
+	if raw == nil {
+		return false, nil
+	}
+
+	base := report.DeepCopy()
+	report.Status.IncidentGraph = raw
+	if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
+		return false, fmt.Errorf("failed to patch IncidentReport %s/%s topology graph: %w", report.Namespace, report.Name, err)
+	}
+	return true, nil
 }
 
 func (r *IncidentReportReconciler) transitionToResolved(ctx context.Context, report *rcav1alpha1.IncidentReport, reason string) (ctrl.Result, error) {

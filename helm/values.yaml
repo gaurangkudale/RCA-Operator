@@ -247,7 +247,7 @@ graphBuilder:
   #   http://<release-name>-jaeger:16686
   # Set explicitly when using an external Jaeger instance, e.g.:
   #   jaegerQueryURL: "http://jaeger-query.observability.svc.cluster.local:16686"
-  jaegerQueryURL: ""
+  jaegerQueryURL: "http://rca-jaeger:16686"
 
 # ────────────────────────────────────────────────────────────────────────────
 # OpenTelemetry Operator sub-chart (alias: opentelemetryOperator)
