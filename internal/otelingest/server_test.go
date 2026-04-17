@@ -79,7 +79,8 @@ func TestServer_TracesProtobufHappyPath(t *testing.T) {
 				kvStr("service.name", "checkout"),
 			}},
 			ScopeSpans: []*tracepb.ScopeSpans{{Spans: []*tracepb.Span{{
-				TraceId:           []byte{0x1, 0x2}, SpanId: []byte{0x3, 0x4},
+				TraceId:           []byte{0x1, 0x2},
+				SpanId:            []byte{0x3, 0x4},
 				Name:              "server-op",
 				Kind:              tracepb.Span_SPAN_KIND_SERVER,
 				StartTimeUnixNano: uint64(start.UnixNano()),

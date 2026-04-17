@@ -1,6 +1,9 @@
 package watcher
 
-import "time"
+import (
+	"maps"
+	"time"
+)
 
 // EventType identifies the concrete watcher signal type sent to the correlator.
 type EventType string
@@ -480,14 +483,10 @@ type baseAttrHolder struct {
 // fields into a single map keyed for CRD rule condition matching. Struct-level
 // fields take precedence over attrs/resourceAttrs on key collisions to guarantee
 // that well-known keys like "service.name" always reflect the event's promoted field.
-func mergedAttrs(attrs, resourceAttrs map[string]string, self interface{}) map[string]string {
+func mergedAttrs(attrs, resourceAttrs map[string]string, self any) map[string]string {
 	out := make(map[string]string, len(attrs)+len(resourceAttrs)+8)
-	for k, v := range resourceAttrs {
-		out[k] = v
-	}
-	for k, v := range attrs {
-		out[k] = v
-	}
+	maps.Copy(out, resourceAttrs)
+	maps.Copy(out, attrs)
 	switch s := self.(type) {
 	case OTelSpanErrorEvent:
 		if s.ServiceName != "" {

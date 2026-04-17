@@ -48,12 +48,12 @@ func kvBool(k string, v bool) *commonpb.KeyValue {
 	return &commonpb.KeyValue{Key: k, Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_BoolValue{BoolValue: v}}}
 }
 
-func k8sResource(ns, pod, node string) *resourcepb.Resource {
+func k8sResource() *resourcepb.Resource {
 	return &resourcepb.Resource{Attributes: []*commonpb.KeyValue{
 		kvStr("service.name", "checkout"),
-		kvStr("k8s.namespace.name", ns),
-		kvStr("k8s.pod.name", pod),
-		kvStr("k8s.node.name", node),
+		kvStr("k8s.namespace.name", "demo"),
+		kvStr("k8s.pod.name", "api-0"),
+		kvStr("k8s.node.name", "node-a"),
 	}}
 }
 
@@ -71,7 +71,7 @@ func TestTranslator_ErrorStatusEmitsSpanError(t *testing.T) {
 	start := time.Date(2026, 4, 17, 12, 0, 0, 0, time.UTC)
 	end := start.Add(10 * time.Millisecond)
 	rss := []*tracepb.ResourceSpans{{
-		Resource: k8sResource("demo", "api-0", "node-a"),
+		Resource: k8sResource(),
 		ScopeSpans: []*tracepb.ScopeSpans{{
 			Spans: []*tracepb.Span{{
 				TraceId:           []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10},
@@ -113,7 +113,7 @@ func TestTranslator_HTTPStatus500EmitsEvenOnUnsetStatus(t *testing.T) {
 	tr := NewTranslator(defaultCfg(), em)
 
 	rss := []*tracepb.ResourceSpans{{
-		Resource: k8sResource("demo", "api-0", "node-a"),
+		Resource: k8sResource(),
 		ScopeSpans: []*tracepb.ScopeSpans{{Spans: []*tracepb.Span{{
 			TraceId: []byte{0xaa}, SpanId: []byte{0xbb},
 			Name:       "POST /order",
@@ -136,7 +136,7 @@ func TestTranslator_HTTPStatus200DoesNotEmit(t *testing.T) {
 	tr := NewTranslator(defaultCfg(), em)
 
 	rss := []*tracepb.ResourceSpans{{
-		Resource: k8sResource("demo", "api-0", "node-a"),
+		Resource: k8sResource(),
 		ScopeSpans: []*tracepb.ScopeSpans{{Spans: []*tracepb.Span{{
 			TraceId: []byte{0xaa}, SpanId: []byte{0xbb},
 			Name:       "GET /healthz",
@@ -160,7 +160,7 @@ func TestTranslator_LatencySpikeEmitsSeparateEvent(t *testing.T) {
 	end := start.Add(250 * time.Millisecond)
 
 	rss := []*tracepb.ResourceSpans{{
-		Resource: k8sResource("demo", "api-0", "node-a"),
+		Resource: k8sResource(),
 		ScopeSpans: []*tracepb.ScopeSpans{{Spans: []*tracepb.Span{{
 			TraceId: []byte{0xaa}, SpanId: []byte{0xbb},
 			Name:              "GET /slow",
@@ -190,10 +190,8 @@ func TestTranslator_LatencySpikeEmitsSeparateEvent(t *testing.T) {
 
 func TestTranslator_SpanEventBecomesOwnSignal(t *testing.T) {
 	em := &captureEmitter{}
-	tr := NewTranslator(defaultCfg(), em)
-
 	rss := []*tracepb.ResourceSpans{{
-		Resource: k8sResource("demo", "api-0", "node-a"),
+		Resource: k8sResource(),
 		ScopeSpans: []*tracepb.ScopeSpans{{Spans: []*tracepb.Span{{
 			TraceId: []byte{0xaa}, SpanId: []byte{0xbb},
 			Status: &tracepb.Status{Code: tracepb.Status_STATUS_CODE_OK},
@@ -210,7 +208,7 @@ func TestTranslator_SpanEventBecomesOwnSignal(t *testing.T) {
 	// Redact emails so we can verify redaction reaches span-event attrs.
 	cfg := defaultCfg()
 	cfg.Redaction = []*regexp.Regexp{regexp.MustCompile(`[\w.+-]+@[\w.-]+`)}
-	tr = NewTranslator(cfg, em)
+	tr := NewTranslator(cfg, em)
 
 	n := tr.TranslateResourceSpans(rss)
 	if n != 1 {
@@ -234,7 +232,7 @@ func TestTranslator_LogBelowSeverityDropped(t *testing.T) {
 	tr := NewTranslator(defaultCfg(), em)
 
 	rls := []*logspb.ResourceLogs{{
-		Resource: k8sResource("demo", "api-0", "node-a"),
+		Resource: k8sResource(),
 		ScopeLogs: []*logspb.ScopeLogs{{LogRecords: []*logspb.LogRecord{{
 			SeverityNumber: logspb.SeverityNumber_SEVERITY_NUMBER_INFO,
 			Body:           &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "normal"}},
@@ -253,7 +251,7 @@ func TestTranslator_LogAtOrAboveSeverityEmits(t *testing.T) {
 	tr := NewTranslator(cfg, em)
 
 	rls := []*logspb.ResourceLogs{{
-		Resource: k8sResource("demo", "api-0", "node-a"),
+		Resource: k8sResource(),
 		ScopeLogs: []*logspb.ScopeLogs{{LogRecords: []*logspb.LogRecord{{
 			SeverityNumber: logspb.SeverityNumber_SEVERITY_NUMBER_ERROR,
 			Body:           &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "failed for user@example.com"}},

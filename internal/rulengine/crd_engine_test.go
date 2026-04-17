@@ -11,9 +11,9 @@ import (
 
 // ---- helpers ---------------------------------------------------------------
 
-func spanErr(ns, pod, node, traceID, spanID string, attrs map[string]string) watcher.OTelSpanErrorEvent {
+func spanErr(node, traceID, spanID string, attrs map[string]string) watcher.OTelSpanErrorEvent {
 	return watcher.OTelSpanErrorEvent{
-		BaseEvent:   watcher.BaseEvent{At: time.Now(), Namespace: ns, PodName: pod, NodeName: node},
+		BaseEvent:   watcher.BaseEvent{At: time.Now(), Namespace: "demo", PodName: "api-0", NodeName: node},
 		TraceID:     traceID,
 		SpanID:      spanID,
 		ServiceName: "checkout",
@@ -24,9 +24,9 @@ func spanErr(ns, pod, node, traceID, spanID string, attrs map[string]string) wat
 	}
 }
 
-func logMatch(ns, pod, traceID, body string, sevNum int32, sevText string) watcher.OTelLogMatchEvent {
+func logMatch(traceID, body string, sevNum int32, sevText string) watcher.OTelLogMatchEvent {
 	return watcher.OTelLogMatchEvent{
-		BaseEvent:   watcher.BaseEvent{At: time.Now(), Namespace: ns, PodName: pod},
+		BaseEvent:   watcher.BaseEvent{At: time.Now(), Namespace: "demo", PodName: "api-0"},
 		TraceID:     traceID,
 		ServiceName: "checkout",
 		Severity:    sevText,
@@ -158,7 +158,7 @@ func TestEvaluateAttribute_UnknownOpReturnsFalse(t *testing.T) {
 // ---- attributesMatch tests -------------------------------------------------
 
 func TestAttributesMatch_EmptyMatchesAlwaysTrue(t *testing.T) {
-	ev := spanErr("demo", "api-0", "node-a", "t1", "s1", nil)
+	ev := spanErr("node-a", "t1", "s1", nil)
 	if !attributesMatch(ev, nil) {
 		t.Error("empty matches should return true")
 	}
@@ -179,7 +179,7 @@ func TestAttributesMatch_NonAttributesEventFailsUnlessNotExists(t *testing.T) {
 }
 
 func TestAttributesMatch_AllPredicatesMustMatchAND(t *testing.T) {
-	ev := spanErr("demo", "api-0", "node-a", "t1", "s1", map[string]string{
+	ev := spanErr("node-a", "t1", "s1", map[string]string{
 		"http.status_code": "503",
 	})
 	// Two predicates both satisfied.
@@ -207,11 +207,11 @@ func TestConditionsMet_SameTraceAndAttributeFilter(t *testing.T) {
 	traceA := "aaaabbbbccccddddeeeeffff00001111"
 	traceB := "2222333344445555666677778888aaaa"
 
-	trigger := spanErr("demo", "api-0", "node-1", traceA, "s1",
+	trigger := spanErr("node-1", traceA, "s1",
 		map[string]string{"http.status_code": "503"})
 	// Buffer entries: one log in the same trace (match), one in a different trace (no match).
-	sameTraceLog := logMatch("demo", "api-0", traceA, "timeout calling db", 17, "ERROR")
-	otherTraceLog := logMatch("demo", "api-0", traceB, "timeout calling db", 17, "ERROR")
+	sameTraceLog := logMatch(traceA, "timeout calling db", 17, "ERROR")
+	otherTraceLog := logMatch(traceB, "timeout calling db", 17, "ERROR")
 	entries := bufFor(sameTraceLog, otherTraceLog)
 
 	conditions := []rcav1alpha1.RuleCondition{{
@@ -234,10 +234,10 @@ func TestConditionsMet_SameTraceAndAttributeFilter(t *testing.T) {
 func TestConditionsMet_NegateRespectsAttributes(t *testing.T) {
 	eng := &CRDRuleEngine{}
 	traceA := "aaaabbbbccccddddeeeeffff00001111"
-	trigger := spanErr("demo", "api-0", "node-1", traceA, "s1", nil)
+	trigger := spanErr("node-1", traceA, "s1", nil)
 
 	// A matching severity=ERROR log exists; negate=true should reject.
-	entries := bufFor(logMatch("demo", "api-0", traceA, "boom", 17, "ERROR"))
+	entries := bufFor(logMatch(traceA, "boom", 17, "ERROR"))
 	neg := []rcav1alpha1.RuleCondition{{
 		EventType: string(watcher.EventTypeOTelLogMatch),
 		Scope:     "sameTrace",
@@ -251,7 +251,7 @@ func TestConditionsMet_NegateRespectsAttributes(t *testing.T) {
 	}
 
 	// Only a FATAL severity log exists → ERROR predicate fails → negated succeeds.
-	entries2 := bufFor(logMatch("demo", "api-0", traceA, "boom", 21, "FATAL"))
+	entries2 := bufFor(logMatch(traceA, "boom", 21, "FATAL"))
 	if !eng.conditionsMet(trigger, neg, entries2) {
 		t.Error("negated ERROR predicate should succeed when no ERROR log present")
 	}
@@ -260,25 +260,25 @@ func TestConditionsMet_NegateRespectsAttributes(t *testing.T) {
 func TestSameTraceID_RequiresBothSides(t *testing.T) {
 	// Event without trace ID (K8s event) should never match sameTrace.
 	crash := watcher.CrashLoopBackOffEvent{BaseEvent: watcher.BaseEvent{Namespace: "demo", PodName: "api-0"}}
-	span := spanErr("demo", "api-0", "node-1", "t1", "s1", nil)
+	span := spanErr("node-1", "t1", "s1", nil)
 	if sameTraceID(crash, span) {
 		t.Error("K8s event vs OTel span: sameTrace should not match")
 	}
 	// Two spans in same trace: match.
-	spanA := spanErr("demo", "api-0", "node-1", "t1", "s1", nil)
-	spanB := spanErr("demo", "api-0", "node-1", "t1", "s2", nil)
+	spanA := spanErr("node-1", "t1", "s1", nil)
+	spanB := spanErr("node-1", "t1", "s2", nil)
 	if !sameTraceID(spanA, spanB) {
 		t.Error("two spans in same trace should match")
 	}
 	// Different traces: no match.
-	spanC := spanErr("demo", "api-0", "node-1", "t2", "s3", nil)
+	spanC := spanErr("node-1", "t2", "s3", nil)
 	if sameTraceID(spanA, spanC) {
 		t.Error("different trace IDs should not match")
 	}
 }
 
 func TestExtractBase_CoversOTelEvents(t *testing.T) {
-	span := spanErr("demo", "api-0", "node-1", "t1", "s1", nil)
+	span := spanErr("node-1", "t1", "s1", nil)
 	if b := ExtractBase(span); b.Namespace != "demo" || b.PodName != "api-0" || b.NodeName != "node-1" {
 		t.Errorf("OTelSpanErrorEvent base not extracted: %+v", b)
 	}
