@@ -148,7 +148,7 @@ docker-build: ## Build docker image with the manager.
 	$(CONTAINER_TOOL) build -t ${IMG} .
 
 .PHONY: kind-build-load
-kind-build-load: docker-budokcer ild ## Build the image and load it into the first detected Kind cluster.
+kind-build-load: docker-build ## Build the image and load it into the first detected Kind cluster.
 	@cluster="$$( $(KIND) get clusters 2>/dev/null | head -n 1 )"; \
 	if [ -z "$$cluster" ]; then \
 		echo "No Kind cluster found."; \
