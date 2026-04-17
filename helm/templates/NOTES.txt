@@ -5,6 +5,7 @@
 {{- $jaegerSvc   := printf "%s-jaeger" $release -}}
 {{- $otlpGrpc    := include "rca-operator.jaegerOtlpEndpoint" . -}}
 {{- $otlpHttp    := include "rca-operator.otlpEndpoint" . -}}
+{{- $jaegerQuery := include "rca-operator.jaegerQueryURL" . -}}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   RCA Operator  {{ if .Release.IsUpgrade }}(upgraded to v{{ .Chart.AppVersion }}){{ else }}(installed v{{ .Chart.AppVersion }}){{ end }}
@@ -18,12 +19,33 @@
 
 {{ end -}}
 
-▶  TELEMETRY DATA FLOW
-   ┌──────────────┐   OTLP gRPC    ┌──────────────┐   OTLP gRPC    ┌──────────┐
-   │  Your App    │ ─────────────► │ OTel          │ ─────────────► │  Jaeger  │
-   │  (workload)  │ :4318 (HTTP)   │ Collector     │ :4317          │  UI      │
-   └──────────────┘                │ DaemonSet     │                │ :16686   │
-                                   └──────────────┘                └──────────┘
+▶  TELEMETRY DATA FLOW (single helm install deploys everything below)
+
+   Your App Pods
+     │  auto-instrumented via Instrumentation CR
+     │  OTLP HTTP → {{ $otlpHttp }}
+     ▼
+   OTel Collector DaemonSet  ({{ $collSvc }})
+     │  :4317/:4318 OTLP in — k8sattributes enrichment — filelog tailing
+     │
+     ├─── ALL traces ──────────────────────────────────► Jaeger  ({{ $otlpGrpc }})
+     │                                                   └── UI: {{ $jaegerSvc }}:16686
+     │
+     └─── ERROR spans + WARN logs (filtered) ──────────► RCA Operator Ingest (:{{ .Values.rcaIngest.bindPort }})
+                                                           │  trace-id captured, signals correlated
+                                                           ▼
+                                                         Incident Correlator
+                                                           │
+{{- if $jaegerQuery }}
+                                                           ├─ graph enrichment ◄── Jaeger Query API
+                                                           │                       {{ $jaegerQuery }}
+{{- end }}
+                                                           ▼
+                                                         IncidentReport CR
+                                                           │
+                                                           ▼
+                                                         Dashboard :{{ .Values.dashboard.port }}
+
    Trace enrichment: k8sattributes processor adds pod/node/namespace metadata.
    Log collection:   filelog receiver tails /var/log/pods on every node.
 
@@ -193,7 +215,8 @@ kubectl logs -n {{ $ns }} -l app.kubernetes.io/name=jaeger --tail=20
 
   # External Jaeger (already running in cluster):
   --set jaeger.enabled=false \
-  --set otelCollector.jaegerEndpoint="my-jaeger.tracing:4317"
+  --set otelCollector.jaegerEndpoint="my-jaeger.tracing:4317" \
+  --set graphBuilder.jaegerQueryURL="http://my-jaeger.tracing:16686"
 
   # Disable log collection (traces only):
   --set otelCollector.filelog.enabled=false

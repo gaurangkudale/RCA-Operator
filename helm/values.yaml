@@ -235,6 +235,21 @@ otelIngest:
       minSeverity: "WARN"
 
 # ────────────────────────────────────────────────────────────────────────────
+# Phase 2 Milestone D — Incident Graph Builder
+# The operator queries Jaeger's Query API (port 16686) to enrich topology
+# graphs with service-to-service call edges resolved from OTel trace-ids.
+# Requires jaeger.enabled=true (or an external Jaeger URL via jaegerQueryURL).
+# When jaeger.enabled=false and jaegerQueryURL is empty, the graph builder
+# falls back to K8s-only topology (no Jaeger enrichment) — never errors.
+# ────────────────────────────────────────────────────────────────────────────
+graphBuilder:
+  # Override Jaeger Query HTTP URL. Leave empty to auto-compute:
+  #   http://<release-name>-jaeger:16686
+  # Set explicitly when using an external Jaeger instance, e.g.:
+  #   jaegerQueryURL: "http://jaeger-query.observability.svc.cluster.local:16686"
+  jaegerQueryURL: ""
+
+# ────────────────────────────────────────────────────────────────────────────
 # OpenTelemetry Operator sub-chart (alias: opentelemetryOperator)
 # Manages the OpenTelemetryCollector and Instrumentation CRDs/resources.
 # Chart: open-telemetry/opentelemetry-operator v0.148.0

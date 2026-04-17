@@ -59,10 +59,13 @@ spec:
             - --otel-ingest-filter-latency-ms={{ .Values.otelIngest.filters.traces.latencyP99Ms }}
             - --otel-ingest-filter-min-log-severity={{ .Values.otelIngest.filters.logs.minSeverity }}
             {{- end }}
+            {{- with include "rca-operator.jaegerQueryURL" . }}
+            - --jaeger-query-url={{ . }}
+            {{- end }}
           env:
-            {{- if .Values.otel.enabled }}
+            {{- with include "rca-operator.selfTelemetryEndpoint" . }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: {{ .Values.otel.endpoint | quote }}
+              value: {{ . | quote }}
             {{- end }}
           {{- with .Values.securityContext }}
           securityContext:

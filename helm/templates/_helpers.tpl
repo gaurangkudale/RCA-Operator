@@ -15,6 +15,8 @@ Create a default fully qualified app name.
 {{- $name := default .Chart.Name .Values.nameOverride }}
 {{- if contains $name .Release.Name }}
 {{- .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else if hasPrefix (printf "%s-" .Release.Name) $name }}
+{{- $name | trunc 63 | trimSuffix "-" }}
 {{- else }}
 {{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
 {{- end }}
@@ -111,6 +113,46 @@ rca-operator.jaegerEndpoint continue to work.
 */}}
 {{- define "rca-operator.jaegerEndpoint" -}}
 {{- include "rca-operator.jaegerOtlpEndpoint" . }}
+{{- end }}
+
+{{/*
+  rca-operator.jaegerQueryURL — HTTP URL for the Jaeger Query API.
+  Used by the operator's incident graph builder (--jaeger-query-url flag)
+  to resolve trace-id → service-call topology edges (Phase 2 Milestone D).
+  Port 16686 is the standard Jaeger Query HTTP port.
+
+  Priority:
+    1. graphBuilder.jaegerQueryURL — explicit full override (http://host:port)
+    2. Auto-computed when jaeger.enabled=true:
+         http://<release-name>-jaeger:16686
+    3. Empty string when jaeger.enabled=false → graph builder skips Jaeger
+       enrichment and degrades gracefully to K8s-only topology.
+*/}}
+{{- define "rca-operator.jaegerQueryURL" -}}
+{{- if .Values.graphBuilder.jaegerQueryURL -}}
+{{- .Values.graphBuilder.jaegerQueryURL }}
+{{- else if .Values.jaeger.enabled -}}
+{{- printf "http://%s-jaeger:16686" .Release.Name }}
+{{- end -}}
+{{- end }}
+
+{{/*
+  rca-operator.selfTelemetryEndpoint — OTLP gRPC endpoint for the operator's
+  own span export (traces of the reconcile / signal processing loops).
+  This is the operator's SELF-observability, not workload instrumentation.
+
+  Priority:
+    1. otel.endpoint — explicit override (any OTLP gRPC host:port)
+    2. Auto-computed when otel.enabled=true AND jaeger.enabled=true:
+         <release-name>-jaeger:4317  (Jaeger OTLP gRPC receiver)
+    3. Empty — env var is omitted, OTel SDK stays a no-op.
+*/}}
+{{- define "rca-operator.selfTelemetryEndpoint" -}}
+{{- if .Values.otel.endpoint -}}
+{{- .Values.otel.endpoint }}
+{{- else if and .Values.otel.enabled .Values.jaeger.enabled -}}
+{{- printf "%s-jaeger:4317" .Release.Name }}
+{{- end -}}
 {{- end }}
 
 {{/*

@@ -37,7 +37,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: payment-service
-  namespace: development
+  namespace: rca-demo
   labels:
     app: payment-service
     rca.rca-operator.tech/fixture: "true"
