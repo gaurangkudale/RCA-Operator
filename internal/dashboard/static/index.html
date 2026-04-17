@@ -472,6 +472,7 @@ select { font-family: inherit; }
       </div>
       <span class="version">v0.0.15</span>
       <nav class="nav" id="nav">
+        <div class="nav-item" data-tab="topology" onclick="window._tab('topology')">Topology</div>
         <div class="nav-item active" data-tab="incidents" onclick="window._tab('incidents')">Incidents</div>
         <div class="nav-item" data-tab="rules" onclick="window._tab('rules')">Rules</div>
         <div class="nav-item" data-tab="agents" onclick="window._tab('agents')">Agents</div>
@@ -674,7 +675,8 @@ select { font-family: inherit; }
   function render(){
     renderHeader();renderMetrics();renderNamespaces();renderSeverity();
     renderAgents();renderRuleEngine();renderToolbar();
-    if(activeTab==='incidents'){renderIncidents();renderDetail()}
+    if(activeTab==='topology'){renderTopologyTab()}
+    else if(activeTab==='incidents'){renderIncidents();renderDetail()}
     else if(activeTab==='rules'){renderRulesTab()}
     else if(activeTab==='agents'){renderAgentsTab()}
     else if(activeTab==='namespaces'){renderNsTab()}
@@ -827,6 +829,56 @@ select { font-family: inherit; }
     el.innerHTML=h;
   }
 
+  function renderTopologyTab(){
+    var el=document.getElementById('list-pane');
+    var panel=document.getElementById('detail-panel');
+    var list=getSorted(getFiltered());
+    el.className='list-pane compact';
+    panel.style.display='';
+
+    if(!list.length){
+      el.innerHTML='<div class="list-header"><span style="width:36px">Sev</span><span style="flex:1">Service</span><span style="width:90px">Phase</span></div>'+
+        '<div class="empty-state"><div class="empty-state-title">No incidents match</div><div class="empty-state-sub">Adjust filters to render topology</div></div>';
+      panel.innerHTML='<div class="empty-state" style="padding-top:80px"><div class="empty-state-title">No topology to render</div><div class="empty-state-sub">Select filters that include active incidents</div></div>';
+      return;
+    }
+
+    var hasSelected=false;
+    for(var i=0;i<list.length;i++){if(incKey(list[i])===selectedKey){hasSelected=true;break}}
+    if(!hasSelected)selectedKey=incKey(list[0]);
+
+    var h='<div class="list-header"><span style="width:36px">Sev</span><span style="flex:1">Service</span><span style="width:90px">Phase</span></div>';
+    list.forEach(function(inc){
+      var key=incKey(inc);
+      var sev=inc.severity||'P4';
+      h+='<div class="inc-row compact'+(key===selectedKey?' selected':'')+'" onclick="window._selTopo(\''+esc(key)+'\')">';
+      h+='<span class="sev sm sev-'+sev+'">'+sev+'</span>';
+      h+='<div class="inc-info"><div class="inc-name compact">'+esc(dname(inc))+'</div><div class="inc-meta">'+esc(inc.namespace)+' \u00b7 '+esc(inc.incidentType)+'</div></div>';
+      h+='<span class="phase phase-'+(inc.phase||'Resolved')+'">'+esc(inc.phase||'Resolved')+'</span>';
+      h+='</div>';
+    });
+    el.innerHTML=h;
+
+    var selected=list.find(function(i){return incKey(i)===selectedKey})||list[0];
+    var traces=Array.isArray(selected.traceIds)?selected.traceIds.length:(selected.traceId?1:0);
+    var p='';
+    p+='<div class="detail-head" style="position:relative">';
+    p+='<div class="detail-badges"><span class="sev md sev-'+esc(selected.severity||'P4')+'">'+esc(selected.severity||'P4')+'</span>';
+    p+='<span class="phase phase-'+esc(selected.phase||'Resolved')+'">'+esc(selected.phase||'Resolved')+'</span>';
+    p+='<span class="tag tag-default">'+esc(selected.incidentType||'')+'</span></div>';
+    p+='<div class="detail-title">Incident Topology</div>';
+    p+='<div class="detail-subtitle"><span class="val">'+esc(selected.namespace)+'</span><span class="sep">\u00b7</span><span class="val">'+esc(selected.name)+'</span><span class="sep">\u00b7</span><span class="val">'+traces+' trace id'+(traces===1?'':'s')+'</span></div>';
+    p+='</div>';
+    p+='<div class="detail-body">';
+    p+='<div><div class="section-title">Service Graph</div>';
+    p+='<div id="topo-graph-canvas" style="height:460px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--bg-raised)"></div>';
+    p+='<div id="topo-graph-status" style="font-size:12px;color:var(--text-tertiary);margin-top:6px">Loading topology…</div></div>';
+    p+='<div class="card" style="justify-content:space-between"><span style="font-size:12px;color:var(--text-secondary)">Last observed</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--text-primary)">'+esc(absTime(startTime(selected))||'n/a')+'</span></div>';
+    p+='</div>';
+    panel.innerHTML=p;
+    loadIncidentGraph(selected.namespace,selected.name,'topo-graph-canvas','topo-graph-status');
+  }
+
   function renderDetail(){
     var p=document.getElementById('detail-panel');
     if(!selectedKey){p.style.display='none';return}
@@ -962,12 +1014,6 @@ select { font-family: inherit; }
       h+='</div>';
     }
 
-    /* Incident Topology (Phase 2 Milestone D) */
-    h+='<div><div class="section-title">Incident Topology</div>';
-    h+='<div id="graph-canvas" style="height:360px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--bg-raised)"></div>';
-    h+='<div id="graph-status" style="font-size:12px;color:var(--text-tertiary);margin-top:6px">Loading topology…</div>';
-    h+='</div>';
-
     /* Evidence */
     h+='<div><div class="section-title">Evidence Summary</div>';
     h+='<div class="evidence-card"><div class="evidence-label"><span class="evidence-dot"></span>';
@@ -996,7 +1042,6 @@ select { font-family: inherit; }
 
     h+='</div>';
     p.innerHTML=h;
-    loadIncidentGraph(inc.namespace,inc.name);
   }
 
   /* ── Incident Topology (Phase 2 Milestone D) ─── */
@@ -1033,9 +1078,9 @@ select { font-family: inherit; }
     });
   }
 
-  function loadIncidentGraph(ns,name){
-    var status=document.getElementById('graph-status');
-    var canvas=document.getElementById('graph-canvas');
+  function loadIncidentGraph(ns,name,canvasId,statusId){
+    var status=document.getElementById(statusId||'graph-status');
+    var canvas=document.getElementById(canvasId||'graph-canvas');
     if(!status||!canvas)return;
     var graphKey=String(ns||'')+'/'+String(name||'');
     fetch('/api/incidents/'+encodeURIComponent(ns)+'/'+encodeURIComponent(name)+'/graph',{headers:{'Accept':'application/json'}})
@@ -1201,19 +1246,13 @@ select { font-family: inherit; }
     selectedKey=selectedKey===key?null:key;
     renderIncidents();renderDetail();
     if(selectedKey){
-      var inc=incidents.find(function(i){return incKey(i)===selectedKey});
-      if(inc){
-        fetch('/api/incidents/'+encodeURIComponent(inc.namespace)+'/'+encodeURIComponent(inc.name))
-          .then(function(r){return r.json()})
-          .then(function(d){
-            if(Array.isArray(d.traceIds)&&d.traceIds.length)inc.traceIds=d.traceIds;
-            else if(d.traceId)inc.traceIds=[d.traceId];
-            if(d.traceId)inc.traceId=d.traceId;
-            if(d.firedRule)inc.firedRule=d.firedRule;
-            if(selectedKey===key)renderDetail();
-          }).catch(function(){});
-      }
+      hydrateIncidentDetail(key,function(){if(selectedKey===key)renderDetail()});
     }
+  };
+  window._selTopo=function(key){
+    selectedKey=key;
+    renderTopologyTab();
+    hydrateIncidentDetail(key,function(){if(selectedKey===key&&activeTab==='topology')renderTopologyTab()});
   };
   window._close=function(){selectedKey=null;renderIncidents();renderDetail()};
   window._f=function(type,val){
@@ -1232,6 +1271,20 @@ select { font-family: inherit; }
     });
     render();
   };
+
+  function hydrateIncidentDetail(key,onDone){
+    var inc=incidents.find(function(i){return incKey(i)===key});
+    if(!inc)return;
+    fetch('/api/incidents/'+encodeURIComponent(inc.namespace)+'/'+encodeURIComponent(inc.name))
+      .then(function(r){return r.json()})
+      .then(function(d){
+        if(Array.isArray(d.traceIds)&&d.traceIds.length)inc.traceIds=d.traceIds;
+        else if(d.traceId)inc.traceIds=[d.traceId];
+        if(d.traceId)inc.traceId=d.traceId;
+        if(d.firedRule)inc.firedRule=d.firedRule;
+        if(onDone)onDone();
+      }).catch(function(){});
+  }
   window._toggleSignals=function(){
     signalsOpen=!signalsOpen;
     var body=document.getElementById('signals-body');
@@ -1255,7 +1308,11 @@ select { font-family: inherit; }
       var list=getSorted(getFiltered());
       var idx=list.findIndex(function(i){return incKey(i)===selectedKey});
       var next=e.key==='j'?Math.min(idx+1,list.length-1):Math.max(idx-1,0);
-      if(list[next]){selectedKey=incKey(list[next]);renderIncidents();renderDetail()}
+      if(list[next]){
+        selectedKey=incKey(list[next]);
+        if(activeTab==='topology')renderTopologyTab();
+        else {renderIncidents();renderDetail()}
+      }
     }
   });
 
