@@ -619,6 +619,21 @@ select { font-family: inherit; }
   }
   applyTheme(theme);
 
+  function mergeIncidentDiagnostics(prev,next){
+    var byKey={};
+    (prev||[]).forEach(function(i){byKey[incKey(i)]=i});
+    return (next||[]).map(function(i){
+      var key=incKey(i);
+      var p=byKey[key];
+      if(!p)return i;
+      var hasTraceIds=Array.isArray(i.traceIds)&&i.traceIds.length>0;
+      if(!hasTraceIds&&Array.isArray(p.traceIds)&&p.traceIds.length>0)i.traceIds=p.traceIds.slice();
+      if(!i.traceId&&p.traceId)i.traceId=p.traceId;
+      if(!i.firedRule&&p.firedRule)i.firedRule=p.firedRule;
+      return i;
+    });
+  }
+
   /* ── Fetch ─────────────────────────────────── */
   function fetchAll(){
     Promise.all([
@@ -626,7 +641,7 @@ select { font-family: inherit; }
       fetch('/api/stats').then(function(r){return r.json()}),
       fetch('/api/rules').then(function(r){return r.json()}).catch(function(){return[]})
     ]).then(function(res){
-      incidents=res[0]||[];stats=res[1]||{};rules=res[2]||[];connected=true;
+      incidents=mergeIncidentDiagnostics(incidents,res[0]||[]);stats=res[1]||{};rules=res[2]||[];connected=true;
       document.getElementById('conn-dot').innerHTML=pulseDot('var(--green)',8);
       render();
     }).catch(function(){

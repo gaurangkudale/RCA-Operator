@@ -105,6 +105,9 @@ type incidentResponse struct {
 	Timeline          []timelineEntry                `json:"timeline"`
 	AgentRef          string                         `json:"agentRef"`
 	LastSeen          string                         `json:"lastSeen"`
+	TraceID           string                         `json:"traceId,omitempty"`
+	TraceIDs          []string                       `json:"traceIds,omitempty"`
+	FiredRule         string                         `json:"firedRule,omitempty"`
 }
 
 type timelineEntry struct {
@@ -580,6 +583,13 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 func toIncidentResponse(item *rcav1alpha1.IncidentReport) incidentResponse {
+	traceIDs := collectTraceIDs(item.Annotations)
+	traceID := strings.TrimSpace(item.Annotations[reporter.AnnotationTraceID])
+	if traceID == "" && len(traceIDs) > 0 {
+		traceID = traceIDs[len(traceIDs)-1]
+	}
+	firedRule := strings.TrimSpace(item.Annotations[reporter.AnnotationFiredRule])
+
 	resp := incidentResponse{
 		Name:              item.Name,
 		Namespace:         item.Namespace,
@@ -598,6 +608,9 @@ func toIncidentResponse(item *rcav1alpha1.IncidentReport) incidentResponse {
 		AgentRef:          item.Spec.AgentRef,
 		LastSeen:          item.Annotations[reporter.AnnotationLastSeen],
 		SignalCount:       item.Status.SignalCount,
+		TraceID:           traceID,
+		TraceIDs:          traceIDs,
+		FiredRule:         firedRule,
 	}
 	if item.Status.FirstObservedAt != nil {
 		t := item.Status.FirstObservedAt.Time
