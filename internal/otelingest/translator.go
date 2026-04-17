@@ -14,6 +14,24 @@ import (
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
+// Status code constants
+const (
+	statusCodeOK    = "STATUS_CODE_OK"
+	statusCodeError = "STATUS_CODE_ERROR"
+	statusCodeUnset = "STATUS_CODE_UNSET"
+)
+
+// Span kind constants
+const (
+	spanKindServer = "SERVER"
+)
+
+// Severity level constants
+const (
+	severityWarn  = "WARN"
+	severityError = "ERROR"
+)
+
 // Translator converts inbound OTLP payloads into watcher.CorrelatorEvent signals
 // and hands them to the injected EventEmitter. It is stateless and safe for
 // concurrent use from HTTP handlers.
@@ -189,7 +207,7 @@ func (t *Translator) translateSpan(span *tracepb.Span, resAttrs map[string]strin
 
 // shouldEmitErrorSpan applies the TraceFilters gates.
 func (t *Translator) shouldEmitErrorSpan(statusCode string, attrs map[string]string) bool {
-	if t.cfg.TraceFilters.StatusCodeERROR && statusCode == "STATUS_CODE_ERROR" {
+	if t.cfg.TraceFilters.StatusCodeERROR && statusCode == statusCodeError {
 		return true
 	}
 	if t.cfg.TraceFilters.HTTPStatusGte > 0 {
@@ -271,15 +289,15 @@ func anyValueToString(v *commonpb.AnyValue) string {
 
 func statusCodeText(s *tracepb.Status) string {
 	if s == nil {
-		return "STATUS_CODE_UNSET"
+		return statusCodeUnset
 	}
 	switch s.GetCode() {
 	case tracepb.Status_STATUS_CODE_OK:
-		return "STATUS_CODE_OK"
+		return statusCodeOK
 	case tracepb.Status_STATUS_CODE_ERROR:
-		return "STATUS_CODE_ERROR"
+		return statusCodeError
 	default:
-		return "STATUS_CODE_UNSET"
+		return statusCodeUnset
 	}
 }
 
@@ -288,7 +306,7 @@ func spanKindText(k tracepb.Span_SpanKind) string {
 	case tracepb.Span_SPAN_KIND_CLIENT:
 		return "CLIENT"
 	case tracepb.Span_SPAN_KIND_SERVER:
-		return "SERVER"
+		return spanKindServer
 	case tracepb.Span_SPAN_KIND_INTERNAL:
 		return "INTERNAL"
 	case tracepb.Span_SPAN_KIND_PRODUCER:
@@ -310,9 +328,9 @@ func severityNumberForText(text string) int32 {
 		return 5
 	case "INFO":
 		return 9
-	case "WARN", "WARNING":
+	case severityWarn, "WARNING":
 		return 13
-	case "ERROR":
+	case severityError:
 		return 17
 	case "FATAL":
 		return 21
@@ -330,9 +348,9 @@ func severityTextFromNumber(num int32, given string) string {
 	case num >= 21:
 		return "FATAL"
 	case num >= 17:
-		return "ERROR"
+		return severityError
 	case num >= 13:
-		return "WARN"
+		return severityWarn
 	case num >= 9:
 		return "INFO"
 	case num >= 5:
