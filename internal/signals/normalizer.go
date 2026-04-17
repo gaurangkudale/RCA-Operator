@@ -109,6 +109,7 @@ func (n *Normalizer) buildInput(event watcher.CorrelatorEvent, mapping SignalMap
 		Message:      summary,
 		DedupKey:     event.DedupKey(),
 		ObservedAt:   event.OccurredAt(),
+		TraceID:      extractTraceID(event),
 	}
 
 	// Apply special severity override for NodePressure/PIDPressure.
@@ -326,6 +327,23 @@ func extractReason(event watcher.CorrelatorEvent) string {
 		return e.Severity
 	case watcher.OTelSpanEventEvent:
 		return e.EventName
+	default:
+		return ""
+	}
+}
+
+// extractTraceID returns the W3C trace-id carried by OTel-sourced events, or
+// an empty string for K8s-event-sourced signals that have no trace context.
+func extractTraceID(event watcher.CorrelatorEvent) string {
+	switch e := event.(type) {
+	case watcher.OTelSpanErrorEvent:
+		return e.TraceID
+	case watcher.OTelSpanLatencySpikeEvent:
+		return e.TraceID
+	case watcher.OTelLogMatchEvent:
+		return e.TraceID
+	case watcher.OTelSpanEventEvent:
+		return e.TraceID
 	default:
 		return ""
 	}

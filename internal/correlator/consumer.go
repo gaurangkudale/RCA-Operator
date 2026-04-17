@@ -121,6 +121,7 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 			input.Severity = result.Severity
 			input.Summary = result.Summary
 			input.Message = result.Summary
+			input.FiredRule = result.Rule
 			if result.Resource != "" {
 				switch result.ScopeLevel {
 				case incident.ScopeLevelCluster:

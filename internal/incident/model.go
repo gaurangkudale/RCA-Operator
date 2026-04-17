@@ -29,6 +29,14 @@ type Input struct {
 	ObservedAt        time.Time
 	Scope             rcav1alpha1.IncidentScope
 	AffectedResources []rcav1alpha1.AffectedResource
+	// TraceID is the W3C trace-id hex string from an OTel-sourced event, when
+	// available. It is persisted as an IncidentReport annotation so operators
+	// can correlate an incident back to the originating distributed trace.
+	TraceID string
+	// FiredRule is the name of the correlation rule that produced the incident
+	// classification, when a correlator rule fired. Empty for single-signal
+	// incidents. Persisted as an IncidentReport annotation.
+	FiredRule string
 }
 
 // Fingerprint returns a stable canonical identity for the incident based on its

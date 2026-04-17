@@ -28,6 +28,14 @@ const (
 	AnnotationSignal     = "rca.rca-operator.tech/signal"
 	AnnotationLastSeen   = "rca.rca-operator.tech/last-seen"
 	AnnotationSignalSeen = "rca.rca-operator.tech/signal-count"
+	// AnnotationTraceID records the W3C trace-id hex string carried by the
+	// most recent OTel-sourced signal for this incident. Empty for incidents
+	// derived only from Kubernetes events.
+	AnnotationTraceID = "rca.rca-operator.tech/trace-id"
+	// AnnotationFiredRule records the name of the correlator rule that last
+	// produced this incident's classification. Empty for single-signal
+	// incidents that were not produced by a correlation rule.
+	AnnotationFiredRule = "rca.rca-operator.tech/fired-rule"
 
 	LabelAgent           = "rca.rca-operator.tech/agent"
 	LabelSeverity        = "rca.rca-operator.tech/severity"
@@ -173,12 +181,7 @@ func (r *Reporter) createIncident(ctx context.Context, input incident.Input, fin
 				LabelPodName:         safeLabelValue(primaryPodName(input)),
 				LabelFingerprintHash: fingerprintHash,
 			},
-			Annotations: map[string]string{
-				AnnotationSignal:     input.Summary,
-				AnnotationDedupKey:   input.DedupKey,
-				AnnotationLastSeen:   firstSeen.Format(time.RFC3339),
-				AnnotationSignalSeen: "1",
-			},
+			Annotations: buildInitialAnnotations(input, firstSeen),
 		},
 		Spec: rcav1alpha1.IncidentReportSpec{
 			AgentRef:     input.AgentRef,
@@ -525,6 +528,7 @@ func (r *Reporter) updateActiveIncident(ctx context.Context, report *rcav1alpha1
 	report.Annotations[AnnotationDedupKey] = input.DedupKey
 	report.Annotations[AnnotationLastSeen] = now.Format(time.RFC3339)
 	report.Annotations[AnnotationSignalSeen] = incrementCounter(report.Annotations[AnnotationSignalSeen])
+	applyDiagnosticAnnotations(report.Annotations, input)
 	report.Spec.Fingerprint = fingerprint
 	report.Spec.IncidentType = input.IncidentType
 	report.Spec.Scope = input.Scope
@@ -570,6 +574,7 @@ func (r *Reporter) reopenIncident(ctx context.Context, report *rcav1alpha1.Incid
 	report.Annotations[AnnotationSignalSeen] = incrementCounter(report.Annotations[AnnotationSignalSeen])
 	report.Annotations[AnnotationSignal] = input.Summary
 	report.Annotations[AnnotationDedupKey] = input.DedupKey
+	applyDiagnosticAnnotations(report.Annotations, input)
 	report.Spec.Fingerprint = fingerprint
 	report.Spec.IncidentType = input.IncidentType
 	report.Spec.Scope = input.Scope
@@ -610,6 +615,35 @@ func (r *Reporter) reopenIncident(ctx context.Context, report *rcav1alpha1.Incid
 			"Incident re-opened: %s", input.Summary)
 	}
 	return nil
+}
+
+// buildInitialAnnotations assembles the annotation map used when an
+// IncidentReport is first created. Diagnostic annotations (TraceID, FiredRule)
+// are only written when the corresponding input fields are non-empty so that
+// K8s-event-only incidents do not carry empty-valued keys.
+func buildInitialAnnotations(input incident.Input, firstSeen metav1.Time) map[string]string {
+	annotations := map[string]string{
+		AnnotationSignal:     input.Summary,
+		AnnotationDedupKey:   input.DedupKey,
+		AnnotationLastSeen:   firstSeen.Format(time.RFC3339),
+		AnnotationSignalSeen: "1",
+	}
+	applyDiagnosticAnnotations(annotations, input)
+	return annotations
+}
+
+// applyDiagnosticAnnotations writes TraceID and FiredRule annotations when the
+// incoming input carries them. On a subsequent update from a signal that lacks
+// a trace-id (e.g. a K8s-sourced signal following an OTel-sourced one) the
+// previously-recorded annotation is preserved — we never overwrite a known
+// trace-id with an empty one.
+func applyDiagnosticAnnotations(annotations map[string]string, input incident.Input) {
+	if input.TraceID != "" {
+		annotations[AnnotationTraceID] = input.TraceID
+	}
+	if input.FiredRule != "" {
+		annotations[AnnotationFiredRule] = input.FiredRule
+	}
 }
 
 func incidentAffectsPod(report *rcav1alpha1.IncidentReport, podName, namespace string) bool {

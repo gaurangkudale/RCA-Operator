@@ -2053,3 +2053,200 @@ func TestConsolidateBackfillsFingerprint(t *testing.T) {
 		t.Error("Spec.Fingerprint should have been backfilled by Consolidate")
 	}
 }
+
+// TestHandleEvent_FiredRuleAnnotation_OnCreate verifies that when the rule
+// engine fires on a new event, the resulting IncidentReport carries both the
+// fired-rule annotation and (when the triggering signal is OTel-sourced) the
+// trace-id annotation.
+func TestHandleEvent_FiredRuleAndTraceIDAnnotations_OnCreate(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add RCA scheme: %v", err)
+	}
+
+	now := time.Date(2026, 4, 17, 9, 0, 0, 0, time.UTC)
+	const traceID = "abcdef0123456789abcdef0123456789"
+
+	spanErrorRule := registeredRule{
+		name:     "OTelSpanPlusCrash",
+		priority: 400,
+		evaluate: func(event watcher.CorrelatorEvent, entries []Entry) CorrelationResult {
+			if _, ok := event.(watcher.OTelSpanErrorEvent); !ok {
+				return CorrelationResult{}
+			}
+			return CorrelationResult{
+				Fired:    true,
+				Severity: "P2",
+				Summary:  "test: OTel span error correlated",
+				Rule:     "OTelSpanPlusCrash",
+			}
+		},
+	}
+	corr := NewCorrelator(5*time.Minute, WithRules([]Rule{spanErrorRule}))
+	corr.buf.nowFn = func() time.Time { return now }
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		Build()
+
+	c := NewConsumer(cl, nil, logr.Discard(), WithRuleEngine(corr))
+	c.now = func() time.Time { return now }
+
+	if err := c.handleEvent(context.Background(), watcher.OTelSpanErrorEvent{
+		BaseEvent: watcher.BaseEvent{
+			At:        now,
+			AgentName: "ag",
+			Namespace: "dev",
+			PodName:   "checkout-svc-abc-123",
+		},
+		TraceID:     traceID,
+		SpanID:      "1111222233334444",
+		ServiceName: "checkout",
+		SpanName:    "POST /checkout",
+		StatusCode:  "STATUS_CODE_ERROR",
+	}); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := cl.List(context.Background(), list); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 incident, got %d", len(list.Items))
+	}
+	report := list.Items[0]
+	if got := report.Annotations["rca.rca-operator.tech/fired-rule"]; got != "OTelSpanPlusCrash" {
+		t.Errorf("fired-rule annotation = %q, want %q", got, "OTelSpanPlusCrash")
+	}
+	if got := report.Annotations["rca.rca-operator.tech/trace-id"]; got != traceID {
+		t.Errorf("trace-id annotation = %q, want %q", got, traceID)
+	}
+}
+
+// TestHandleEvent_TraceIDAnnotation_PreservedAcrossUpdates verifies that a
+// trace-id recorded on the first (OTel-sourced) signal survives a subsequent
+// update driven by a K8s-sourced signal that has no trace-id of its own.
+func TestHandleEvent_TraceIDAnnotation_PreservedAcrossUpdates(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add RCA scheme: %v", err)
+	}
+
+	now := time.Date(2026, 4, 17, 10, 0, 0, 0, time.UTC)
+	const traceID = "cafebabe0123456789abcdef01234567"
+	const podName = "flaky-pod"
+
+	existing := &rcav1alpha1.IncidentReport{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "otelspanerror-flaky-pod-aaaa",
+			Namespace: "dev",
+			Annotations: map[string]string{
+				"rca.rca-operator.tech/trace-id": traceID,
+			},
+			Labels: map[string]string{
+				labelIncidentType: "OTelSpanError",
+				labelSeverity:     "P3",
+			},
+		},
+		Spec: rcav1alpha1.IncidentReportSpec{
+			AgentRef:     "ag",
+			Fingerprint:  "Pod|dev|pod|" + podName,
+			IncidentType: "OTelSpanError",
+			Scope: rcav1alpha1.IncidentScope{
+				Level:     incident.ScopeLevelPod,
+				Namespace: "dev",
+				ResourceRef: &rcav1alpha1.IncidentObjectRef{
+					APIVersion: "v1", Kind: "Pod", Namespace: "dev", Name: podName,
+				},
+			},
+		},
+		Status: rcav1alpha1.IncidentReportStatus{
+			Phase:        phaseActive,
+			IncidentType: "OTelSpanError",
+			Severity:     "P3",
+			AffectedResources: []rcav1alpha1.AffectedResource{
+				{APIVersion: "v1", Kind: "Pod", Namespace: "dev", Name: podName},
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		WithObjects(existing).
+		Build()
+
+	c := NewConsumer(cl, nil, logr.Discard())
+	c.now = func() time.Time { return now }
+
+	// A K8s-sourced CrashLoop event on the same pod updates the same incident
+	// (shared fingerprint scope) but carries no trace-id of its own.
+	if err := c.handleEvent(context.Background(), watcher.CrashLoopBackOffEvent{
+		BaseEvent:    watcher.BaseEvent{At: now, AgentName: "ag", Namespace: "dev", PodName: podName},
+		RestartCount: 4,
+		Threshold:    3,
+	}); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+
+	updated := &rcav1alpha1.IncidentReport{}
+	if err := cl.Get(context.Background(), types.NamespacedName{Namespace: "dev", Name: existing.Name}, updated); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got := updated.Annotations["rca.rca-operator.tech/trace-id"]; got != traceID {
+		t.Errorf("trace-id annotation should be preserved; got %q, want %q", got, traceID)
+	}
+}
+
+// TestHandleEvent_NoTraceIDAnnotation_ForK8sEventOnly verifies that incidents
+// produced by K8s-sourced signals (no OTel trace context) do not carry a
+// trace-id annotation key at all.
+func TestHandleEvent_NoTraceIDAnnotation_ForK8sEventOnly(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	if err := rcav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add RCA scheme: %v", err)
+	}
+
+	now := time.Date(2026, 4, 17, 11, 0, 0, 0, time.UTC)
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&rcav1alpha1.IncidentReport{}).
+		Build()
+
+	c := NewConsumer(cl, nil, logr.Discard())
+	c.now = func() time.Time { return now }
+
+	if err := c.handleEvent(context.Background(), watcher.CrashLoopBackOffEvent{
+		BaseEvent:    watcher.BaseEvent{At: now, AgentName: "ag", Namespace: "dev", PodName: "svc-xyz"},
+		RestartCount: 4,
+		Threshold:    3,
+	}); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := cl.List(context.Background(), list); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 incident, got %d", len(list.Items))
+	}
+	if _, ok := list.Items[0].Annotations["rca.rca-operator.tech/trace-id"]; ok {
+		t.Error("trace-id annotation should not be present for K8s-only incident")
+	}
+	if _, ok := list.Items[0].Annotations["rca.rca-operator.tech/fired-rule"]; ok {
+		t.Error("fired-rule annotation should not be present when no rule fired")
+	}
+}
