@@ -32,6 +32,9 @@ const (
 	// most recent OTel-sourced signal for this incident. Empty for incidents
 	// derived only from Kubernetes events.
 	AnnotationTraceID = "rca.rca-operator.tech/trace-id"
+	// AnnotationTraceIDs records all unique trace-ids observed for the
+	// incident, serialized as a comma-separated list in insertion order.
+	AnnotationTraceIDs = "rca.rca-operator.tech/trace-ids"
 	// AnnotationFiredRule records the name of the correlator rule that last
 	// produced this incident's classification. Empty for single-signal
 	// incidents that were not produced by a correlation rule.
@@ -61,6 +64,7 @@ const (
 const (
 	MaxTimelineEntries = incidentstatus.MaxTimelineEntries
 	MaxSignalEntries   = 20
+	MaxTraceIDEntries  = 20
 )
 
 type Reporter struct {
@@ -653,10 +657,58 @@ func buildInitialAnnotations(input incident.Input, firstSeen metav1.Time) map[st
 func applyDiagnosticAnnotations(annotations map[string]string, input incident.Input) {
 	if input.TraceID != "" {
 		annotations[AnnotationTraceID] = input.TraceID
+		annotations[AnnotationTraceIDs] = mergeTraceIDList(annotations[AnnotationTraceIDs], input.TraceID)
+	} else if annotations[AnnotationTraceIDs] == "" && annotations[AnnotationTraceID] != "" {
+		// Backfill the list annotation for incidents created before the
+		// multi-trace-id feature while preserving the existing single value.
+		annotations[AnnotationTraceIDs] = annotations[AnnotationTraceID]
 	}
 	if input.FiredRule != "" {
 		annotations[AnnotationFiredRule] = input.FiredRule
 	}
+}
+
+func mergeTraceIDList(existingCSV, incoming string) string {
+	incoming = strings.TrimSpace(incoming)
+	if incoming == "" {
+		return strings.TrimSpace(existingCSV)
+	}
+
+	existing := parseTraceIDCSV(existingCSV)
+	seen := make(map[string]struct{}, len(existing)+1)
+	for _, id := range existing {
+		seen[id] = struct{}{}
+	}
+	if _, ok := seen[incoming]; !ok {
+		existing = append(existing, incoming)
+	}
+	if len(existing) > MaxTraceIDEntries {
+		existing = existing[len(existing)-MaxTraceIDEntries:]
+	}
+	return strings.Join(existing, ",")
+}
+
+func parseTraceIDCSV(in string) []string {
+	if strings.TrimSpace(in) == "" {
+		return nil
+	}
+	parts := strings.FieldsFunc(in, func(r rune) bool {
+		return r == ',' || r == '\n' || r == '\r' || r == '\t' || r == ' '
+	})
+	out := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, p := range parts {
+		id := strings.TrimSpace(p)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }
 
 func incidentAffectsPod(report *rcav1alpha1.IncidentReport, podName, namespace string) bool {

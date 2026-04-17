@@ -1,6 +1,8 @@
 package reporter
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +24,9 @@ func TestBuildInitialAnnotations_WithTraceIDAndFiredRule(t *testing.T) {
 
 	if got[AnnotationTraceID] != "abc123" {
 		t.Errorf("AnnotationTraceID = %q, want %q", got[AnnotationTraceID], "abc123")
+	}
+	if got[AnnotationTraceIDs] != "abc123" {
+		t.Errorf("AnnotationTraceIDs = %q, want %q", got[AnnotationTraceIDs], "abc123")
 	}
 	if got[AnnotationFiredRule] != "RuleX" {
 		t.Errorf("AnnotationFiredRule = %q, want %q", got[AnnotationFiredRule], "RuleX")
@@ -46,6 +51,9 @@ func TestBuildInitialAnnotations_WithoutDiagnostics(t *testing.T) {
 	if _, ok := got[AnnotationTraceID]; ok {
 		t.Errorf("AnnotationTraceID should not be present when TraceID is empty")
 	}
+	if _, ok := got[AnnotationTraceIDs]; ok {
+		t.Errorf("AnnotationTraceIDs should not be present when TraceID is empty")
+	}
 	if _, ok := got[AnnotationFiredRule]; ok {
 		t.Errorf("AnnotationFiredRule should not be present when FiredRule is empty")
 	}
@@ -69,6 +77,17 @@ func TestApplyDiagnosticAnnotations_PreservesExistingOnEmpty(t *testing.T) {
 	}
 }
 
+func TestApplyDiagnosticAnnotations_BackfillsTraceListFromSingle(t *testing.T) {
+	annotations := map[string]string{
+		AnnotationTraceID: "legacy-trace",
+	}
+	applyDiagnosticAnnotations(annotations, incident.Input{})
+
+	if annotations[AnnotationTraceIDs] != "legacy-trace" {
+		t.Errorf("trace-id list should be backfilled from single annotation, got %q", annotations[AnnotationTraceIDs])
+	}
+}
+
 func TestApplyDiagnosticAnnotations_OverwritesWithNewValues(t *testing.T) {
 	annotations := map[string]string{
 		AnnotationTraceID:   "old-trace",
@@ -79,7 +98,34 @@ func TestApplyDiagnosticAnnotations_OverwritesWithNewValues(t *testing.T) {
 	if annotations[AnnotationTraceID] != "new-trace" {
 		t.Errorf("trace-id should be updated, got %q", annotations[AnnotationTraceID])
 	}
+	if annotations[AnnotationTraceIDs] != "new-trace" {
+		t.Errorf("trace-id list should contain new trace, got %q", annotations[AnnotationTraceIDs])
+	}
 	if annotations[AnnotationFiredRule] != "NewRule" {
 		t.Errorf("fired-rule should be updated, got %q", annotations[AnnotationFiredRule])
+	}
+}
+
+func TestMergeTraceIDList_DedupAndLimit(t *testing.T) {
+	base := "t1,t2,t2"
+	if got := mergeTraceIDList(base, "t3"); got != "t1,t2,t3" {
+		t.Fatalf("mergeTraceIDList append got %q, want %q", got, "t1,t2,t3")
+	}
+	if got := mergeTraceIDList("t1,t2", "t2"); got != "t1,t2" {
+		t.Fatalf("mergeTraceIDList dedup got %q, want %q", got, "t1,t2")
+	}
+
+	values := make([]string, 0, MaxTraceIDEntries+2)
+	for i := range MaxTraceIDEntries + 1 {
+		values = append(values, "x"+strconv.Itoa(i))
+	}
+	csv := strings.Join(values, ",")
+	got := mergeTraceIDList(csv, "x-last")
+	parts := parseTraceIDCSV(got)
+	if len(parts) != MaxTraceIDEntries {
+		t.Fatalf("trace-id list len=%d, want %d", len(parts), MaxTraceIDEntries)
+	}
+	if parts[len(parts)-1] != "x-last" {
+		t.Fatalf("last trace-id=%q, want %q", parts[len(parts)-1], "x-last")
 	}
 }

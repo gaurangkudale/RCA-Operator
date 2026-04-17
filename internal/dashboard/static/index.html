@@ -933,11 +933,17 @@ select { font-family: inherit; }
     h+='</div>';
 
     /* Trace & Rule */
-    var traceId=inc.traceId||'';var firedRule=inc.firedRule||'';
-    if(traceId||firedRule){
+    var traceIds=Array.isArray(inc.traceIds)?inc.traceIds.slice():[];
+    if(!traceIds.length&&inc.traceId)traceIds=[inc.traceId];
+    var firedRule=inc.firedRule||'';
+    if(traceIds.length||firedRule){
       h+='<div><div class="section-title">Trace & Rule Engine</div>';
       if(firedRule)h+='<div class="card"><span class="cmd-num">rule</span><code class="cmd-code">'+esc(firedRule)+'</code></div>';
-      if(traceId)h+='<div class="card"><span class="cmd-num">trace</span><code class="cmd-code">'+esc(traceId)+'</code><button class="copy-btn" onclick="window._copy(this,\''+esc(traceId)+'\')">copy</button></div>';
+      if(traceIds.length){
+        traceIds.forEach(function(tid,idx){
+          h+='<div class="card"><span class="cmd-num">trace'+(traceIds.length>1?' '+(idx+1):'')+'</span><code class="cmd-code">'+esc(tid)+'</code><button class="copy-btn" onclick="window._copy(this,\''+esc(tid)+'\')">copy</button></div>';
+        });
+      }
       h+='</div>';
     }
 
@@ -980,11 +986,43 @@ select { font-family: inherit; }
 
   /* ── Incident Topology (Phase 2 Milestone D) ─── */
   var _graphNet=null;
+  var _graphLastKey='';
+  var _graphLastSignature='';
+
+  function stableGraphSeed(text){
+    var s=String(text||'graph');
+    var h=2166136261;
+    for(var i=0;i<s.length;i++){
+      h^=s.charCodeAt(i);
+      h=(h*16777619)>>>0;
+    }
+    return h%100000;
+  }
+
+  function canonicalizeGraph(g){
+    var nodes=(g&&g.nodes?g.nodes.slice():[]).sort(function(a,b){
+      return String(a.id||'').localeCompare(String(b.id||''));
+    });
+    var edges=(g&&g.edges?g.edges.slice():[]).sort(function(a,b){
+      var ak=String(a.from||'')+'|'+String(a.to||'')+'|'+String(a.kind||'');
+      var bk=String(b.from||'')+'|'+String(b.to||'')+'|'+String(b.kind||'');
+      return ak.localeCompare(bk);
+    });
+    return {nodes:nodes,edges:edges,truncated:!!(g&&g.truncated)};
+  }
+
+  function graphSignature(g){
+    return JSON.stringify({
+      nodes:(g.nodes||[]).map(function(n){return [n.id,n.kind,n.name,n.namespace,n.service]}),
+      edges:(g.edges||[]).map(function(e){return [e.from,e.to,e.kind]})
+    });
+  }
+
   function loadIncidentGraph(ns,name){
     var status=document.getElementById('graph-status');
     var canvas=document.getElementById('graph-canvas');
     if(!status||!canvas)return;
-    if(_graphNet){try{_graphNet.destroy()}catch(e){}_graphNet=null}
+    var graphKey=String(ns||'')+'/'+String(name||'');
     fetch('/api/incidents/'+encodeURIComponent(ns)+'/'+encodeURIComponent(name)+'/graph',{headers:{'Accept':'application/json'}})
       .then(function(r){
         if(r.status===204)return null;
@@ -994,23 +1032,35 @@ select { font-family: inherit; }
       .then(function(g){
         if(!g||!g.nodes||!g.nodes.length){
           status.textContent='No topology graph available for this incident yet.';
+          if(_graphNet){try{_graphNet.destroy()}catch(e){}_graphNet=null}
+          _graphLastKey='';
+          _graphLastSignature='';
           canvas.innerHTML='';
           return;
         }
-        renderIncidentGraph(canvas,g);
-        var truncNote=g.truncated?' \u00b7 truncated to fit size budget':'';
-        status.textContent=g.nodes.length+' nodes \u00b7 '+(g.edges?g.edges.length:0)+' edges'+truncNote;
+        var cg=canonicalizeGraph(g);
+        var sig=graphSignature(cg);
+        var sameCanvas=false;
+        try{sameCanvas=!!(_graphNet&&_graphNet.body&&_graphNet.body.container===canvas)}catch(e){sameCanvas=false}
+        if(!(sameCanvas&&_graphLastKey===graphKey&&_graphLastSignature===sig)){
+          renderIncidentGraph(canvas,cg,graphKey);
+          _graphLastKey=graphKey;
+          _graphLastSignature=sig;
+        }
+        var truncNote=cg.truncated?' \u00b7 truncated to fit size budget':'';
+        status.textContent=cg.nodes.length+' nodes \u00b7 '+(cg.edges?cg.edges.length:0)+' edges'+truncNote;
       })
       .catch(function(err){
         status.textContent='Unable to load topology: '+(err&&err.message?err.message:'unknown error');
       });
   }
 
-  function renderIncidentGraph(canvas,g){
+  function renderIncidentGraph(canvas,g,graphKey){
     if(typeof vis==='undefined'||!vis.Network){
       canvas.innerHTML='<div style="padding:12px;font-size:12px;color:var(--text-tertiary)">vis-network failed to load (CDN blocked?). Topology unavailable.</div>';
       return;
     }
+    if(_graphNet){try{_graphNet.destroy()}catch(e){}_graphNet=null}
     var KIND_COLOR={Pod:'#4dabf7',Deployment:'#63e6be',Node:'#ffa94d',Service:'#b197fc',Span:'#ffd43b',Incident:'#ff6b6b'};
     var nodes=(g.nodes||[]).map(function(n){
       return{
@@ -1035,9 +1085,13 @@ select { font-family: inherit; }
       };
     });
     _graphNet=new vis.Network(canvas,{nodes:nodes,edges:edges},{
+      layout:{randomSeed:stableGraphSeed(graphKey),improvedLayout:true},
       physics:{stabilization:{iterations:150},barnesHut:{gravitationalConstant:-3500,springLength:120}},
       interaction:{hover:true,tooltipDelay:100},
       edges:{smooth:{type:'dynamic'}}
+    });
+    _graphNet.once('stabilizationIterationsDone',function(){
+      try{_graphNet.setOptions({physics:false})}catch(e){}
     });
   }
 
@@ -1137,6 +1191,8 @@ select { font-family: inherit; }
         fetch('/api/incidents/'+encodeURIComponent(inc.namespace)+'/'+encodeURIComponent(inc.name))
           .then(function(r){return r.json()})
           .then(function(d){
+            if(Array.isArray(d.traceIds)&&d.traceIds.length)inc.traceIds=d.traceIds;
+            else if(d.traceId)inc.traceIds=[d.traceId];
             if(d.traceId)inc.traceId=d.traceId;
             if(d.firedRule)inc.firedRule=d.firedRule;
             if(selectedKey===key)renderDetail();

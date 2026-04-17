@@ -145,8 +145,9 @@ type ruleResponse struct {
 
 type incidentDetailResponse struct {
 	incidentResponse
-	TraceID   string `json:"traceId"`
-	FiredRule string `json:"firedRule"`
+	TraceID   string   `json:"traceId"`
+	TraceIDs  []string `json:"traceIds,omitempty"`
+	FiredRule string   `json:"firedRule"`
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
@@ -404,10 +405,55 @@ func (s *Server) handleIncidentDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	if item.Annotations != nil {
 		detail.TraceID = item.Annotations["rca.rca-operator.tech/trace-id"]
+		detail.TraceIDs = collectTraceIDs(item.Annotations)
+		if detail.TraceID == "" && len(detail.TraceIDs) > 0 {
+			detail.TraceID = detail.TraceIDs[len(detail.TraceIDs)-1]
+		}
 		detail.FiredRule = item.Annotations["rca.rca-operator.tech/fired-rule"]
 	}
 
 	writeJSON(w, detail)
+}
+
+func collectTraceIDs(annotations map[string]string) []string {
+	if len(annotations) == 0 {
+		return nil
+	}
+
+	list := parseTraceIDCSV(annotations[reporter.AnnotationTraceIDs])
+	if single := strings.TrimSpace(annotations[reporter.AnnotationTraceID]); single != "" {
+		seen := make(map[string]struct{}, len(list)+1)
+		for _, id := range list {
+			seen[id] = struct{}{}
+		}
+		if _, ok := seen[single]; !ok {
+			list = append(list, single)
+		}
+	}
+	return list
+}
+
+func parseTraceIDCSV(in string) []string {
+	if strings.TrimSpace(in) == "" {
+		return nil
+	}
+	parts := strings.FieldsFunc(in, func(r rune) bool {
+		return r == ',' || r == '\n' || r == '\r' || r == '\t' || r == ' '
+	})
+	out := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, p := range parts {
+		id := strings.TrimSpace(p)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }
 
 // writeIncidentGraph streams the opaque IncidentGraph payload stored on
