@@ -73,7 +73,7 @@ func TestHandleTopology_WithDeploymentAndPod(t *testing.T) {
 
 	s := newTestServer(t, dep, pod, node)
 	rr := httptest.NewRecorder()
-	s.handleTopology(rr, httptest.NewRequest(http.MethodGet, "/api/topology", nil))
+	s.handleTopology(rr, httptest.NewRequest(http.MethodGet, "/api/topology?view=detail", nil))
 
 	var got graph.ClusterGraph
 	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {

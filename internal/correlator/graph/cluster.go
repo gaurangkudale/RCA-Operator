@@ -53,37 +53,29 @@ func NewClusterBuilder(k8s client.Client, log logr.Logger) *ClusterBuilder {
 // Build lists Deployments, Pods, Nodes, and Services across all namespaces and
 // returns a ClusterGraph. Open IncidentReports are overlaid as node-level
 // status (critical for P1/P2, warning for P3+, else healthy).
+// BuildOptions controls which node kinds are emitted. Summary view hides
+// individual pods and services and rolls pod→node edges up to deployment→node
+// so the cluster graph stays legible in larger clusters.
+type BuildOptions struct {
+	Summary bool
+}
+
+// Build emits the full detail graph (back-compat wrapper).
 func (b *ClusterBuilder) Build(ctx context.Context) (*ClusterGraph, error) {
-	g := &ClusterGraph{Meta: map[string]string{}}
+	return b.BuildWithOptions(ctx, BuildOptions{})
+}
 
-	var deps appsv1.DeploymentList
-	if err := b.k8s.List(ctx, &deps); err != nil {
-		return nil, fmt.Errorf("list deployments: %w", err)
-	}
-	var pods corev1.PodList
-	if err := b.k8s.List(ctx, &pods); err != nil {
-		return nil, fmt.Errorf("list pods: %w", err)
-	}
-	var nodes corev1.NodeList
-	if err := b.k8s.List(ctx, &nodes); err != nil {
-		return nil, fmt.Errorf("list nodes: %w", err)
-	}
-	var svcs corev1.ServiceList
-	if err := b.k8s.List(ctx, &svcs); err != nil {
-		return nil, fmt.Errorf("list services: %w", err)
-	}
-	var incidents rcav1alpha1.IncidentReportList
-	if err := b.k8s.List(ctx, &incidents); err != nil {
-		b.log.V(1).Info("list incidents failed; proceeding without overlay", "err", err)
-	}
+// incidentOverlay indexes open incidents by resource for status overlay.
+type incidentOverlay struct {
+	pod, dep, node, ns map[string]string
+}
 
-	// Index open incidents by (ns/podName) and (ns/deploymentName) and node.
-	podAffect := map[string]string{}  // ns/pod -> status
-	depAffect := map[string]string{}  // ns/deployment -> status
-	nodeAffect := map[string]string{} // node -> status
-	nsAffect := map[string]string{}   // ns -> status
-
-	for _, inc := range incidents.Items {
+func buildIncidentOverlay(list []rcav1alpha1.IncidentReport) incidentOverlay {
+	o := incidentOverlay{
+		pod: map[string]string{}, dep: map[string]string{},
+		node: map[string]string{}, ns: map[string]string{},
+	}
+	for _, inc := range list {
 		phase := strings.ToLower(inc.Status.Phase)
 		if phase == "resolved" || phase == "closed" {
 			continue
@@ -93,112 +85,169 @@ func (b *ClusterBuilder) Build(ctx context.Context) (*ClusterGraph, error) {
 			key := inc.Namespace + "/" + r.Name
 			switch r.Kind {
 			case "Pod":
-				podAffect[key] = pickWorse(podAffect[key], status)
+				o.pod[key] = pickWorse(o.pod[key], status)
 			case "Deployment":
-				depAffect[key] = pickWorse(depAffect[key], status)
+				o.dep[key] = pickWorse(o.dep[key], status)
 			case "Node":
-				nodeAffect[r.Name] = pickWorse(nodeAffect[r.Name], status)
+				o.node[r.Name] = pickWorse(o.node[r.Name], status)
 			case "Namespace":
-				nsAffect[r.Name] = pickWorse(nsAffect[r.Name], status)
+				o.ns[r.Name] = pickWorse(o.ns[r.Name], status)
 			}
 		}
 	}
+	return o
+}
 
-	// systemNamespaces are skipped so the cluster graph stays focused on workloads.
-	skipNS := map[string]bool{
-		"kube-system":        true,
-		"kube-public":        true,
-		"kube-node-lease":    true,
-		"local-path-storage": true,
+// systemNamespaces are skipped so the cluster graph stays focused on workloads.
+var systemNamespaces = map[string]bool{
+	"kube-system":        true,
+	"kube-public":        true,
+	"kube-node-lease":    true,
+	"local-path-storage": true,
+}
+
+func (b *ClusterBuilder) listAll(ctx context.Context) (
+	appsv1.DeploymentList, corev1.PodList, corev1.NodeList, corev1.ServiceList, rcav1alpha1.IncidentReportList, error,
+) {
+	var deps appsv1.DeploymentList
+	var pods corev1.PodList
+	var nodes corev1.NodeList
+	var svcs corev1.ServiceList
+	var incidents rcav1alpha1.IncidentReportList
+	if err := b.k8s.List(ctx, &deps); err != nil {
+		return deps, pods, nodes, svcs, incidents, fmt.Errorf("list deployments: %w", err)
 	}
+	if err := b.k8s.List(ctx, &pods); err != nil {
+		return deps, pods, nodes, svcs, incidents, fmt.Errorf("list pods: %w", err)
+	}
+	if err := b.k8s.List(ctx, &nodes); err != nil {
+		return deps, pods, nodes, svcs, incidents, fmt.Errorf("list nodes: %w", err)
+	}
+	if err := b.k8s.List(ctx, &svcs); err != nil {
+		return deps, pods, nodes, svcs, incidents, fmt.Errorf("list services: %w", err)
+	}
+	if err := b.k8s.List(ctx, &incidents); err != nil {
+		b.log.V(1).Info("list incidents failed; proceeding without overlay", "err", err)
+	}
+	return deps, pods, nodes, svcs, incidents, nil
+}
 
-	// Nodes (k8s worker nodes)
-	for _, n := range nodes.Items {
+func appendNodeNodes(g *ClusterGraph, nodes []corev1.Node, ov incidentOverlay) {
+	for _, n := range nodes {
 		status := nodeReadinessStatus(&n)
-		if ov := nodeAffect[n.Name]; ov != "" {
-			status = pickWorse(status, ov)
+		if v := ov.node[n.Name]; v != "" {
+			status = pickWorse(status, v)
 		}
 		g.Nodes = append(g.Nodes, ClusterNode{
-			Node: Node{
-				ID:    "node:" + n.Name,
-				Kind:  NodeKindNode,
-				Name:  n.Name,
-				Label: n.Name,
-			},
+			Node:   Node{ID: "node:" + n.Name, Kind: NodeKindNode, Name: n.Name, Label: n.Name},
 			Status: status,
 		})
 	}
+}
 
-	// Deployments
-	for _, d := range deps.Items {
-		if skipNS[d.Namespace] {
+func appendDeploymentNodes(g *ClusterGraph, deps []appsv1.Deployment, ov incidentOverlay) {
+	for _, d := range deps {
+		if systemNamespaces[d.Namespace] {
 			continue
 		}
 		key := d.Namespace + "/" + d.Name
 		status := deploymentStatus(&d)
-		if ov := depAffect[key]; ov != "" {
-			status = pickWorse(status, ov)
+		if v := ov.dep[key]; v != "" {
+			status = pickWorse(status, v)
 		}
-		if ov := nsAffect[d.Namespace]; ov != "" {
-			status = pickWorse(status, ov)
+		if v := ov.ns[d.Namespace]; v != "" {
+			status = pickWorse(status, v)
 		}
 		g.Nodes = append(g.Nodes, ClusterNode{
 			Node: Node{
-				ID:        "deploy:" + key,
-				Kind:      NodeKindDeployment,
-				Name:      d.Name,
-				Namespace: d.Namespace,
-				Label:     d.Name,
+				ID: "deploy:" + key, Kind: NodeKindDeployment,
+				Name: d.Name, Namespace: d.Namespace, Label: d.Name,
 			},
 			Status: status,
 		})
 	}
+}
 
-	// Pods → edges to owning Deployment (by ownerRef) and to scheduled Node.
-	for _, p := range pods.Items {
-		if skipNS[p.Namespace] {
+func appendPodNodesAndEdges(g *ClusterGraph, pods []corev1.Pod, deps []appsv1.Deployment, ov incidentOverlay, summary bool) {
+	seenDepNode := map[string]struct{}{}
+	for _, p := range pods {
+		if systemNamespaces[p.Namespace] {
 			continue
 		}
-		key := p.Namespace + "/" + p.Name
-		status := podStatus(&p)
-		if ov := podAffect[key]; ov != "" {
-			status = pickWorse(status, ov)
+		owner := deploymentOwnerFromPod(&p, deps)
+		if summary {
+			rollupDepNodeEdge(g, &p, owner, seenDepNode)
+			continue
 		}
-		id := "pod:" + key
-		g.Nodes = append(g.Nodes, ClusterNode{
-			Node: Node{
-				ID:        id,
-				Kind:      NodeKindPod,
-				Name:      p.Name,
-				Namespace: p.Namespace,
-				Label:     p.Name,
-			},
-			Status: status,
-		})
-		if p.Spec.NodeName != "" {
-			g.Edges = append(g.Edges, Edge{From: id, To: "node:" + p.Spec.NodeName, Kind: EdgeKindScheduledOn})
-		}
-		if owner := deploymentOwnerFromPod(&p, deps.Items); owner != "" {
-			g.Edges = append(g.Edges, Edge{From: "deploy:" + p.Namespace + "/" + owner, To: id, Kind: EdgeKindOwns})
-		}
+		appendDetailPod(g, &p, owner, ov)
 	}
+}
 
-	// Services as standalone nodes (no edges yet; selector-based matching can
-	// be added later if the UI needs it).
-	for _, s := range svcs.Items {
-		if skipNS[s.Namespace] {
+func rollupDepNodeEdge(g *ClusterGraph, p *corev1.Pod, owner string, seen map[string]struct{}) {
+	if owner == "" || p.Spec.NodeName == "" {
+		return
+	}
+	from := "deploy:" + p.Namespace + "/" + owner
+	to := "node:" + p.Spec.NodeName
+	k := from + "->" + to
+	if _, ok := seen[k]; ok {
+		return
+	}
+	seen[k] = struct{}{}
+	g.Edges = append(g.Edges, Edge{From: from, To: to, Kind: EdgeKindScheduledOn})
+}
+
+func appendDetailPod(g *ClusterGraph, p *corev1.Pod, owner string, ov incidentOverlay) {
+	key := p.Namespace + "/" + p.Name
+	status := podStatus(p)
+	if v := ov.pod[key]; v != "" {
+		status = pickWorse(status, v)
+	}
+	id := "pod:" + key
+	g.Nodes = append(g.Nodes, ClusterNode{
+		Node: Node{
+			ID: id, Kind: NodeKindPod,
+			Name: p.Name, Namespace: p.Namespace, Label: p.Name,
+		},
+		Status: status,
+	})
+	if p.Spec.NodeName != "" {
+		g.Edges = append(g.Edges, Edge{From: id, To: "node:" + p.Spec.NodeName, Kind: EdgeKindScheduledOn})
+	}
+	if owner != "" {
+		g.Edges = append(g.Edges, Edge{From: "deploy:" + p.Namespace + "/" + owner, To: id, Kind: EdgeKindOwns})
+	}
+}
+
+func appendServiceNodes(g *ClusterGraph, svcs []corev1.Service) {
+	for _, s := range svcs {
+		if systemNamespaces[s.Namespace] {
 			continue
 		}
 		g.Nodes = append(g.Nodes, ClusterNode{
 			Node: Node{
-				ID:        "svc:" + s.Namespace + "/" + s.Name,
-				Kind:      NodeKindService,
-				Name:      s.Name,
-				Namespace: s.Namespace,
-				Label:     s.Name,
+				ID: "svc:" + s.Namespace + "/" + s.Name, Kind: NodeKindService,
+				Name: s.Name, Namespace: s.Namespace, Label: s.Name,
 			},
 			Status: StatusHealthy,
 		})
+	}
+}
+
+func (b *ClusterBuilder) BuildWithOptions(ctx context.Context, opts BuildOptions) (*ClusterGraph, error) {
+	g := &ClusterGraph{Meta: map[string]string{}}
+
+	deps, pods, nodes, svcs, incidents, err := b.listAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	ov := buildIncidentOverlay(incidents.Items)
+	appendNodeNodes(g, nodes.Items, ov)
+	appendDeploymentNodes(g, deps.Items, ov)
+	appendPodNodesAndEdges(g, pods.Items, deps.Items, ov, opts.Summary)
+	if !opts.Summary {
+		appendServiceNodes(g, svcs.Items)
 	}
 
 	sort.Slice(g.Nodes, func(i, j int) bool { return g.Nodes[i].ID < g.Nodes[j].ID })

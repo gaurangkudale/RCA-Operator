@@ -175,7 +175,7 @@
       <div class="flex justify-between items-center mb-4">
         <h2 class="text-xl font-bold text-white flex items-center gap-2"><i data-lucide="terminal" class="w-5 h-5 text-indigo-400"></i> Unified Log Stream</h2>
       </div>
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-4 grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-4 grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
         <div>
           <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Namespace</label>
           <select id="logs-ns" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200"></select>
@@ -188,22 +188,16 @@
         </div>
         <div>
           <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Deployment</label>
-          <input id="logs-deployment" type="text" placeholder="or deployment" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 font-mono">
+          <select id="logs-deployment" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 font-mono">
+            <option value="">(select namespace first)</option>
+          </select>
         </div>
         <div>
-          <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Container</label>
-          <input id="logs-container" type="text" placeholder="optional" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 font-mono">
-        </div>
-        <div>
-          <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Tail</label>
-          <input id="logs-tail" type="number" value="500" min="1" max="5000" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 font-mono">
+          <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Since</label>
+          <input id="logs-since" type="text" value="1h" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 font-mono">
         </div>
         <div class="flex gap-2">
-          <div class="flex-grow">
-            <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Since</label>
-            <input id="logs-since" type="text" value="1h" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 font-mono">
-          </div>
-          <button onclick="fetchLogs()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded text-xs font-bold self-end flex items-center gap-1.5">
+          <button onclick="fetchLogs()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded text-xs font-bold flex items-center gap-1.5 ml-auto">
             <i data-lucide="play" class="w-3.5 h-3.5"></i> Tail
           </button>
         </div>
@@ -370,6 +364,8 @@ function cleanSignal(s){
 }
 function kindIcon(kind){
   switch((kind||'').toLowerCase()){
+    case 'incident': return 'shield-alert';
+    case 'span': return 'git-commit';
     case 'pod': return 'box';
     case 'deployment': return 'layers';
     case 'statefulset': return 'database';
@@ -606,7 +602,7 @@ function renderIncidentDetail(){
   const timeline = (d.timeline || []).slice().reverse().map(t => `
     <div class="flex gap-3 text-[11px] py-1.5 border-b border-slate-800/50 last:border-0">
       <span class="text-slate-500 font-mono shrink-0 w-24">${escapeHtml(relTime(t.time))}</span>
-      <span class="text-slate-300">${escapeHtml(t.event)}</span>
+      <span class="text-slate-300">${escapeHtml(cleanSignal(t.event))}</span>
     </div>`).join('') || `<div class="text-xs text-slate-500 italic">No timeline entries</div>`;
 
   const traceIds = (d.traceIds || []).map(id =>
@@ -647,8 +643,8 @@ function renderIncidentDetail(){
       <section>
         <h3 class="text-[10px] font-bold text-purple-400 uppercase tracking-widest mb-2 flex items-center gap-1.5"><i data-lucide="brain-circuit" class="w-3.5 h-3.5"></i> Summary</h3>
         <div class="bg-purple-500/5 border border-purple-500/20 rounded-lg p-4 shadow-sm">
-          <p class="text-xs text-slate-300 leading-relaxed">${escapeHtml(d.summary || d.message || d.reason || 'No summary available')}</p>
-          ${d.message && d.summary && d.message !== d.summary ? `<p class="text-[11px] text-slate-400 leading-relaxed mt-2">${escapeHtml(d.message)}</p>` : ''}
+          <p class="text-xs text-slate-300 leading-relaxed">${escapeHtml(cleanSignal(d.summary || d.message || d.reason || 'No summary available'))}</p>
+          ${d.message && d.summary && d.message !== d.summary ? `<p class="text-[11px] text-slate-400 leading-relaxed mt-2">${escapeHtml(cleanSignal(d.message))}</p>` : ''}
           ${d.reason ? `<p class="text-[11px] text-slate-500 font-mono mt-2">reason: ${escapeHtml(d.reason)}</p>` : ''}
         </div>
       </section>
@@ -702,6 +698,14 @@ function renderIncidentDetail(){
 }
 
 // --- Render: Topology
+function normalizeTopologyStatus(status){
+  const s = (status || '').toLowerCase();
+  if (s === 'critical' || s === 'error' || s === 'failed' || s === 'down') return 'critical';
+  if (s === 'warning' || s === 'warn' || s === 'degraded' || s === 'pending') return 'warning';
+  if (s === 'healthy' || s === 'ok' || s === 'ready' || s === 'running') return 'healthy';
+  return '';
+}
+
 function nodeStatusFromIncidents(node){
   // Cross-reference with active incidents to colour node.
   // node.id format from graph.Node is "<Kind>/<Namespace>/<Name>" or similar; match by name.
@@ -723,6 +727,12 @@ function nodeStatusFromIncidents(node){
   return worst;
 }
 
+function nodeVisualStatus(node){
+  const direct = normalizeTopologyStatus(node.status);
+  if (direct) return direct;
+  return nodeStatusFromIncidents(node);
+}
+
 function renderTopology(){
   const g = state.incidentGraph || state.topology;
   const empty = document.getElementById('topology-empty');
@@ -741,29 +751,152 @@ function renderTopology(){
 }
 
 function layoutTopology(g){
+  if (isIncidentTopologyGraph(g)) {
+    layoutIncidentTopology(g);
+    return;
+  }
+  layoutClusterTopology(g);
+}
+
+function isIncidentTopologyGraph(g){
+  if (state.incidentGraph && g === state.incidentGraph) return true;
+  return (g.nodes || []).some(n => n && (n.isRoot || n.kind === 'Incident'));
+}
+
+function layoutClusterTopology(g){
   const container = document.getElementById('canvas-container');
   const cw = container.clientWidth || 800;
   const ch = container.clientHeight || 600;
-  const n = g.nodes.length;
 
-  // Group nodes by kind (columns) then spread vertically.
-  const byKind = {};
-  g.nodes.forEach(node => {
-    const k = node.kind || 'Other';
-    if (!byKind[k]) byKind[k] = [];
-    byKind[k].push(node);
-  });
-  const kinds = Object.keys(byKind);
-  const colW = cw / (kinds.length + 1);
+  // Two-column layout: workloads (deployments+services+pods) on the left,
+  // k8s nodes on the right. Workloads are grouped by namespace for readability.
+  const nodes = g.nodes.filter(n => n.kind === 'Node');
+  const workloads = g.nodes.filter(n => n.kind !== 'Node');
+
   state.topologyLayout = {};
-  kinds.forEach((k, ki) => {
-    const col = byKind[k];
-    const rowH = ch / (col.length + 1);
-    col.forEach((node, ri) => {
-      state.topologyLayout[node.id] = {
-        x: colW * (ki + 1),
-        y: rowH * (ri + 1)
+  const rightX = cw * 0.78;
+  const leftX  = cw * 0.28;
+
+  if (nodes.length) {
+    const step = ch / (nodes.length + 1);
+    nodes.forEach((n, i) => { state.topologyLayout[n.id] = { x: rightX, y: step * (i+1) }; });
+  }
+  // Group workloads by namespace
+  const byNS = {};
+  workloads.forEach(n => {
+    const k = n.namespace || '—';
+    if (!byNS[k]) byNS[k] = [];
+    byNS[k].push(n);
+  });
+  const nsKeys = Object.keys(byNS).sort();
+  const nsStep = ch / (workloads.length + nsKeys.length + 1);
+  let y = nsStep;
+  nsKeys.forEach(ns => {
+    byNS[ns].forEach(n => {
+      state.topologyLayout[n.id] = { x: leftX, y };
+      y += nsStep;
+    });
+    y += nsStep; // gap between namespace clusters
+  });
+}
+
+function layoutIncidentTopology(g){
+  const container = document.getElementById('canvas-container');
+  const cw = container.clientWidth || 800;
+  const ch = container.clientHeight || 600;
+  const nodes = Array.isArray(g.nodes) ? g.nodes : [];
+  const edges = Array.isArray(g.edges) ? g.edges : [];
+
+  const byID = new Map();
+  const incoming = new Map();
+  const outgoing = new Map();
+  nodes.forEach(n => {
+    byID.set(n.id, n);
+    incoming.set(n.id, []);
+    outgoing.set(n.id, []);
+  });
+  edges.forEach(e => {
+    if (!byID.has(e.from) || !byID.has(e.to)) return;
+    incoming.get(e.to).push(e.from);
+    outgoing.get(e.from).push(e.to);
+  });
+
+  let roots = nodes.filter(n => n.isRoot).map(n => n.id);
+  if (!roots.length) {
+    roots = nodes.filter(n => (incoming.get(n.id) || []).length === 0).map(n => n.id);
+  }
+  if (!roots.length && nodes.length) {
+    roots = [nodes[0].id];
+  }
+
+  const level = new Map();
+  roots.forEach(id => level.set(id, 0));
+
+  const maxPasses = Math.max(1, nodes.length * 2);
+  for (let pass = 0; pass < maxPasses; pass++) {
+    let changed = false;
+    edges.forEach(e => {
+      if (!level.has(e.from)) return;
+      const candidate = level.get(e.from) + 1;
+      if (!level.has(e.to) || candidate > level.get(e.to)) {
+        level.set(e.to, candidate);
+        changed = true;
+      }
+    });
+    if (!changed) break;
+  }
+
+  let maxLevel = 0;
+  nodes.forEach(n => {
+    if (!level.has(n.id)) level.set(n.id, 0);
+    if (level.get(n.id) > maxLevel) maxLevel = level.get(n.id);
+  });
+
+  const columns = Array.from({ length: maxLevel + 1 }, () => []);
+  nodes.forEach(n => columns[level.get(n.id)].push(n));
+
+  const orderByID = new Map();
+  const nodeSortKey = (n) => `${(n.kind || '').toLowerCase()}:${(n.name || n.id || '').toLowerCase()}`;
+
+  columns[0].sort((a, b) => {
+    if (a.isRoot && !b.isRoot) return -1;
+    if (!a.isRoot && b.isRoot) return 1;
+    return nodeSortKey(a).localeCompare(nodeSortKey(b));
+  });
+  columns[0].forEach((n, i) => orderByID.set(n.id, i));
+
+  for (let col = 1; col < columns.length; col++) {
+    columns[col].sort((a, b) => {
+      const parentScore = (id) => {
+        const parents = (incoming.get(id) || []).filter(p => level.get(p) === col - 1);
+        if (!parents.length) return Number.POSITIVE_INFINITY;
+        const total = parents.reduce((acc, p) => acc + (orderByID.get(p) ?? 0), 0);
+        return total / parents.length;
       };
+      const pa = parentScore(a.id);
+      const pb = parentScore(b.id);
+      if (pa !== pb) return pa - pb;
+      return nodeSortKey(a).localeCompare(nodeSortKey(b));
+    });
+    columns[col].forEach((n, i) => orderByID.set(n.id, i));
+  }
+
+  state.topologyLayout = {};
+  const marginX = 120;
+  const marginY = 90;
+  const usableW = Math.max(260, cw - marginX * 2);
+  const usableH = Math.max(220, ch - marginY * 2);
+  const xStep = maxLevel > 0 ? usableW / maxLevel : 0;
+
+  columns.forEach((colNodes, colIdx) => {
+    const x = maxLevel > 0 ? marginX + (colIdx * xStep) : cw / 2;
+    if (colNodes.length === 1) {
+      state.topologyLayout[colNodes[0].id] = { x, y: ch / 2 };
+      return;
+    }
+    const step = colNodes.length > 1 ? usableH / (colNodes.length - 1) : 0;
+    colNodes.forEach((n, rowIdx) => {
+      state.topologyLayout[n.id] = { x, y: marginY + (rowIdx * step) };
     });
   });
 }
@@ -771,7 +904,7 @@ function layoutTopology(g){
 function renderTopologyNodes(g){
   const html = g.nodes.map(node => {
     const pos = state.topologyLayout[node.id] || { x: 100, y: 100 };
-    const status = nodeStatusFromIncidents(node);
+    const status = nodeVisualStatus(node);
     const iconColor = status === 'healthy' ? 'text-emerald-400' : status === 'warning' ? 'text-yellow-400' : 'text-red-300';
     const dot = status === 'healthy' ? '' : status === 'warning' ? 'bg-yellow-500' : 'bg-red-500 animate-pulse';
     const sel = state.selectedNodeId === node.id ? 'selected' : '';
@@ -808,10 +941,19 @@ function renderTopologyEdges(){
     const tgt = state.topologyLayout[edge.to];
     if (!src || !tgt) return;
     const dx = tgt.x - src.x;
-    const path = `M ${src.x} ${src.y} C ${src.x + dx/2} ${src.y}, ${tgt.x - dx/2} ${tgt.y}, ${tgt.x} ${tgt.y}`;
-    html += `<path d="${path}" class="edge-path"></path>`;
+    const ctrl = Math.max(60, Math.abs(dx) * 0.45);
+    const path = `M ${src.x} ${src.y} C ${src.x + ctrl} ${src.y}, ${tgt.x - ctrl} ${tgt.y}, ${tgt.x} ${tgt.y}`;
+    html += `<path d="${path}" class="edge-path ${edgeClass(edge)}"></path>`;
   });
   document.getElementById('edges-layer').innerHTML = html;
+}
+
+function edgeClass(edge){
+  const kind = (edge && edge.kind ? String(edge.kind) : '').toLowerCase();
+  if (kind === 'affects') return 'critical';
+  if (kind === 'calls') return 'warning';
+  if (kind === 'owns' || kind === 'scheduled_on' || kind === 'runs_on') return 'active';
+  return '';
 }
 
 // Drag
@@ -951,30 +1093,36 @@ function populateLogsNamespaces(){
 async function populateLogsPods(){
   const ns = document.getElementById('logs-ns').value.trim();
   const podSel = document.getElementById('logs-pod');
-  if (!podSel) return;
+  const depSel = document.getElementById('logs-deployment');
+  if (!podSel || !depSel) return;
   if (!ns) {
     podSel.innerHTML = `<option value="">(select namespace first)</option>`;
+    depSel.innerHTML = `<option value="">(select namespace first)</option>`;
     return;
   }
   podSel.innerHTML = `<option value="">loading...</option>`;
+  depSel.innerHTML = `<option value="">loading...</option>`;
   try {
     const pods = await apiGet('/api/pods?ns=' + encodeURIComponent(ns), {noCache:true}) || [];
     if (!pods.length) {
       podSel.innerHTML = `<option value="">(no pods)</option>`;
+      depSel.innerHTML = `<option value="">(no deployments)</option>`;
       return;
     }
     podSel.innerHTML = `<option value="">(select pod)</option>` +
       pods.map(p => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}${p.phase ? ' · '+escapeHtml(p.phase) : ''}</option>`).join('');
+    const deps = [...new Set(pods.map(p => p.deployment).filter(Boolean))].sort();
+    depSel.innerHTML = `<option value="">(select deployment)</option>` +
+      deps.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
   } catch(e){
     podSel.innerHTML = `<option value="">(failed to load pods)</option>`;
+    depSel.innerHTML = `<option value="">(failed)</option>`;
   }
 }
 async function fetchLogs(){
   const ns = document.getElementById('logs-ns').value.trim();
   const pod = document.getElementById('logs-pod').value.trim();
   const deployment = document.getElementById('logs-deployment').value.trim();
-  const container = document.getElementById('logs-container').value.trim();
-  const tail = parseInt(document.getElementById('logs-tail').value, 10) || 500;
   const since = document.getElementById('logs-since').value.trim() || '1h';
   const errEl = document.getElementById('logs-error');
   errEl.classList.add('hidden');
@@ -982,10 +1130,9 @@ async function fetchLogs(){
   if (!pod && !deployment) { errEl.textContent='Pod or Deployment is required.'; errEl.classList.remove('hidden'); return; }
   const out = document.getElementById('logs-output');
   out.innerHTML = `<div class="text-slate-500 italic">Fetching logs...</div>`;
-  const qs = new URLSearchParams({ ns, tailLines: String(Math.min(5000, Math.max(1,tail))), since });
+  const qs = new URLSearchParams({ ns, tailLines: '500', since });
   if (pod) qs.set('pod', pod);
-  if (deployment) qs.set('deployment', deployment);
-  if (container) qs.set('container', container);
+  else if (deployment) qs.set('deployment', deployment);
   try {
     const r = await fetch('/api/logs?' + qs.toString());
     if (!r.ok) {
@@ -997,7 +1144,7 @@ async function fetchLogs(){
     }
     const text = await r.text();
     renderLogsText(text);
-    document.getElementById('logs-header-label').textContent = `kubectl logs -n ${ns} ${pod||deployment} ${container ? '-c '+container : ''}`.trim();
+    document.getElementById('logs-header-label').textContent = `kubectl logs -n ${ns} ${pod||deployment}`.trim();
   } catch(e){
     errEl.textContent = 'Logs error: ' + e.message;
     errEl.classList.remove('hidden');
@@ -1153,8 +1300,8 @@ function renderStream(){
             <span class="text-[9px] uppercase tracking-wider font-bold opacity-80">${escapeHtml(ev.source||ev.kind||'event')}</span>
             <span class="font-mono text-[9px] text-slate-500">${escapeHtml(tstr)}</span>
           </div>
-          <h4 class="text-xs font-bold text-white mb-1 leading-tight truncate">${escapeHtml(ev.title||'')}</h4>
-          <p class="text-[10px] opacity-80 leading-snug truncate">${escapeHtml(ev.msg||'')}</p>
+          <h4 class="text-xs font-bold text-white mb-1 leading-tight truncate">${escapeHtml(cleanSignal(ev.title||''))}</h4>
+          <p class="text-[10px] opacity-80 leading-snug truncate">${escapeHtml(cleanSignal(ev.msg||''))}</p>
           ${ev.resource ? `<p class="text-[9px] opacity-60 font-mono mt-1 truncate">${escapeHtml(ev.resource)}</p>` : ''}
         </div>
       </div>`;

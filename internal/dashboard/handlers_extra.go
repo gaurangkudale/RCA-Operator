@@ -59,7 +59,8 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b := graph.NewClusterBuilder(s.client, s.log)
-	g, err := b.Build(r.Context())
+	opts := graph.BuildOptions{Summary: r.URL.Query().Get("view") != "detail"}
+	g, err := b.BuildWithOptions(r.Context(), opts)
 	if err != nil {
 		s.log.Error(err, "build cluster topology")
 		http.Error(w, "failed to build topology", http.StatusInternalServerError)

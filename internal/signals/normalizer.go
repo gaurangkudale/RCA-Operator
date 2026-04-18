@@ -4,6 +4,7 @@ package signals
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
@@ -95,7 +96,7 @@ func (n *Normalizer) Normalize(event watcher.CorrelatorEvent) (NormalizedSignal,
 
 func (n *Normalizer) buildInput(event watcher.CorrelatorEvent, mapping SignalMapping) incident.Input {
 	base := extractBase(event)
-	summary := buildSummary(event)
+	summary := stripEmptyKV(buildSummary(event))
 
 	input := incident.Input{
 		Namespace:    base.Namespace,
@@ -458,6 +459,23 @@ func extractTraceID(event watcher.CorrelatorEvent) string {
 	default:
 		return ""
 	}
+}
+
+// emptyKVRegex matches whitespace + key= whose value is absent (end of string or
+// followed by whitespace). Used to strip trailing/mid-string `message=` etc.
+var emptyKVRegex = regexp.MustCompile(`(^|\s)[A-Za-z_][\w.-]*=(\s|$)`)
+
+// stripEmptyKV removes `key=` fragments with empty values from a summary string.
+// Repeats until stable so adjacent empties collapse.
+func stripEmptyKV(s string) string {
+	for {
+		out := emptyKVRegex.ReplaceAllString(s, "$2")
+		if out == s {
+			break
+		}
+		s = out
+	}
+	return strings.TrimSpace(regexp.MustCompile(`\s+`).ReplaceAllString(s, " "))
 }
 
 func buildSummary(event watcher.CorrelatorEvent) string {
