@@ -138,3 +138,23 @@ func TestNormalize_OTelSpanError_PrefersDeploymentResourceAttr(t *testing.T) {
 		t.Fatalf("unexpected workload ref: kind=%q name=%q", sig.Scope.WorkloadRef.Kind, sig.Scope.WorkloadRef.Name)
 	}
 }
+
+func TestNormalize_OTelSpanError_DropsClientSpans(t *testing.T) {
+	n := NewNormalizer(nil)
+	event := watcher.OTelSpanErrorEvent{
+		BaseEvent: watcher.BaseEvent{
+			At:        time.Date(2026, 4, 17, 12, 0, 0, 0, time.UTC),
+			AgentName: "ag",
+			Namespace: "rca-demo",
+			PodName:   "load-tester-abc",
+		},
+		TraceID:    "abcdef0123456789abcdef0123456789",
+		SpanID:     "span-client",
+		SpanKind:   "CLIENT",
+		StatusCode: "STATUS_CODE_ERROR",
+	}
+
+	if _, ok := n.Normalize(event); ok {
+		t.Fatal("expected CLIENT span error to be ignored")
+	}
+}

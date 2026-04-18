@@ -90,6 +90,16 @@ func (n *Normalizer) Normalize(event watcher.CorrelatorEvent) (NormalizedSignal,
 		return NormalizedSignal{}, false
 	}
 
+	// OTel span errors from non-server spans (CLIENT/INTERNAL/etc.) often mirror
+	// the downstream service failure in the same trace and can create duplicate
+	// incidents across caller/callee workloads. Keep only SERVER (or empty for
+	// backward compatibility with legacy test fixtures) as incident signals.
+	if spanErr, ok := event.(watcher.OTelSpanErrorEvent); ok {
+		if spanErr.SpanKind != "" && spanErr.SpanKind != "SERVER" {
+			return NormalizedSignal{}, false
+		}
+	}
+
 	input := n.buildInput(event, mapping)
 	return NormalizedSignal{Input: input, RawEvent: event}, true
 }
