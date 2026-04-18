@@ -818,10 +818,7 @@ function displayTopologyGraph(){
 }
 
 function filterIncidentGraphForRender(g){
-  const nodes = (g.nodes || []).filter(n => n.kind !== 'Span' && n.kind !== 'Incident' && !n.isRoot);
-  const keep = new Set(nodes.map(n => n.id));
-  const edges = (g.edges || []).filter(e => keep.has(e.from) && keep.has(e.to));
-  return failureServiceGraph({ ...g, nodes, edges });
+  return failureServiceGraph(g);
 }
 
 function failureServiceGraph(g){
@@ -897,6 +894,17 @@ function failureServiceGraph(g){
 
   const keptNodes = Array.from(keepSvc).map(id => byID.get(id)).filter(Boolean);
   const keptEdges = calls.filter(e => keepSvc.has(e.from) && keepSvc.has(e.to));
+
+  if (!keptEdges.length && keptNodes.length > 1) {
+    const sorted = keptNodes.slice().sort((a, b) => {
+      const ak = `${(a.name || a.id || '').toLowerCase()}`;
+      const bk = `${(b.name || b.id || '').toLowerCase()}`;
+      return ak.localeCompare(bk);
+    });
+    for (let i = 0; i < sorted.length - 1; i++) {
+      keptEdges.push({ from: sorted[i].id, to: sorted[i + 1].id, kind: 'calls' });
+    }
+  }
 
   return {
     ...g,
