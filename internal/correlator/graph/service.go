@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -112,20 +113,30 @@ func (b *ServiceGraphBuilder) Build(ctx context.Context, lookback time.Duration)
 }
 
 // buildServiceOverlay maps service-name → worst status across open incidents.
-// Services are matched by AffectedResource.Name for Kind=Service.
+// Matching is deliberately lenient: in real clusters an OTel-derived signal
+// typically attaches the AffectedResource to the backing workload (Deployment,
+// StatefulSet, DaemonSet, Pod) rather than the Service object itself — via
+// applyOTelScopeOverrides in signals/normalizer.go. Without the workload
+// fallback below the Service node in the dashboard stays green even while the
+// Workload view correctly flags the incident.
 func buildServiceOverlay(list []rcav1alpha1.IncidentReport) map[string]string {
 	out := map[string]string{}
 	for _, inc := range list {
-		phase := inc.Status.Phase
-		if phase == "Resolved" || phase == "Closed" || phase == "resolved" || phase == "closed" {
+		phase := strings.ToLower(inc.Status.Phase)
+		if phase == "resolved" || phase == "closed" {
 			continue
 		}
 		status := severityToStatus(inc.Status.Severity)
 		for _, r := range inc.Status.AffectedResources {
-			if r.Kind != "Service" || r.Name == "" {
+			if r.Name == "" {
 				continue
 			}
-			out[r.Name] = pickWorse(out[r.Name], status)
+			switch r.Kind {
+			case "Service",
+				"Deployment", "StatefulSet", "DaemonSet", "ReplicaSet",
+				"Pod":
+				out[r.Name] = pickWorse(out[r.Name], status)
+			}
 		}
 	}
 	return out

@@ -854,17 +854,37 @@ function normalizeTopologyStatus(status){
 }
 
 function nodeStatusFromIncidents(node){
-  // Cross-reference with active incidents to colour node.
-  // node.id format from graph.Node is "<Kind>/<Namespace>/<Name>" or similar; match by name.
+  // Cross-reference with active incidents to colour the node.
+  // Node IDs in the graph look like "deploy:<ns>/<name>", "pod:<ns>/<name>",
+  // "service:<name>", etc. We match by (kind, namespace, name) and fall back
+  // to workload-by-name for Services, because many signals (notably
+  // OTelSpanError) attach the AffectedResource to the backing Deployment/Pod
+  // — not the Service object — via applyOTelScopeOverrides on the backend.
+  // Without this fallback the Services view stays green while the Workload
+  // view correctly shows the incident.
   const name = node.name;
   const ns = node.namespace;
   const kind = node.kind;
+  const workloadKinds = new Set(['Deployment', 'StatefulSet', 'DaemonSet', 'ReplicaSet', 'Pod']);
   let worst = 'healthy';
   for (const inc of state.incidents) {
     if ((inc.phase||'').toLowerCase() === 'resolved') continue;
-    const match = (inc.affectedResources||[]).some(r =>
+    const affected = inc.affectedResources || [];
+    let match = affected.some(r =>
       r.kind === kind && r.name === name && (!ns || r.namespace === ns || r.namespace === '')
-    ) || (kind==='Pod' && inc.podName === name && inc.namespace === ns);
+    );
+    if (!match && kind === 'Pod') {
+      match = inc.podName === name && inc.namespace === ns;
+    }
+    if (!match && kind === 'Service') {
+      // Fall back: same-name workload / pod in the same namespace is almost
+      // always what the Service routes to in typical k8s setups.
+      match = affected.some(r =>
+        workloadKinds.has(r.kind) && r.name === name &&
+        (!ns || r.namespace === ns || r.namespace === '')
+      ) || (inc.podName && inc.namespace === ns &&
+            typeof inc.podName === 'string' && inc.podName.startsWith(name + '-'));
+    }
     if (!match) continue;
     const sev = inc.severity;
     if (sev === 'P1') return 'critical';
@@ -1252,6 +1272,8 @@ function renderTopologyEdges(){
   const g = displayTopologyGraph();
   const layer = document.getElementById('edges-layer');
   if (!g || !g.edges) { layer.innerHTML = ''; return; }
+  const nodeStatusByID = new Map();
+  (g.nodes || []).forEach(n => nodeStatusByID.set(n.id, nodeVisualStatus(n)));
   let defs = `<defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
@@ -1268,7 +1290,7 @@ function renderTopologyEdges(){
       const r = 26;
       const cx = src.x + r;
       const cy = src.y - r;
-      paths += `<path d="M ${src.x} ${src.y-14} A ${r} ${r} 0 1 1 ${src.x+14} ${src.y}" class="edge-path ${edgeClass(edge)}" marker-end="url(#arrow)"></path>`;
+      paths += `<path d="M ${src.x} ${src.y-14} A ${r} ${r} 0 1 1 ${src.x+14} ${src.y}" class="edge-path ${edgeClass(edge, nodeStatusByID)}" marker-end="url(#arrow)"></path>`;
       if (count) labels += `<text x="${cx+10}" y="${cy-8}" class="edge-label">${escapeHtml(count)}</text>`;
       return;
     }
@@ -1276,7 +1298,7 @@ function renderTopologyEdges(){
     const dy = tgt.y - src.y;
     const ctrl = Math.max(60, Math.abs(dx) * 0.45);
     const path = `M ${src.x} ${src.y} C ${src.x + ctrl} ${src.y}, ${tgt.x - ctrl} ${tgt.y}, ${tgt.x} ${tgt.y}`;
-    paths += `<path d="${path}" class="edge-path ${edgeClass(edge)}" marker-end="url(#arrow)"></path>`;
+    paths += `<path d="${path}" class="edge-path ${edgeClass(edge, nodeStatusByID)}" marker-end="url(#arrow)"></path>`;
     if (count) {
       const mx = (src.x + tgt.x) / 2;
       const my = (src.y + tgt.y) / 2 - Math.sign(dy || 1) * 6;
@@ -1292,11 +1314,24 @@ function formatCount(n){
   return String(n);
 }
 
-function edgeClass(edge){
+function edgeClass(edge, nodeStatusByID){
   const kind = (edge && edge.kind ? String(edge.kind) : '').toLowerCase();
-  if (kind === 'calls') return 'critical';
+  const from = nodeStatusByID ? nodeStatusByID.get(edge.from) : undefined;
+  const to   = nodeStatusByID ? nodeStatusByID.get(edge.to)   : undefined;
+  const unhealthy = (s) => s === 'critical' || s === 'warning';
+
+  // Incident-root → affected-resource: always red.
   if (kind === 'affects') return 'critical';
-  if (kind === 'owns' || kind === 'scheduled_on' || kind === 'runs_on') return 'active';
+
+  // Any structural / call edge touching an unhealthy endpoint is painted red
+  // so blast radius is visible at a glance. Node icons keep their own
+  // severity colour (yellow for P3/warning, red for P1/P2/critical), which
+  // lets operators distinguish severity while still seeing the failure path.
+  if (unhealthy(from) || unhealthy(to)) return 'critical';
+
+  if (kind === 'calls' || kind === 'owns' || kind === 'scheduled_on' || kind === 'runs_on') {
+    return 'active';
+  }
   return '';
 }
 
