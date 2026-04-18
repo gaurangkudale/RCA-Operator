@@ -635,18 +635,48 @@ function renderIncidentDetail(){
       <span class="text-[10px] text-slate-500 font-mono shrink-0 ml-2">${escapeHtml(r.namespace||'')}</span>
     </div>`).join('') || `<div class="text-xs text-slate-500 italic">No resources</div>`;
 
-  const signals = (d.correlatedSignals || [])
+  const normalizedSignals = (d.correlatedSignals || [])
     .map(s => cleanSignal(s))
-    .filter(s => s.length > 0)
-    .map(s => `
-    <span class="inline-block bg-slate-800 text-slate-300 font-mono text-[10px] px-2 py-0.5 rounded mr-1 mb-1">${escapeHtml(s)}</span>
+    .filter(s => s.length > 0);
+  const groupedSignalMap = new Map();
+  normalizedSignals.forEach(s => {
+    groupedSignalMap.set(s, (groupedSignalMap.get(s) || 0) + 1);
+  });
+  const groupedSignals = Array.from(groupedSignalMap.entries())
+    .map(([text, count]) => ({ text, count }))
+    .sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return a.text.localeCompare(b.text);
+    });
+  const signals = groupedSignals.map(g => `
+    <div class="bg-slate-950 border border-slate-800 rounded px-2 py-1.5 flex items-start justify-between gap-2">
+      <span class="text-[10px] text-slate-300 font-mono leading-relaxed break-all">${escapeHtml(g.text)}</span>
+      <span class="shrink-0 text-[9px] font-bold font-mono rounded px-1.5 py-0.5 ${g.count > 1 ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' : 'bg-slate-800 text-slate-400 border border-slate-700'}">x${g.count}</span>
+    </div>
   `).join('') || `<span class="text-xs text-slate-500 italic">None</span>`;
 
-  const timeline = (d.timeline || []).slice().reverse().map(t => `
-    <div class="flex gap-3 text-[11px] py-1.5 border-b border-slate-800/50 last:border-0">
-      <span class="text-slate-500 font-mono shrink-0 w-24">${escapeHtml(relTime(t.time))}</span>
-      <span class="text-slate-300">${escapeHtml(cleanSignal(t.event))}</span>
-    </div>`).join('') || `<div class="text-xs text-slate-500 italic">No timeline entries</div>`;
+  const timelineEntries = (d.timeline || []).slice().sort((a, b) => {
+    const at = a && a.time ? new Date(a.time).getTime() : 0;
+    const bt = b && b.time ? new Date(b.time).getTime() : 0;
+    return at - bt;
+  });
+  const timeline = timelineEntries.length
+    ? `<div class="bg-slate-950 border border-slate-800 rounded-lg p-3 overflow-x-auto custom-scrollbar">
+        <div class="relative min-w-max pb-1">
+          <div class="absolute top-4 left-0 right-0 h-px bg-slate-700"></div>
+          <div class="flex gap-4 items-start pr-2">
+            ${timelineEntries.map(t => `
+              <article class="relative w-[280px] pt-7">
+                <div class="absolute top-[11px] left-4 w-2.5 h-2.5 rounded-full border border-indigo-300 bg-indigo-400"></div>
+                <div class="text-[10px] font-mono text-indigo-300 mb-1">${escapeHtml(t.time ? new Date(t.time).toISOString().replace('T', ' ').replace('.000Z', 'Z') : 'unknown time')}</div>
+                <div class="text-[10px] text-slate-500 font-mono mb-2">${escapeHtml(relTime(t.time))}</div>
+                <div class="text-[11px] text-slate-200 leading-relaxed break-words">${escapeHtml(cleanSignal(t.event))}</div>
+              </article>
+            `).join('')}
+          </div>
+        </div>
+      </div>`
+    : `<div class="text-xs text-slate-500 italic">No timeline entries</div>`;
 
   const traceIds = (d.traceIds || []).map(id =>
     `<code class="block text-indigo-300 font-mono text-[10px] bg-slate-950 border border-slate-800 px-2 py-1 rounded mb-1 truncate">${escapeHtml(id)}</code>`
@@ -723,7 +753,11 @@ function renderIncidentDetail(){
 
       <section>
         <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Correlated Signals</h3>
-        <div>${signals}</div>
+        <div class="flex items-center justify-between mb-2 text-[10px] font-mono">
+          <span class="text-slate-500">Grouped by unique signal</span>
+          <span class="text-indigo-300">${groupedSignals.length} unique / ${normalizedSignals.length} total</span>
+        </div>
+        <div class="space-y-1.5">${signals}</div>
       </section>
 
       <section>
@@ -733,7 +767,7 @@ function renderIncidentDetail(){
 
       <section>
         <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Timeline</h3>
-        <div class="bg-slate-950 border border-slate-800 rounded-lg p-3">${timeline}</div>
+        ${timeline}
       </section>
     </div>
   `;
