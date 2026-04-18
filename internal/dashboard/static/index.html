@@ -111,6 +111,11 @@
           <button id="topo-mode-service" onclick="setTopoMode('service')" title="Service dependency graph (from traces)" class="px-2 py-1 text-[10px] font-mono rounded transition-colors text-slate-400 hover:text-white hover:bg-slate-800">Services</button>
           <div class="w-px h-5 bg-slate-700 my-auto mx-1"></div>
           <button id="topo-clear-incident" onclick="clearTopologyIncident()" title="Show cluster graph" class="hidden p-1.5 text-indigo-300 hover:text-white hover:bg-slate-800 rounded transition-colors text-[10px] font-mono px-2">Show cluster</button>
+          <div class="w-px h-5 bg-slate-700 my-auto mx-1"></div>
+          <button onclick="zoomBy(-0.1)" title="Zoom out" class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"><i data-lucide="zoom-out" class="w-4 h-4"></i></button>
+          <button onclick="zoomFit()" title="Fit to screen" class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"><i data-lucide="maximize-2" class="w-4 h-4"></i></button>
+          <button onclick="zoomBy(0.1)" title="Zoom in" class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"><i data-lucide="zoom-in" class="w-4 h-4"></i></button>
+          <button onclick="zoomReset()" title="Reset zoom (100%)" id="topo-zoom-label" class="px-2 py-1 text-[10px] font-mono text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors min-w-[40px]">100%</button>
         </div>
         <div id="topology-trace-pill" class="hidden absolute top-4 left-64 z-20 bg-slate-900/95 border border-slate-800 px-3 py-1.5 rounded-md text-xs flex items-center gap-2"></div>
         <div id="topology-error" class="hidden absolute top-4 right-4 z-20 bg-amber-500/10 border border-amber-500/30 text-amber-300 px-3 py-2 rounded text-xs"></div>
@@ -304,6 +309,7 @@ const state = {
   incidentGraph: null,
   selectedNodeId: null,
   topologyLayout: {}, // id -> {x,y}
+  topologyZoom: 1,
   logs: { ns:'', pod:'', deployment:'', container:'', tail:500, since:'1h', text:'', error:'' },
   rules: [],
   agents: [],
@@ -1034,8 +1040,7 @@ function layoutTopology(g){
   if (isIncidentTopologyGraph(g)) {
     layoutIncidentTopology(g);
   } else if (state.topoMode === 'service' && g === state.serviceGraph) {
-    // Reuse the DAG layered layout for service-to-service call graphs.
-    layoutIncidentTopology(g);
+    layoutServiceTopology(g);
   } else {
     layoutClusterTopology(g);
   }
@@ -1059,10 +1064,49 @@ function fitCanvasToLayout(){
     if (p && typeof p.x === 'number' && p.x > maxX) maxX = p.x;
     if (p && typeof p.y === 'number' && p.y > maxY) maxY = p.y;
   });
-  const targetW = Math.max(scroll.clientWidth, Math.ceil(maxX + padRight));
-  const targetH = Math.max(scroll.clientHeight, Math.ceil(maxY + padBottom));
-  inner.style.width  = targetW + 'px';
-  inner.style.height = targetH + 'px';
+  const z = state.topologyZoom || 1;
+  const contentW = Math.ceil(maxX + padRight);
+  const contentH = Math.ceil(maxY + padBottom);
+  // Inner size (unscaled) stays at content size; we use an outer wrapper via
+  // scale transform. Simpler: grow inner to cover whichever is larger between
+  // viewport and (content * zoom).
+  const targetW = Math.max(scroll.clientWidth, Math.ceil(contentW * z));
+  const targetH = Math.max(scroll.clientHeight, Math.ceil(contentH * z));
+  inner.style.width  = (targetW / z) + 'px';
+  inner.style.height = (targetH / z) + 'px';
+  inner.style.transformOrigin = '0 0';
+  inner.style.transform = z === 1 ? '' : `scale(${z})`;
+}
+
+function zoomBy(delta){
+  const cur = state.topologyZoom || 1;
+  const next = Math.max(0.3, Math.min(2.5, Math.round((cur + delta) * 100) / 100));
+  setZoom(next);
+}
+function zoomReset(){ setZoom(1); }
+function zoomFit(){
+  const scroll = document.getElementById('canvas-scroll');
+  if (!scroll) return;
+  const positions = Object.values(state.topologyLayout || {});
+  if (!positions.length) return;
+  let maxX = 0, maxY = 0;
+  positions.forEach(p => {
+    if (p && p.x > maxX) maxX = p.x;
+    if (p && p.y > maxY) maxY = p.y;
+  });
+  const contentW = maxX + 260;
+  const contentH = maxY + 160;
+  const fitX = scroll.clientWidth  / contentW;
+  const fitY = scroll.clientHeight / contentH;
+  const z = Math.max(0.3, Math.min(2.5, Math.min(fitX, fitY)));
+  setZoom(z);
+  scroll.scrollLeft = 0; scroll.scrollTop = 0;
+}
+function setZoom(z){
+  state.topologyZoom = z;
+  const label = document.getElementById('topo-zoom-label');
+  if (label) label.textContent = Math.round(z * 100) + '%';
+  fitCanvasToLayout();
 }
 
 function isIncidentTopologyGraph(g){
@@ -1282,6 +1326,64 @@ function layoutIncidentTopology(g){
   });
 }
 
+// layoutServiceTopology places service-graph nodes using a hybrid strategy.
+// For small graphs we defer to the DAG layered layout (clearer call flow).
+// For dense meshes (>12 services) we switch to a balanced grid so nodes are
+// evenly distributed across the viewport instead of piling up in one column.
+function layoutServiceTopology(g){
+  const nodes = Array.isArray(g.nodes) ? g.nodes : [];
+  if (nodes.length <= 12) { layoutIncidentTopology(g); return; }
+
+  const scrollEl = document.getElementById('canvas-scroll') || document.getElementById('canvas-container');
+  const cw = scrollEl.clientWidth  || 900;
+  const ch = scrollEl.clientHeight || 600;
+
+  // Sort: unhealthy first (surfaces problems), then by in-degree desc (hubs
+  // before leaves), then alphabetical.
+  const indeg = new Map();
+  nodes.forEach(n => indeg.set(n.id, 0));
+  (g.edges || []).forEach(e => {
+    if (e.from === e.to) return;
+    if (indeg.has(e.to)) indeg.set(e.to, indeg.get(e.to) + 1);
+  });
+  const sorted = nodes.slice().sort((a, b) => {
+    const sa = nodeVisualStatus(a), sb = nodeVisualStatus(b);
+    const rank = (s) => s === 'critical' ? 0 : s === 'warning' ? 1 : 2;
+    if (rank(sa) !== rank(sb)) return rank(sa) - rank(sb);
+    const da = indeg.get(a.id) || 0, db = indeg.get(b.id) || 0;
+    if (da !== db) return db - da;
+    return (a.label || a.name || a.id).localeCompare(b.label || b.name || b.id);
+  });
+
+  const marginX = 100;
+  const marginY = 80;
+  const minCellW = 170; // room for label + spacing
+  const minCellH = 100;
+  const usableW = Math.max(minCellW, cw - marginX * 2);
+  // Grid dimensions: aim for near-square, capped so cells don't get tiny.
+  let cols = Math.max(3, Math.min(Math.floor(usableW / minCellW), Math.ceil(Math.sqrt(sorted.length * 1.6))));
+  const rows = Math.ceil(sorted.length / cols);
+  const cellW = Math.max(minCellW, usableW / cols);
+  const cellH = Math.max(minCellH, (ch - marginY * 2) / Math.max(1, rows - 1 || 1));
+
+  const prev = state.topologyLayout || {};
+  state.topologyLayout = {};
+  sorted.forEach((n, i) => {
+    const r = Math.floor(i / cols);
+    const c = i % cols;
+    // Stagger odd rows by half a cell to break grid rigidity and reduce
+    // straight-line edge collisions.
+    const offsetX = (r % 2 === 1) ? cellW * 0.25 : 0;
+    state.topologyLayout[n.id] = {
+      x: marginX + c * cellW + cellW / 2 + offsetX,
+      y: marginY + r * cellH,
+    };
+  });
+  Object.keys(state.topologyLayout).forEach(id => {
+    if (prev[id]) state.topologyLayout[id] = prev[id];
+  });
+}
+
 function renderTopologyNodes(g){
   const html = g.nodes.map(node => {
     const pos = state.topologyLayout[node.id] || { x: 100, y: 100 };
@@ -1397,16 +1499,18 @@ function startNodeDrag(e, id){
   dragNode = id; didDrag = false;
   const pos = state.topologyLayout[id];
   const rect = document.getElementById('canvas-inner').getBoundingClientRect();
-  dragOffX = e.clientX - rect.left - pos.x;
-  dragOffY = e.clientY - rect.top - pos.y;
+  const z = state.topologyZoom || 1;
+  dragOffX = (e.clientX - rect.left) / z - pos.x;
+  dragOffY = (e.clientY - rect.top) / z - pos.y;
   e.preventDefault();
 }
 document.addEventListener('mousemove', e => {
   if (!dragNode) return;
   didDrag = true;
   const rect = document.getElementById('canvas-inner').getBoundingClientRect();
-  const nx = e.clientX - rect.left - dragOffX;
-  const ny = e.clientY - rect.top - dragOffY;
+  const z = state.topologyZoom || 1;
+  const nx = (e.clientX - rect.left) / z - dragOffX;
+  const ny = (e.clientY - rect.top) / z - dragOffY;
   state.topologyLayout[dragNode] = { x: nx, y: ny };
   const id = 'node-' + btoa(unescape(encodeURIComponent(dragNode))).replace(/=/g,'');
   const el = document.getElementById(id);
@@ -1418,6 +1522,8 @@ document.addEventListener('mouseup', () => { dragNode = null; });
 
 function resetLayout(){
   const g = displayTopologyGraph();
+  state.topologyLayout = {};
+  setZoom(1);
   if (g) { layoutTopology(g); renderTopologyNodes(g); renderTopologyEdges(); }
 }
 function refreshTopology(force){ loadTopology(!!force); }
