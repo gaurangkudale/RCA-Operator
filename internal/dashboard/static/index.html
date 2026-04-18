@@ -25,6 +25,7 @@
   .edge-path.active { stroke: #10b981; }
   .edge-path.warning { stroke: #eab308; stroke-dasharray: 4 4; animation: flow 2s linear infinite; }
   .edge-path.critical { stroke: #ef4444; stroke-width: 3px; stroke-dasharray: 6 6; animation: flow 1s linear infinite; }
+  .edge-label { fill: #94a3b8; font: 500 10px ui-monospace, SFMono-Regular, Menlo, monospace; paint-order: stroke; stroke: #0f172a; stroke-width: 3px; }
   @keyframes flow { to { stroke-dashoffset: -12; } }
   .topology-node { position: absolute; transform: translate(-50%, -50%); cursor: grab; user-select: none; z-index: 10; transition: transform 0.1s;}
   .topology-node:active { cursor: grabbing; transform: translate(-50%, -50%) scale(1.05); }
@@ -294,6 +295,8 @@ const state = {
   selectedIncidentKey: null,
   incidentDetail: null,
   topology: null,
+  serviceGraph: null,
+  topoMode: 'workload', // 'workload' | 'service'
   incidentGraph: null,
   selectedNodeId: null,
   topologyLayout: {}, // id -> {x,y}
@@ -525,6 +528,31 @@ async function loadTopology(force){
     document.getElementById('topology-error').classList.remove('hidden');
     document.getElementById('topology-error').textContent = 'Topology: ' + e.message;
   }
+}
+async function loadServiceGraph(force){
+  try {
+    if (force) invalidateCache('/api/service-graph?lookback=1h');
+    const data = await apiGet('/api/service-graph?lookback=1h');
+    state.serviceGraph = data || { nodes: [], edges: [] };
+    renderTopology();
+  } catch(e){
+    document.getElementById('topology-error').classList.remove('hidden');
+    document.getElementById('topology-error').textContent = 'Service graph: ' + e.message;
+  }
+}
+function setTopoMode(mode){
+  if (state.topoMode === mode) return;
+  state.topoMode = mode;
+  state.topologyLayout = {};
+  const wl = document.getElementById('topo-mode-workload');
+  const sv = document.getElementById('topo-mode-service');
+  if (wl && sv) {
+    const on = 'bg-slate-800 text-white';
+    const off = 'text-slate-400 hover:text-white hover:bg-slate-800';
+    wl.className = `px-2 py-1 text-[10px] font-mono rounded transition-colors ${mode==='workload'?on:off}`;
+    sv.className = `px-2 py-1 text-[10px] font-mono rounded transition-colors ${mode==='service'?on:off}`;
+  }
+  if (mode === 'service') loadServiceGraph(true); else loadTopology(true);
 }
 async function loadIncidentGraph(ns, name){
   try {
@@ -853,10 +881,9 @@ function nodeVisualStatus(node){
 }
 
 function displayTopologyGraph(){
-  const g = state.incidentGraph || state.topology;
-  if (!g) return null;
-  if (!isIncidentTopologyGraph(g)) return g;
-  return filterIncidentGraphForRender(g);
+  if (state.incidentGraph) return filterIncidentGraphForRender(state.incidentGraph);
+  if (state.topoMode === 'service') return state.serviceGraph;
+  return state.topology;
 }
 
 function filterIncidentGraphForRender(g){
@@ -984,6 +1011,11 @@ function layoutTopology(g){
     layoutIncidentTopology(g);
     return;
   }
+  if (state.topoMode === 'service' && g === state.serviceGraph) {
+    // Reuse the DAG layered layout for service-to-service call graphs.
+    layoutIncidentTopology(g);
+    return;
+  }
   layoutClusterTopology(g);
 }
 
@@ -993,43 +1025,86 @@ function isIncidentTopologyGraph(g){
 }
 
 function layoutClusterTopology(g){
+  // Jaeger-style hierarchical DAG layout.
+  // Rank nodes from sinks (e.g. k8s Nodes) on the right, sources
+  // (Deployments/Services) on the left. Within a column, group by namespace
+  // for readability and keep generous vertical spacing so labels don't collide.
   const container = document.getElementById('canvas-container');
   const cw = container.clientWidth || 800;
   const ch = container.clientHeight || 600;
+  const nodes = Array.isArray(g.nodes) ? g.nodes : [];
+  const edges = Array.isArray(g.edges) ? g.edges : [];
 
-  // Two-column layout: workloads (deployments+services+pods) on the left,
-  // k8s nodes on the right. Workloads are grouped by namespace for readability.
-  const nodes = g.nodes.filter(n => n.kind === 'Node');
-  const workloads = g.nodes.filter(n => n.kind !== 'Node');
+  const outgoing = new Map();
+  nodes.forEach(n => outgoing.set(n.id, []));
+  edges.forEach(e => {
+    if (e.from === e.to) return; // ignore self-loops for ranking
+    if (outgoing.has(e.from)) outgoing.get(e.from).push(e.to);
+  });
+
+  // Reverse-topological rank: sinks get rank 0, parents get max(child)+1.
+  // Cycle-safe via visiting set.
+  const rank = new Map();
+  const visiting = new Set();
+  const computeRank = (id) => {
+    if (rank.has(id)) return rank.get(id);
+    if (visiting.has(id)) return 0;
+    visiting.add(id);
+    let r = 0;
+    const outs = outgoing.get(id) || [];
+    if (outs.length) {
+      let m = -1;
+      outs.forEach(c => { const cr = computeRank(c); if (cr > m) m = cr; });
+      r = m + 1;
+    }
+    visiting.delete(id);
+    rank.set(id, r);
+    return r;
+  };
+  nodes.forEach(n => computeRank(n.id));
+
+  // Force Nodes to the rightmost column regardless of edge wiring.
+  let maxRank = 0;
+  rank.forEach(v => { if (v > maxRank) maxRank = v; });
+  if (nodes.some(n => n.kind === 'Node')) {
+    nodes.forEach(n => { if (n.kind === 'Node') rank.set(n.id, 0); });
+    nodes.forEach(n => {
+      if (n.kind !== 'Node' && rank.get(n.id) === 0) rank.set(n.id, Math.max(1, maxRank));
+    });
+    maxRank = 0;
+    rank.forEach(v => { if (v > maxRank) maxRank = v; });
+  }
+
+  const columns = Array.from({ length: maxRank + 1 }, () => []);
+  nodes.forEach(n => columns[rank.get(n.id)].push(n));
+
+  const sortKey = (n) => `${(n.namespace||'~').toLowerCase()}|${(n.kind||'').toLowerCase()}|${(n.label||n.name||n.id).toLowerCase()}`;
+  columns.forEach(col => col.sort((a, b) => sortKey(a).localeCompare(sortKey(b))));
 
   const prev = state.topologyLayout || {};
   state.topologyLayout = {};
-  const rightX = cw * 0.78;
-  const leftX  = cw * 0.28;
+  const marginX = 120;
+  const marginY = 70;
+  const usableW = Math.max(320, cw - marginX * 2);
+  const minRowHeight = 74; // leaves room for circle + two-line label
+  const xStep = maxRank > 0 ? usableW / maxRank : 0;
 
-  if (nodes.length) {
-    const step = ch / (nodes.length + 1);
-    nodes.forEach((n, i) => { state.topologyLayout[n.id] = { x: rightX, y: step * (i+1) }; });
-  }
-  // Group workloads by namespace
-  const byNS = {};
-  workloads.forEach(n => {
-    const k = n.namespace || '—';
-    if (!byNS[k]) byNS[k] = [];
-    byNS[k].push(n);
-  });
-  const nsKeys = Object.keys(byNS).sort();
-  const nsStep = ch / (workloads.length + nsKeys.length + 1);
-  let y = nsStep;
-  nsKeys.forEach(ns => {
-    byNS[ns].forEach(n => {
-      state.topologyLayout[n.id] = { x: leftX, y };
-      y += nsStep;
+  columns.forEach((colNodes, idx) => {
+    // rank 0 (sinks) sits on the right; highest rank on the left.
+    const x = maxRank > 0 ? marginX + (maxRank - idx) * xStep : cw / 2;
+    if (colNodes.length === 1) {
+      state.topologyLayout[colNodes[0].id] = { x, y: ch / 2 };
+      return;
+    }
+    const totalH = Math.max(ch - marginY * 2, (colNodes.length - 1) * minRowHeight);
+    const step = totalH / (colNodes.length - 1);
+    const startY = Math.max(marginY, (ch - totalH) / 2);
+    colNodes.forEach((n, i) => {
+      state.topologyLayout[n.id] = { x, y: startY + i * step };
     });
-    y += nsStep; // gap between namespace clusters
   });
-  // Preserve user-dragged positions from the previous layout for nodes that
-  // are still present. Fresh additions keep their auto-computed slots.
+
+  // Preserve user-dragged positions for nodes still present.
   Object.keys(state.topologyLayout).forEach(id => {
     if (prev[id]) state.topologyLayout[id] = prev[id];
   });
@@ -1175,18 +1250,46 @@ function renderTopologyNodes(g){
 
 function renderTopologyEdges(){
   const g = displayTopologyGraph();
-  if (!g || !g.edges) { document.getElementById('edges-layer').innerHTML = ''; return; }
-  let html = '';
+  const layer = document.getElementById('edges-layer');
+  if (!g || !g.edges) { layer.innerHTML = ''; return; }
+  let defs = `<defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+  </defs>`;
+  let paths = '';
+  let labels = '';
   g.edges.forEach(edge => {
     const src = state.topologyLayout[edge.from];
     const tgt = state.topologyLayout[edge.to];
     if (!src || !tgt) return;
+    const count = edge.count ? formatCount(edge.count) : '';
+    if (edge.from === edge.to) {
+      const r = 26;
+      const cx = src.x + r;
+      const cy = src.y - r;
+      paths += `<path d="M ${src.x} ${src.y-14} A ${r} ${r} 0 1 1 ${src.x+14} ${src.y}" class="edge-path ${edgeClass(edge)}" marker-end="url(#arrow)"></path>`;
+      if (count) labels += `<text x="${cx+10}" y="${cy-8}" class="edge-label">${escapeHtml(count)}</text>`;
+      return;
+    }
     const dx = tgt.x - src.x;
+    const dy = tgt.y - src.y;
     const ctrl = Math.max(60, Math.abs(dx) * 0.45);
     const path = `M ${src.x} ${src.y} C ${src.x + ctrl} ${src.y}, ${tgt.x - ctrl} ${tgt.y}, ${tgt.x} ${tgt.y}`;
-    html += `<path d="${path}" class="edge-path ${edgeClass(edge)}"></path>`;
+    paths += `<path d="${path}" class="edge-path ${edgeClass(edge)}" marker-end="url(#arrow)"></path>`;
+    if (count) {
+      const mx = (src.x + tgt.x) / 2;
+      const my = (src.y + tgt.y) / 2 - Math.sign(dy || 1) * 6;
+      labels += `<text x="${mx}" y="${my}" class="edge-label" text-anchor="middle">${escapeHtml(count)}</text>`;
+    }
   });
-  document.getElementById('edges-layer').innerHTML = html;
+  layer.innerHTML = defs + paths + labels;
+}
+
+function formatCount(n){
+  if (n >= 1_000_000) return (n/1_000_000).toFixed(1).replace(/\.0$/,'') + 'M';
+  if (n >= 1_000) return (n/1_000).toFixed(1).replace(/\.0$/,'') + 'k';
+  return String(n);
 }
 
 function edgeClass(edge){
