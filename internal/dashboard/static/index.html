@@ -407,6 +407,76 @@ function incidentTraceIDs(){
   return out;
 }
 
+function selectedIncidentNamespace(){
+  const key = String(state.selectedIncidentKey || '').trim();
+  if (!key) return '';
+  const idx = key.indexOf('/');
+  if (idx <= 0) return '';
+  return key.slice(0, idx);
+}
+
+function incidentMatchesNode(inc, node){
+  if (!inc || !node) return false;
+  if ((inc.phase || '').toLowerCase() === 'resolved') return false;
+
+  const name = String(node.name || '').trim();
+  const kind = String(node.kind || '').trim();
+  const nodeNS = String(node.namespace || '').trim();
+  const preferredNS = nodeNS || selectedIncidentNamespace();
+  const affected = Array.isArray(inc.affectedResources) ? inc.affectedResources : [];
+  const workloadKinds = new Set(['Deployment', 'StatefulSet', 'DaemonSet', 'ReplicaSet', 'Pod']);
+  const nsMatches = (resourceNS) => {
+    const rn = String(resourceNS || '').trim();
+    if (!preferredNS) return true;
+    return rn === '' || rn === preferredNS;
+  };
+
+  let match = affected.some(r =>
+    r && r.kind === kind && r.name === name && nsMatches(r.namespace)
+  );
+
+  if (!match && kind === 'Pod') {
+    match = inc.podName === name && (!preferredNS || inc.namespace === preferredNS);
+  }
+
+  if (!match && kind === 'Service') {
+    match = affected.some(r =>
+      r && workloadKinds.has(r.kind) && r.name === name && nsMatches(r.namespace)
+    ) || (
+      inc.podName && (!preferredNS || inc.namespace === preferredNS) &&
+      typeof inc.podName === 'string' && inc.podName.startsWith(name + '-')
+    );
+  }
+
+  if (match && preferredNS) {
+    const incNS = String(inc.namespace || '').trim();
+    if (incNS && incNS !== preferredNS) return false;
+  }
+  return match;
+}
+
+function incidentsForNode(node){
+  const list = Array.isArray(state.incidents) ? state.incidents : [];
+  return list.filter(inc => incidentMatchesNode(inc, node));
+}
+
+function traceIDsForIncidents(list){
+  const out = [];
+  const seen = new Set();
+  const push = (v) => {
+    const s = String(v || '').trim();
+    if (!s || seen.has(s)) return;
+    seen.add(s);
+    out.push(s);
+  };
+
+  (Array.isArray(list) ? list : []).forEach(inc => {
+    if (Array.isArray(inc.traceIds)) inc.traceIds.forEach(push);
+    push(inc.traceId);
+  });
+  return out;
+}
+
 function renderTopologyTrace(){
   const toolbarPill = document.getElementById('topology-trace-pill');
   const panelTrace = document.getElementById('topo-panel-trace');
@@ -872,30 +942,8 @@ function nodeStatusFromIncidents(node){
   // — not the Service object — via applyOTelScopeOverrides on the backend.
   // Without this fallback the Services view stays green while the Workload
   // view correctly shows the incident.
-  const name = node.name;
-  const ns = node.namespace;
-  const kind = node.kind;
-  const workloadKinds = new Set(['Deployment', 'StatefulSet', 'DaemonSet', 'ReplicaSet', 'Pod']);
   let worst = 'healthy';
-  for (const inc of state.incidents) {
-    if ((inc.phase||'').toLowerCase() === 'resolved') continue;
-    const affected = inc.affectedResources || [];
-    let match = affected.some(r =>
-      r.kind === kind && r.name === name && (!ns || r.namespace === ns || r.namespace === '')
-    );
-    if (!match && kind === 'Pod') {
-      match = inc.podName === name && inc.namespace === ns;
-    }
-    if (!match && kind === 'Service') {
-      // Fall back: same-name workload / pod in the same namespace is almost
-      // always what the Service routes to in typical k8s setups.
-      match = affected.some(r =>
-        workloadKinds.has(r.kind) && r.name === name &&
-        (!ns || r.namespace === ns || r.namespace === '')
-      ) || (inc.podName && inc.namespace === ns &&
-            typeof inc.podName === 'string' && inc.podName.startsWith(name + '-'));
-    }
-    if (!match) continue;
+  for (const inc of incidentsForNode(node)) {
     const sev = inc.severity;
     if (sev === 'P1') return 'critical';
     if (sev === 'P2' && worst !== 'critical') worst = 'critical';
@@ -1555,11 +1603,12 @@ async function selectTopologyNode(id, e){
     lucide.createIcons();
     return;
   }
-  const traces = incidentTraceIDs();
+  const nodeIncidents = incidentsForNode(node);
+  const traces = traceIDsForIncidents(nodeIncidents);
   const showTraceList = node.kind === 'Service' || node.kind === 'Deployment';
 
   if (!node.namespace && node.kind === 'Service') {
-    renderExternalServicePanel(node, { traceIDs: traces });
+    renderExternalServicePanel(node, { traceIDs: traces, incidents: nodeIncidents });
     return;
   }
   if (!node.namespace && node.kind !== 'Node') {
@@ -1570,7 +1619,7 @@ async function selectTopologyNode(id, e){
   try {
     const ns = node.namespace || '_';
     const r = await apiGet(`/api/resources/${encodeURIComponent(ns)}/${encodeURIComponent(node.kind)}/${encodeURIComponent(node.name)}`, {noCache:true});
-    renderResourcePanel(r, { traceIDs: traces, showTraceList });
+    renderResourcePanel(r, { traceIDs: traces, showTraceList, incidents: nodeIncidents });
   } catch(e){
     body.innerHTML = `<div class="text-xs text-amber-300">Failed to load resource: ${escapeHtml(e.message)}</div>`;
   }
@@ -1579,7 +1628,7 @@ async function selectTopologyNode(id, e){
 function renderExternalServicePanel(node, opts){
   const body = document.getElementById('topo-panel-body');
   const traceIDs = Array.isArray(opts && opts.traceIDs) ? opts.traceIDs : [];
-  const activeIncident = state.incidentDetail || null;
+  const activeIncident = (opts && Array.isArray(opts.incidents) && opts.incidents.length) ? opts.incidents[0] : null;
 
   const tracesSection = traceIDs.length
     ? `<div>
