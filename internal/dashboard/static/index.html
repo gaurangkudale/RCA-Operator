@@ -108,6 +108,7 @@
           <div class="w-px h-5 bg-slate-700 my-auto mx-1"></div>
           <button id="topo-clear-incident" onclick="clearTopologyIncident()" title="Show cluster graph" class="hidden p-1.5 text-indigo-300 hover:text-white hover:bg-slate-800 rounded transition-colors text-[10px] font-mono px-2">Show cluster</button>
         </div>
+        <div id="topology-trace-pill" class="hidden absolute top-4 left-64 z-20 bg-slate-900/95 border border-slate-800 px-3 py-1.5 rounded-md text-xs flex items-center gap-2"></div>
         <div id="topology-error" class="hidden absolute top-4 right-4 z-20 bg-amber-500/10 border border-amber-500/30 text-amber-300 px-3 py-2 rounded text-xs"></div>
         <div id="topology-empty" class="hidden absolute inset-0 flex items-center justify-center text-slate-500 text-sm">No topology data</div>
         <svg id="edges-layer" class="absolute inset-0 w-full h-full pointer-events-none z-0"></svg>
@@ -123,6 +124,7 @@
             <div>
               <h2 id="topo-panel-title" class="text-sm font-bold text-white tracking-tight">Resource</h2>
               <p id="topo-panel-type" class="text-[10px] text-slate-500 font-mono uppercase tracking-wider mt-0.5">—</p>
+              <p id="topo-panel-trace" class="hidden text-[10px] text-indigo-300 font-mono mt-1"></p>
             </div>
           </div>
           <button onclick="closeTopologyPanel()" class="text-slate-500 hover:text-white transition-colors p-1">
@@ -363,39 +365,43 @@ function cleanSignal(s){
     .trim();
 }
 
-function renderSpanIDList(spanIDs){
-  return spanIDs.map(id => `
-    <button
-      type="button"
-      class="w-full flex items-center justify-between gap-2 text-left text-[11px] font-mono text-teal-300 hover:text-teal-200 hover:bg-slate-900/70 border border-slate-800 rounded px-2 py-1 transition-colors"
-      title="Click to copy span ID"
-      onclick="copySpanID('${escapeHtml(String(id).replace(/\\/g, '\\\\').replace(/'/g, "\\'"))}')">
-      <span class="truncate">${escapeHtml(id)}</span>
-      <i data-lucide="copy" class="w-3.5 h-3.5 text-slate-500"></i>
-    </button>
-  `).join('');
+function incidentTraceIDs(){
+  const out = [];
+  const seen = new Set();
+  const push = (v) => {
+    const s = String(v || '').trim();
+    if (!s || seen.has(s)) return;
+    seen.add(s);
+    out.push(s);
+  };
+
+  if (state.incidentDetail) {
+    if (Array.isArray(state.incidentDetail.traceIds)) {
+      state.incidentDetail.traceIds.forEach(push);
+    }
+    push(state.incidentDetail.traceId);
+  }
+  if (state.incidentGraph && state.incidentGraph.meta) {
+    const m = state.incidentGraph.meta;
+    push(m.traceID || m.traceId || m.traceid);
+  }
+  return out;
 }
 
-async function copySpanID(id){
-  const value = String(id || '').trim();
-  if (!value) return;
-  try {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      await navigator.clipboard.writeText(value);
-    } else {
-      const ta = document.createElement('textarea');
-      ta.value = value;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-    }
-    showToast('Copied span ID: ' + value);
-  } catch (e) {
-    showToast('Failed to copy span ID');
+function renderTopologyTrace(){
+  const toolbarPill = document.getElementById('topology-trace-pill');
+  const panelTrace = document.getElementById('topo-panel-trace');
+
+  if (toolbarPill) {
+    // Trace IDs are rendered in selected resource details, not as a global pill.
+    toolbarPill.classList.add('hidden');
+    toolbarPill.innerHTML = '';
+  }
+
+  if (panelTrace) {
+    // Trace IDs are rendered in selected resource details, not in panel header.
+    panelTrace.classList.add('hidden');
+    panelTrace.textContent = '';
   }
 }
 
@@ -784,53 +790,12 @@ function filterIncidentGraphForRender(g){
   return { ...g, nodes, edges };
 }
 
-function extractSpanID(spanNode){
-  if (!spanNode) return '';
-  if (spanNode.name) return String(spanNode.name);
-  const label = String(spanNode.label || '');
-  const m = label.match(/\(([^)]+)\)\s*$/);
-  if (m && m[1]) return m[1];
-  return String(spanNode.id || '');
-}
-
-function spanIDsForNode(node, g){
-  if (!node || !g || !Array.isArray(g.nodes)) return [];
-  const spans = g.nodes.filter(n => n.kind === 'Span');
-  if (!spans.length) return [];
-
-  const spansByID = new Map(spans.map(s => [s.id, s]));
-  const matched = new Set();
-
-  (g.edges || []).forEach(e => {
-    if (e.from === node.id && spansByID.has(e.to)) matched.add(e.to);
-    if (e.to === node.id && spansByID.has(e.from)) matched.add(e.from);
-  });
-
-  // Back-compat: older incident graphs may not include explicit node↔span edges.
-  if (!matched.size && (node.kind === 'Service' || node.kind === 'Deployment')) {
-    const needle = String(node.name || '').toLowerCase().trim();
-    if (needle) {
-      spans.forEach(s => {
-        const label = String(s.label || '').toLowerCase();
-        if (label.startsWith(needle + ' (')) {
-          matched.add(s.id);
-        }
-      });
-    }
-  }
-
-  const ids = Array.from(matched)
-    .map(id => extractSpanID(spansByID.get(id)))
-    .filter(Boolean)
-    .sort();
-  return Array.from(new Set(ids));
-}
-
 function renderTopology(){
   const g = displayTopologyGraph();
   const empty = document.getElementById('topology-empty');
   const err = document.getElementById('topology-error');
   err.classList.add('hidden');
+  renderTopologyTrace();
   if (!g || !g.nodes || g.nodes.length === 0) {
     empty.classList.remove('hidden');
     document.getElementById('nodes-layer').innerHTML = '';
@@ -1085,8 +1050,6 @@ async function selectTopologyNode(id, e){
   const g = displayTopologyGraph();
   const node = g.nodes.find(n => n.id === id);
   if (!node) return;
-  const rawGraph = state.incidentGraph || state.topology;
-  const spanIDs = spanIDsForNode(node, rawGraph);
   state.selectedNodeId = id;
   document.querySelectorAll('.topology-node').forEach(el => el.classList.remove('selected'));
   const domId = 'node-' + btoa(unescape(encodeURIComponent(id))).replace(/=/g,'');
@@ -1105,10 +1068,7 @@ async function selectTopologyNode(id, e){
 
   const supported = { Pod: true, Deployment: true, Node: true, Service: true };
   if (!supported[node.kind]) {
-    const spans = spanIDs.length
-      ? `<div class="mt-3"><h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Span IDs</h3><div class="bg-slate-950 border border-slate-800 rounded-lg p-2 space-y-1">${renderSpanIDList(spanIDs)}</div></div>`
-      : '';
-    body.innerHTML = `<div class="text-xs text-slate-500">No details available for kind <span class="font-mono">${escapeHtml(node.kind||'unknown')}</span>.</div>${spans}`;
+    body.innerHTML = `<div class="text-xs text-slate-500">No details available for kind <span class="font-mono">${escapeHtml(node.kind||'unknown')}</span>.</div>`;
     lucide.createIcons();
     return;
   }
@@ -1116,7 +1076,9 @@ async function selectTopologyNode(id, e){
   try {
     const ns = node.namespace || '_';
     const r = await apiGet(`/api/resources/${encodeURIComponent(ns)}/${encodeURIComponent(node.kind)}/${encodeURIComponent(node.name)}`, {noCache:true});
-    renderResourcePanel(r, { spanIDs });
+    const traces = incidentTraceIDs();
+    const showTraceList = node.kind === 'Service' || node.kind === 'Deployment';
+    renderResourcePanel(r, { traceIDs: traces, showTraceList });
   } catch(e){
     body.innerHTML = `<div class="text-xs text-amber-300">Failed to load resource: ${escapeHtml(e.message)}</div>`;
   }
@@ -1130,7 +1092,8 @@ function closeTopologyPanel(){
 function renderResourcePanel(r, opts){
   const body = document.getElementById('topo-panel-body');
   if (!r) { body.innerHTML = `<div class="text-xs text-slate-500">No data.</div>`; return; }
-  const spanIDs = Array.isArray(opts && opts.spanIDs) ? opts.spanIDs : [];
+  const traceIDs = Array.isArray(opts && opts.traceIDs) ? opts.traceIDs : [];
+  const showTraceList = !!(opts && opts.showTraceList);
   const row = (k,v) => `<div class="flex justify-between py-1 border-b border-slate-800/50 last:border-0">
     <span class="text-slate-500">${escapeHtml(k)}</span><span class="text-slate-300 font-mono">${escapeHtml(v)}</span></div>`;
   const incidents = (r.openIncidents || []).map(inc => `
@@ -1150,11 +1113,11 @@ function renderResourcePanel(r, opts){
       </div>
       <div class="text-slate-400 truncate">${escapeHtml(ev.message||'')}</div>
     </div>`).join('') || `<div class="text-xs text-slate-500 italic">No recent events</div>`;
-  const spanSection = spanIDs.length
+  const tracesSection = (showTraceList && traceIDs.length)
     ? `<div>
-      <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Span IDs</h3>
+      <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Trace IDs</h3>
       <div class="bg-slate-950 border border-slate-800 rounded-lg p-2 space-y-1">
-        ${renderSpanIDList(spanIDs)}
+        ${traceIDs.map(t => `<div class="text-[11px] font-mono text-indigo-300 break-all">${escapeHtml(t)}</div>`).join('')}
       </div>
     </div>`
     : '';
@@ -1171,7 +1134,7 @@ function renderResourcePanel(r, opts){
         ${r.nodeReady !== undefined && r.nodeReady !== null ? row('Ready', r.nodeReady ? 'True' : 'False') : ''}
       </div>
     </div>
-    ${spanSection}
+    ${tracesSection}
     <div>
       <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Open Incidents</h3>
       ${incidents}
