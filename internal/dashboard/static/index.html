@@ -784,10 +784,92 @@ function displayTopologyGraph(){
 }
 
 function filterIncidentGraphForRender(g){
-  const nodes = (g.nodes || []).filter(n => n.kind !== 'Span');
+  const nodes = (g.nodes || []).filter(n => n.kind !== 'Span' && n.kind !== 'Incident' && !n.isRoot);
   const keep = new Set(nodes.map(n => n.id));
   const edges = (g.edges || []).filter(e => keep.has(e.from) && keep.has(e.to));
-  return { ...g, nodes, edges };
+  return failureServiceGraph({ ...g, nodes, edges });
+}
+
+function failureServiceGraph(g){
+  const nodes = Array.isArray(g.nodes) ? g.nodes : [];
+  const edges = Array.isArray(g.edges) ? g.edges : [];
+  const byID = new Map(nodes.map(n => [n.id, n]));
+
+  const serviceIDs = new Set(nodes.filter(n => n.kind === 'Service').map(n => n.id));
+  if (!serviceIDs.size) {
+    return { ...g, nodes: [], edges: [], meta: { ...(g.meta || {}), view: 'failure-services' } };
+  }
+
+  const rootIDs = new Set(nodes.filter(n => n.isRoot || n.kind === 'Incident').map(n => n.id));
+  const affected = new Set();
+  const serviceToPod = new Map();
+  const calls = [];
+
+  edges.forEach(e => {
+    const kind = String(e.kind || '').toLowerCase();
+    if (kind === 'affects' && rootIDs.has(e.from)) {
+      affected.add(e.to);
+    }
+    if (kind === 'runs_on' && serviceIDs.has(e.from)) {
+      if (!serviceToPod.has(e.from)) serviceToPod.set(e.from, new Set());
+      serviceToPod.get(e.from).add(e.to);
+    }
+    if (kind === 'calls' && serviceIDs.has(e.from) && serviceIDs.has(e.to)) {
+      calls.push(e);
+    }
+  });
+
+  const evidence = new Set();
+  serviceIDs.forEach(id => {
+    if (affected.has(id)) evidence.add(id);
+    const pods = serviceToPod.get(id);
+    if (pods) {
+      for (const p of pods) {
+        if (affected.has(p)) {
+          evidence.add(id);
+          break;
+        }
+      }
+    }
+  });
+
+  if (!evidence.size) {
+    calls.forEach(e => { evidence.add(e.from); evidence.add(e.to); });
+  }
+  if (!evidence.size) {
+    serviceIDs.forEach(id => evidence.add(id));
+  }
+
+  const adj = new Map();
+  calls.forEach(e => {
+    if (!adj.has(e.from)) adj.set(e.from, new Set());
+    if (!adj.has(e.to)) adj.set(e.to, new Set());
+    adj.get(e.from).add(e.to);
+    adj.get(e.to).add(e.from);
+  });
+
+  const keepSvc = new Set(evidence);
+  const queue = Array.from(evidence);
+  while (queue.length) {
+    const cur = queue.shift();
+    const nexts = adj.get(cur);
+    if (!nexts) continue;
+    nexts.forEach(n => {
+      if (keepSvc.has(n)) return;
+      keepSvc.add(n);
+      queue.push(n);
+    });
+  }
+
+  const keptNodes = Array.from(keepSvc).map(id => byID.get(id)).filter(Boolean);
+  const keptEdges = calls.filter(e => keepSvc.has(e.from) && keepSvc.has(e.to));
+
+  return {
+    ...g,
+    nodes: keptNodes,
+    edges: keptEdges,
+    meta: { ...(g.meta || {}), view: 'failure-services' },
+  };
 }
 
 function renderTopology(){
@@ -797,6 +879,11 @@ function renderTopology(){
   err.classList.add('hidden');
   renderTopologyTrace();
   if (!g || !g.nodes || g.nodes.length === 0) {
+    if (state.incidentGraph) {
+      empty.textContent = 'No service-to-service error topology for this incident';
+    } else {
+      empty.textContent = 'No topology data';
+    }
     empty.classList.remove('hidden');
     document.getElementById('nodes-layer').innerHTML = '';
     document.getElementById('edges-layer').innerHTML = '';
@@ -1008,8 +1095,8 @@ function renderTopologyEdges(){
 
 function edgeClass(edge){
   const kind = (edge && edge.kind ? String(edge.kind) : '').toLowerCase();
+  if (kind === 'calls') return 'critical';
   if (kind === 'affects') return 'critical';
-  if (kind === 'calls') return 'warning';
   if (kind === 'owns' || kind === 'scheduled_on' || kind === 'runs_on') return 'active';
   return '';
 }
@@ -1072,16 +1159,62 @@ async function selectTopologyNode(id, e){
     lucide.createIcons();
     return;
   }
-  if (!node.namespace && node.kind !== 'Node') { body.innerHTML = `<div class="text-xs text-slate-500">No details available for this node.</div>`; return; }
+  const traces = incidentTraceIDs();
+  const showTraceList = node.kind === 'Service' || node.kind === 'Deployment';
+
+  if (!node.namespace && node.kind === 'Service') {
+    renderExternalServicePanel(node, { traceIDs: traces });
+    return;
+  }
+  if (!node.namespace && node.kind !== 'Node') {
+    body.innerHTML = `<div class="text-xs text-slate-500">No details available for this node.</div>`;
+    return;
+  }
+
   try {
     const ns = node.namespace || '_';
     const r = await apiGet(`/api/resources/${encodeURIComponent(ns)}/${encodeURIComponent(node.kind)}/${encodeURIComponent(node.name)}`, {noCache:true});
-    const traces = incidentTraceIDs();
-    const showTraceList = node.kind === 'Service' || node.kind === 'Deployment';
     renderResourcePanel(r, { traceIDs: traces, showTraceList });
   } catch(e){
     body.innerHTML = `<div class="text-xs text-amber-300">Failed to load resource: ${escapeHtml(e.message)}</div>`;
   }
+}
+
+function renderExternalServicePanel(node, opts){
+  const body = document.getElementById('topo-panel-body');
+  const traceIDs = Array.isArray(opts && opts.traceIDs) ? opts.traceIDs : [];
+  const activeIncident = state.incidentDetail || null;
+
+  const tracesSection = traceIDs.length
+    ? `<div>
+      <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Trace IDs</h3>
+      <div class="bg-slate-950 border border-slate-800 rounded-lg p-2 space-y-1">
+        ${traceIDs.map(t => `<div class="text-[11px] font-mono text-indigo-300 break-all">${escapeHtml(t)}</div>`).join('')}
+      </div>
+    </div>`
+    : '';
+
+  const incidentSection = activeIncident
+    ? `<div>
+      <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Incident Context</h3>
+      <div class="bg-red-500/5 border border-red-500/30 rounded p-2">
+        <div class="text-[10px] font-bold text-red-400 mb-1">${escapeHtml(activeIncident.severity || '')} • ${escapeHtml(activeIncident.incidentType || '')}</div>
+        <div class="text-[11px] text-slate-300">${escapeHtml(activeIncident.summary || activeIncident.message || activeIncident.name || '')}</div>
+      </div>
+    </div>`
+    : '';
+
+  body.innerHTML = `
+    <div>
+      <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Resource Status</h3>
+      <div class="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs">
+        <div class="text-slate-400">External trace service (no Kubernetes namespace metadata)</div>
+      </div>
+    </div>
+    ${tracesSection}
+    ${incidentSection}
+  `;
+  lucide.createIcons();
 }
 function closeTopologyPanel(){
   state.selectedNodeId = null;
