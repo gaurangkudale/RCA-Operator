@@ -102,8 +102,8 @@
 
     <!-- ======== TOPOLOGY VIEW ======== -->
     <div id="view-topology" class="absolute inset-0 hidden flex-col z-10">
-      <div class="flex-grow relative canvas-bg" id="canvas-container">
-        <div class="absolute top-4 left-4 z-20 bg-slate-900 border border-slate-800 p-1.5 rounded-lg shadow-sm flex gap-1">
+      <div class="flex-grow relative" id="canvas-container">
+        <div class="absolute top-4 left-4 z-30 bg-slate-900 border border-slate-800 p-1.5 rounded-lg shadow-sm flex gap-1">
           <button onclick="resetLayout()" title="Reset Layout" class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"><i data-lucide="move" class="w-4 h-4"></i></button>
           <button onclick="refreshTopology(true)" title="Refresh" class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>
           <div class="w-px h-5 bg-slate-700 my-auto mx-1"></div>
@@ -115,8 +115,12 @@
         <div id="topology-trace-pill" class="hidden absolute top-4 left-64 z-20 bg-slate-900/95 border border-slate-800 px-3 py-1.5 rounded-md text-xs flex items-center gap-2"></div>
         <div id="topology-error" class="hidden absolute top-4 right-4 z-20 bg-amber-500/10 border border-amber-500/30 text-amber-300 px-3 py-2 rounded text-xs"></div>
         <div id="topology-empty" class="hidden absolute inset-0 flex items-center justify-center text-slate-500 text-sm">No topology data</div>
-        <svg id="edges-layer" class="absolute inset-0 w-full h-full pointer-events-none z-0"></svg>
-        <div id="nodes-layer" class="absolute inset-0 w-full h-full z-10"></div>
+        <div id="canvas-scroll" class="absolute inset-0 overflow-auto">
+          <div id="canvas-inner" class="relative canvas-bg" style="width:100%; height:100%;">
+            <svg id="edges-layer" class="absolute inset-0 w-full h-full pointer-events-none z-0"></svg>
+            <div id="nodes-layer" class="absolute inset-0 w-full h-full z-10"></div>
+          </div>
+        </div>
       </div>
 
       <aside id="topology-panel" class="w-80 bg-slate-900 border-l border-slate-800 shadow-2xl flex flex-col shrink-0 absolute right-0 top-0 bottom-48 z-50 slide-panel panel-closed">
@@ -423,7 +427,7 @@ function kindIcon(kind){
     case 'statefulset': return 'database';
     case 'daemonset': return 'server';
     case 'node': return 'cpu';
-    case 'service': return 'network';
+    case 'service': return 'boxes';
     case 'namespace': return 'folder';
     case 'replicaset': return 'copy';
     case 'job': case 'cronjob': return 'clock';
@@ -1029,14 +1033,36 @@ function renderTopology(){
 function layoutTopology(g){
   if (isIncidentTopologyGraph(g)) {
     layoutIncidentTopology(g);
-    return;
-  }
-  if (state.topoMode === 'service' && g === state.serviceGraph) {
+  } else if (state.topoMode === 'service' && g === state.serviceGraph) {
     // Reuse the DAG layered layout for service-to-service call graphs.
     layoutIncidentTopology(g);
-    return;
+  } else {
+    layoutClusterTopology(g);
   }
-  layoutClusterTopology(g);
+  fitCanvasToLayout();
+}
+
+// fitCanvasToLayout sizes the scrollable inner canvas so every laid-out node
+// (plus label padding) fits inside it. Where the graph is smaller than the
+// viewport the canvas stays at viewport size, so small graphs don't get an
+// awkward scrollbar; larger graphs grow the canvas and enable both horizontal
+// and vertical scrolling (Argo-CD-style pan).
+function fitCanvasToLayout(){
+  const scroll = document.getElementById('canvas-scroll');
+  const inner  = document.getElementById('canvas-inner');
+  if (!scroll || !inner) return;
+  const positions = Object.values(state.topologyLayout || {});
+  const padRight = 240;  // room for label text that extends past the node circle
+  const padBottom = 140;
+  let maxX = 0, maxY = 0;
+  positions.forEach(p => {
+    if (p && typeof p.x === 'number' && p.x > maxX) maxX = p.x;
+    if (p && typeof p.y === 'number' && p.y > maxY) maxY = p.y;
+  });
+  const targetW = Math.max(scroll.clientWidth, Math.ceil(maxX + padRight));
+  const targetH = Math.max(scroll.clientHeight, Math.ceil(maxY + padBottom));
+  inner.style.width  = targetW + 'px';
+  inner.style.height = targetH + 'px';
 }
 
 function isIncidentTopologyGraph(g){
@@ -1049,9 +1075,12 @@ function layoutClusterTopology(g){
   // Rank nodes from sinks (e.g. k8s Nodes) on the right, sources
   // (Deployments/Services) on the left. Within a column, group by namespace
   // for readability and keep generous vertical spacing so labels don't collide.
-  const container = document.getElementById('canvas-container');
-  const cw = container.clientWidth || 800;
-  const ch = container.clientHeight || 600;
+  // Layout is measured against the scroll viewport so small graphs remain
+  // centred; larger graphs extend past the viewport and the scroll container
+  // surfaces horizontal + vertical scrollbars.
+  const scrollEl = document.getElementById('canvas-scroll') || document.getElementById('canvas-container');
+  const cw = scrollEl.clientWidth  || 800;
+  const ch = scrollEl.clientHeight || 600;
   const nodes = Array.isArray(g.nodes) ? g.nodes : [];
   const edges = Array.isArray(g.edges) ? g.edges : [];
 
@@ -1131,9 +1160,9 @@ function layoutClusterTopology(g){
 }
 
 function layoutIncidentTopology(g){
-  const container = document.getElementById('canvas-container');
-  const cw = container.clientWidth || 800;
-  const ch = container.clientHeight || 600;
+  const scrollEl = document.getElementById('canvas-scroll') || document.getElementById('canvas-container');
+  const cw = scrollEl.clientWidth  || 800;
+  const ch = scrollEl.clientHeight || 600;
   const nodes = Array.isArray(g.nodes) ? g.nodes : [];
   const edges = Array.isArray(g.edges) ? g.edges : [];
 
@@ -1367,7 +1396,7 @@ function startNodeDrag(e, id){
   if (e.button !== 0) return;
   dragNode = id; didDrag = false;
   const pos = state.topologyLayout[id];
-  const rect = document.getElementById('canvas-container').getBoundingClientRect();
+  const rect = document.getElementById('canvas-inner').getBoundingClientRect();
   dragOffX = e.clientX - rect.left - pos.x;
   dragOffY = e.clientY - rect.top - pos.y;
   e.preventDefault();
@@ -1375,7 +1404,7 @@ function startNodeDrag(e, id){
 document.addEventListener('mousemove', e => {
   if (!dragNode) return;
   didDrag = true;
-  const rect = document.getElementById('canvas-container').getBoundingClientRect();
+  const rect = document.getElementById('canvas-inner').getBoundingClientRect();
   const nx = e.clientX - rect.left - dragOffX;
   const ny = e.clientY - rect.top - dragOffY;
   state.topologyLayout[dragNode] = { x: nx, y: ny };
@@ -1383,6 +1412,7 @@ document.addEventListener('mousemove', e => {
   const el = document.getElementById(id);
   if (el) { el.style.left = nx+'px'; el.style.top = ny+'px'; }
   renderTopologyEdges();
+  fitCanvasToLayout();
 });
 document.addEventListener('mouseup', () => { dragNode = null; });
 
