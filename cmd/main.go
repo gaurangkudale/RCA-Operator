@@ -320,6 +320,14 @@ func main() {
 		)
 	}
 
+	var jaegerClient *jaeger.Client
+	if jaegerQueryURL != "" {
+		jaegerClient = jaeger.New(jaegerQueryURL)
+		setupLog.Info("Jaeger query enrichment enabled", "url", jaegerQueryURL)
+	} else {
+		setupLog.Info("Jaeger query enrichment disabled (pass --jaeger-query-url to enable)")
+	}
+
 	dashboardServer := dashboard.NewServer(mgr.GetClient(), dashboardAddr, ctrl.Log)
 	if k8sClient, err := kubernetes.NewForConfig(mgr.GetConfig()); err == nil {
 		dashboardServer.WithOptions(dashboard.WithKubernetesClient(k8sClient))
@@ -328,6 +336,9 @@ func main() {
 	}
 	if crdFactory.Engine != nil {
 		dashboardServer.WithOptions(dashboard.WithBuffer(crdFactory.Engine.Buffer()))
+	}
+	if jaegerClient != nil {
+		dashboardServer.WithOptions(dashboard.WithJaegerClient(jaegerClient))
 	}
 	if err := mgr.Add(dashboardServer); err != nil {
 		setupLog.Error(err, "Failed to add dashboard server")
@@ -383,13 +394,6 @@ func main() {
 	// graph rather than blocking the Active transition.
 	var graphBuilder controller.IncidentGraphBuilder
 	if crdFactory.Engine != nil {
-		var jaegerClient *jaeger.Client
-		if jaegerQueryURL != "" {
-			jaegerClient = jaeger.New(jaegerQueryURL)
-			setupLog.Info("Jaeger query enrichment enabled", "url", jaegerQueryURL)
-		} else {
-			setupLog.Info("Jaeger query enrichment disabled (pass --jaeger-query-url to enable)")
-		}
 		graphBuilder = graph.NewBuilder(crdFactory.Engine.Buffer(), jaegerClient, ctrl.Log)
 	}
 

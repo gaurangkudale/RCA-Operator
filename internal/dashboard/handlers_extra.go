@@ -22,6 +22,7 @@ import (
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 	"github.com/gaurangkudale/rca-operator/internal/correlator"
 	"github.com/gaurangkudale/rca-operator/internal/correlator/graph"
+	"github.com/gaurangkudale/rca-operator/internal/jaeger"
 )
 
 // Option configures optional Server dependencies. Keeps NewServer backward
@@ -42,6 +43,13 @@ func WithBuffer(b *correlator.Buffer) Option {
 	return func(s *Server) { s.buffer = b }
 }
 
+// WithJaegerClient injects a Jaeger query client used to build the
+// service-dependency graph. When nil, /api/service-graph returns an empty graph
+// with Meta.source="unavailable" (handler still 200s so the UI can render).
+func WithJaegerClient(c *jaeger.Client) Option {
+	return func(s *Server) { s.jc = c }
+}
+
 // WithOptions applies the given options. Exposed so NewServer can stay with a
 // minimal signature; callers use this to attach k8s + buffer after construction.
 func (s *Server) WithOptions(opts ...Option) *Server {
@@ -58,15 +66,48 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	b := graph.NewClusterBuilder(s.client, s.log)
 	opts := graph.BuildOptions{Summary: r.URL.Query().Get("view") != "detail"}
-	g, err := b.BuildWithOptions(r.Context(), opts)
+	key := "topology|summary=" + strconv.FormatBool(opts.Summary)
+	body, etag, err := s.cache.Fetch(key, func() (any, error) {
+		b := graph.NewClusterBuilder(s.client, s.log)
+		return b.BuildWithOptions(r.Context(), opts)
+	})
 	if err != nil {
 		s.log.Error(err, "build cluster topology")
 		http.Error(w, "failed to build topology", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, g)
+	writeCachedJSON(w, r, body, etag)
+}
+
+// ── /api/service-graph ────────────────────────────────────────────────────────
+
+func (s *Server) handleServiceGraph(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	lookback := time.Hour
+	if v := r.URL.Query().Get("lookback"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 && d <= 24*time.Hour {
+			lookback = d
+		}
+	}
+	key := "service-graph|lookback=" + lookback.String()
+	body, etag, err := s.cache.Fetch(key, func() (any, error) {
+		var fetcher graph.ServiceDependencyFetcher
+		if s.jc != nil {
+			fetcher = s.jc
+		}
+		b := graph.NewServiceGraphBuilder(s.client, fetcher, s.log)
+		return b.Build(r.Context(), lookback)
+	})
+	if err != nil {
+		s.log.Error(err, "build service graph")
+		http.Error(w, "failed to build service graph", http.StatusInternalServerError)
+		return
+	}
+	writeCachedJSON(w, r, body, etag)
 }
 
 // ── /api/resources/{ns}/{kind}/{name} ─────────────────────────────────────────
@@ -306,7 +347,12 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	_, _ = io.Copy(w, stream)
+	w.Header().Set("Cache-Control", "no-store")
+	// Cap response at 4 MiB so a misbehaving pod can't stream unbounded logs
+	// through the dashboard. Well above the 5000-line tail limit for typical
+	// log densities.
+	const maxLogBytes = 4 << 20
+	_, _ = io.Copy(w, io.LimitReader(stream, maxLogBytes))
 }
 
 // ── /api/pods ─────────────────────────────────────────────────────────────────
@@ -370,34 +416,44 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var list rcav1alpha1.RCAAgentList
-	if err := s.client.List(r.Context(), &list); err != nil {
+	body, etag, err := s.cache.Fetch("agents", func() (any, error) {
+		var list rcav1alpha1.RCAAgentList
+		if err := s.client.List(r.Context(), &list); err != nil {
+			return nil, err
+		}
+		out := make([]flatAgent, 0, len(list.Items))
+		for i := range list.Items {
+			a := &list.Items[i]
+			nss := a.Spec.WatchNamespaces
+			if nss == nil {
+				nss = []string{}
+			}
+			agent := flatAgent{
+				Name:            a.Name,
+				WatchNamespaces: nss,
+				Status:          "Unknown",
+				Healthy:         false,
+				LastSync:        a.CreationTimestamp.Time,
+			}
+			for _, c := range a.Status.Conditions {
+				if c.Type == "Available" {
+					agent.Status = string(c.Status)
+					agent.Healthy = c.Status == "True"
+					if !c.LastTransitionTime.IsZero() {
+						agent.LastSync = c.LastTransitionTime.Time
+					}
+					break
+				}
+			}
+			out = append(out, agent)
+		}
+		return out, nil
+	})
+	if err != nil {
 		http.Error(w, "failed to list agents", http.StatusInternalServerError)
 		return
 	}
-	out := make([]flatAgent, 0, len(list.Items))
-	for i := range list.Items {
-		a := &list.Items[i]
-		agent := flatAgent{
-			Name:            a.Name,
-			WatchNamespaces: a.Spec.WatchNamespaces,
-			Status:          "Unknown",
-			Healthy:         false,
-			LastSync:        a.CreationTimestamp.Time,
-		}
-		for _, c := range a.Status.Conditions {
-			if c.Type == "Available" {
-				agent.Status = string(c.Status)
-				agent.Healthy = c.Status == "True"
-				if !c.LastTransitionTime.IsZero() {
-					agent.LastSync = c.LastTransitionTime.Time
-				}
-				break
-			}
-		}
-		out = append(out, agent)
-	}
-	writeJSON(w, out)
+	writeCachedJSON(w, r, body, etag)
 }
 
 // ── /api/stream (SSE) ─────────────────────────────────────────────────────────

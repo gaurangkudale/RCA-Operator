@@ -33,7 +33,7 @@ func newTestServer(t *testing.T, objs ...runtime.Object) *Server {
 	for _, o := range objs {
 		cb = cb.WithRuntimeObjects(o)
 	}
-	return &Server{client: cb.Build()}
+	return &Server{client: cb.Build(), cache: newJSONCache(defaultCacheTTL)}
 }
 
 func ptrInt32(v int32) *int32 { return &v }
@@ -163,6 +163,31 @@ func TestHandleStream_NoBuffer(t *testing.T) {
 	s.handleStream(rr, httptest.NewRequest(http.MethodGet, "/api/stream", nil))
 	if rr.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", rr.Code)
+	}
+}
+
+func TestHandleTopology_ETag304(t *testing.T) {
+	s := newTestServer(t)
+
+	rr1 := httptest.NewRecorder()
+	s.handleTopology(rr1, httptest.NewRequest(http.MethodGet, "/api/topology", nil))
+	if rr1.Code != http.StatusOK {
+		t.Fatalf("first status = %d", rr1.Code)
+	}
+	etag := rr1.Header().Get("ETag")
+	if etag == "" {
+		t.Fatalf("expected ETag header on first response")
+	}
+
+	rr2 := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/topology", nil)
+	req.Header.Set("If-None-Match", etag)
+	s.handleTopology(rr2, req)
+	if rr2.Code != http.StatusNotModified {
+		t.Fatalf("second status = %d, want 304", rr2.Code)
+	}
+	if rr2.Body.Len() != 0 {
+		t.Fatalf("304 response must have empty body, got %d bytes", rr2.Body.Len())
 	}
 }
 

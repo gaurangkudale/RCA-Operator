@@ -59,6 +59,9 @@ type Edge struct {
 	From string `json:"from"`
 	To   string `json:"to"`
 	Kind string `json:"kind"`
+	// Count is the call volume on this edge when known (e.g. service→service
+	// edges backed by the Jaeger dependencies API). Zero when unknown.
+	Count int64 `json:"count,omitempty"`
 }
 
 // IncidentGraph is the persisted topology view for a single incident.

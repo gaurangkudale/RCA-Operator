@@ -106,6 +106,9 @@
           <button onclick="resetLayout()" title="Reset Layout" class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"><i data-lucide="move" class="w-4 h-4"></i></button>
           <button onclick="refreshTopology(true)" title="Refresh" class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>
           <div class="w-px h-5 bg-slate-700 my-auto mx-1"></div>
+          <button id="topo-mode-workload" onclick="setTopoMode('workload')" title="Workload view (Deployments/Pods/Nodes)" class="px-2 py-1 text-[10px] font-mono rounded transition-colors bg-slate-800 text-white">Workload</button>
+          <button id="topo-mode-service" onclick="setTopoMode('service')" title="Service dependency graph (from traces)" class="px-2 py-1 text-[10px] font-mono rounded transition-colors text-slate-400 hover:text-white hover:bg-slate-800">Services</button>
+          <div class="w-px h-5 bg-slate-700 my-auto mx-1"></div>
           <button id="topo-clear-incident" onclick="clearTopologyIncident()" title="Show cluster graph" class="hidden p-1.5 text-indigo-300 hover:text-white hover:bg-slate-800 rounded transition-colors text-[10px] font-mono px-2">Show cluster</button>
         </div>
         <div id="topology-trace-pill" class="hidden absolute top-4 left-64 z-20 bg-slate-900/95 border border-slate-800 px-3 py-1.5 rounded-md text-xs flex items-center gap-2"></div>
@@ -274,6 +277,9 @@
   </div>
 </main>
 
+<!-- Global API error banner -->
+<div id="api-banner" class="hidden fixed top-3 left-1/2 -translate-x-1/2 bg-red-500/15 border border-red-500/40 text-red-200 px-4 py-2 rounded-md text-xs font-mono z-[110] shadow-lg max-w-[80%] truncate" onclick="this.classList.add('hidden')" title="Click to dismiss"></div>
+
 <!-- Toast -->
 <div id="toast" class="fixed bottom-[-100px] left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-4 py-2 rounded-lg shadow-xl border border-slate-700 font-medium text-xs z-[100] opacity-0 flex items-center gap-2">
   <i data-lucide="info" class="w-4 h-4 text-indigo-400"></i>
@@ -298,7 +304,7 @@ const state = {
   stream: { events: [], connected: false, sse: null, retries: 0, fallbackTimer: null }
 };
 
-const cache = {}; // endpoint -> { t, data }
+const cache = {}; // endpoint -> { t, data, etag }
 const CACHE_TTL = 10_000;
 
 // --- Utilities
@@ -431,17 +437,53 @@ function debounceRender(){
 }
 
 // --- API
+// apiGet fetches JSON, honouring server ETag / Cache-Control so repeat calls
+// coalesce into 304s when nothing changed. Results are also mirrored into a
+// short-TTL in-memory cache so rapid re-renders don't hit the network at all.
 async function apiGet(path, opts){
   opts = opts || {};
   const now = Date.now();
-  if (!opts.noCache && cache[path] && (now - cache[path].t) < CACHE_TTL) return cache[path].data;
-  const r = await fetch(path, { headers: { 'Accept': 'application/json' } });
-  if (r.status === 204) { cache[path] = { t: now, data: null }; return null; }
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  const entry = cache[path];
+  if (!opts.noCache && entry && (now - entry.t) < CACHE_TTL) return entry.data;
+  const headers = { 'Accept': 'application/json' };
+  if (entry && entry.etag) headers['If-None-Match'] = entry.etag;
+  let r;
+  try {
+    r = await fetch(path, { headers });
+  } catch (e) {
+    apiBannerShow('Network error: ' + (e && e.message || 'unable to reach operator'));
+    throw e;
+  }
+  if (r.status === 304 && entry) {
+    cache[path] = { t: now, data: entry.data, etag: entry.etag };
+    apiBannerClear();
+    return entry.data;
+  }
+  if (r.status === 204) { cache[path] = { t: now, data: null }; apiBannerClear(); return null; }
+  if (!r.ok) {
+    apiBannerShow(`Request failed: ${r.status} ${r.statusText} (${path})`);
+    throw new Error(`${r.status} ${r.statusText}`);
+  }
   const ct = r.headers.get('content-type') || '';
   const data = ct.includes('application/json') ? await r.json() : await r.text();
-  cache[path] = { t: now, data };
+  const etag = r.headers.get('ETag') || '';
+  cache[path] = { t: now, data, etag };
+  apiBannerClear();
   return data;
+}
+
+let _apiBannerTimer = null;
+function apiBannerShow(msg){
+  const el = document.getElementById('api-banner');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  clearTimeout(_apiBannerTimer);
+  _apiBannerTimer = setTimeout(apiBannerClear, 8000);
+}
+function apiBannerClear(){
+  const el = document.getElementById('api-banner');
+  if (el) el.classList.add('hidden');
 }
 function invalidateCache(prefix){
   Object.keys(cache).forEach(k => { if (k.startsWith(prefix)) delete cache[k]; });
@@ -960,6 +1002,7 @@ function layoutClusterTopology(g){
   const nodes = g.nodes.filter(n => n.kind === 'Node');
   const workloads = g.nodes.filter(n => n.kind !== 'Node');
 
+  const prev = state.topologyLayout || {};
   state.topologyLayout = {};
   const rightX = cw * 0.78;
   const leftX  = cw * 0.28;
@@ -984,6 +1027,11 @@ function layoutClusterTopology(g){
       y += nsStep;
     });
     y += nsStep; // gap between namespace clusters
+  });
+  // Preserve user-dragged positions from the previous layout for nodes that
+  // are still present. Fresh additions keep their auto-computed slots.
+  Object.keys(state.topologyLayout).forEach(id => {
+    if (prev[id]) state.topologyLayout[id] = prev[id];
   });
 }
 
@@ -1068,6 +1116,7 @@ function layoutIncidentTopology(g){
     columns[col].forEach((n, i) => orderByID.set(n.id, i));
   }
 
+  const prevIncident = state.topologyLayout || {};
   state.topologyLayout = {};
   const marginX = 120;
   const marginY = 90;
@@ -1085,6 +1134,11 @@ function layoutIncidentTopology(g){
     colNodes.forEach((n, rowIdx) => {
       state.topologyLayout[n.id] = { x, y: marginY + (rowIdx * step) };
     });
+  });
+  // Preserve previously-placed positions (including user drags) for nodes
+  // that still exist in the new incident graph.
+  Object.keys(state.topologyLayout).forEach(id => {
+    if (prevIncident[id]) state.topologyLayout[id] = prevIncident[id];
   });
 }
 
@@ -1398,24 +1452,52 @@ async function fetchLogs(){
     out.innerHTML = '';
   }
 }
-function renderLogsText(text){
-  const out = document.getElementById('logs-output');
-  const lines = text.split('\n');
-  const rx = /\b(DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL)\b/i;
-  const html = lines.map((line, i) => {
-    if (!line) return '';
-    const m = line.match(rx);
-    let cls = 'text-slate-300';
-    if (m) {
-      const lv = m[1].toUpperCase();
-      if (lv === 'DEBUG' || lv === 'INFO') cls = 'text-emerald-300';
-      else if (lv === 'WARN' || lv === 'WARNING') cls = 'text-yellow-300';
-      else if (lv === 'ERROR' || lv === 'FATAL') cls = 'text-red-400';
-    }
-    return `<div class="log-line ${cls}"><span class="text-slate-600 inline-block w-10 text-right pr-2 select-none">${i+1}</span>${escapeHtml(line)}</div>`;
-  }).join('');
-  out.innerHTML = html || `<div class="text-slate-500 italic">(empty)</div>`;
+// Logs virtualization: we keep the full line buffer and only render the
+// trailing window. For typical log tails (<=5000 lines) this renders instantly
+// and keeps DOM size bounded. Users can click "Show all" to render everything.
+const LOG_WINDOW = 800;
+const LOG_LEVEL_RX = /\b(DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL)\b/i;
+let _logsAllLines = [];
+let _logsShowAll = false;
+
+function logLineHTML(line, i){
+  if (!line) return '';
+  const m = line.match(LOG_LEVEL_RX);
+  let cls = 'text-slate-300';
+  if (m) {
+    const lv = m[1].toUpperCase();
+    if (lv === 'DEBUG' || lv === 'INFO') cls = 'text-emerald-300';
+    else if (lv === 'WARN' || lv === 'WARNING') cls = 'text-yellow-300';
+    else if (lv === 'ERROR' || lv === 'FATAL') cls = 'text-red-400';
+  }
+  return `<div class="log-line ${cls}"><span class="text-slate-600 inline-block w-10 text-right pr-2 select-none">${i+1}</span>${escapeHtml(line)}</div>`;
 }
+
+function renderLogsText(text){
+  _logsAllLines = text.split('\n');
+  _logsShowAll = false;
+  paintLogs();
+}
+
+function paintLogs(){
+  const out = document.getElementById('logs-output');
+  if (!out) return;
+  const total = _logsAllLines.length;
+  if (total === 0) { out.innerHTML = `<div class="text-slate-500 italic">(empty)</div>`; return; }
+  const hidden = !_logsShowAll && total > LOG_WINDOW ? total - LOG_WINDOW : 0;
+  const startIdx = hidden;
+  const slice = _logsAllLines.slice(startIdx);
+  const banner = hidden
+    ? `<div class="mb-2 text-[10px] text-indigo-300 font-mono">Showing last ${LOG_WINDOW.toLocaleString()} of ${total.toLocaleString()} lines. <button onclick="showAllLogs()" class="underline hover:text-indigo-200">Show all</button></div>`
+    : (_logsShowAll && total > LOG_WINDOW ? `<div class="mb-2 text-[10px] text-slate-500 font-mono">Showing all ${total.toLocaleString()} lines. <button onclick="showTailLogs()" class="underline hover:text-slate-300">Tail only</button></div>` : '');
+  const html = slice.map((line, idx) => logLineHTML(line, startIdx + idx)).join('');
+  out.innerHTML = banner + (html || `<div class="text-slate-500 italic">(empty)</div>`);
+  // Scroll to bottom so newest logs are visible (standard tail behaviour).
+  out.scrollTop = out.scrollHeight;
+}
+
+function showAllLogs(){ _logsShowAll = true;  paintLogs(); }
+function showTailLogs(){ _logsShowAll = false; paintLogs(); }
 
 // --- Render: Rules
 function renderRules(){
@@ -1596,6 +1678,8 @@ window.selectTopologyNode = selectTopologyNode;
 window.closeTopologyPanel = closeTopologyPanel;
 window.startNodeDrag = startNodeDrag;
 window.fetchLogs = fetchLogs;
+window.showAllLogs = showAllLogs;
+window.showTailLogs = showTailLogs;
 window.showToast = showToast;
 
 window.addEventListener('resize', () => {

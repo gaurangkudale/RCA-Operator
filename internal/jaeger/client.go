@@ -71,6 +71,21 @@ type tracesResponse struct {
 	Errors json.RawMessage `json:"errors,omitempty"`
 }
 
+// Dependency is one directed call-count edge between two services, as returned
+// by Jaeger's /api/dependencies. CallCount is the aggregate number of calls
+// observed from Parent → Child in the lookback window.
+type Dependency struct {
+	Parent    string `json:"parent"`
+	Child     string `json:"child"`
+	CallCount int64  `json:"callCount"`
+}
+
+// dependenciesResponse is the envelope returned by GET /api/dependencies.
+type dependenciesResponse struct {
+	Data   []Dependency    `json:"data"`
+	Errors json.RawMessage `json:"errors,omitempty"`
+}
+
 // Client is a thin wrapper around net/http configured for the Jaeger Query API.
 // A zero-value Client is unusable — callers must use New.
 type Client struct {
@@ -151,4 +166,62 @@ func (c *Client) GetTrace(ctx context.Context, traceID string) (*Trace, error) {
 	}
 	trace := envelope.Data[0]
 	return &trace, nil
+}
+
+// GetDependencies queries the Jaeger /api/dependencies endpoint for the
+// service-to-service call graph observed in the given lookback window ending
+// at endTs (zero = now). A nil Client, unconfigured baseURL, network timeout,
+// or 404 returns (nil, nil) so callers can fall back to a k8s-only topology.
+func (c *Client) GetDependencies(ctx context.Context, lookback time.Duration, endTs time.Time) ([]Dependency, error) {
+	if c == nil || c.baseURL == "" {
+		return nil, nil
+	}
+	if lookback <= 0 {
+		lookback = 1 * time.Hour
+	}
+	if endTs.IsZero() {
+		endTs = time.Now()
+	}
+
+	endpoint, err := url.JoinPath(c.baseURL, "api", "dependencies")
+	if err != nil {
+		return nil, fmt.Errorf("jaeger: build url: %w", err)
+	}
+	q := url.Values{}
+	// Jaeger expects epoch-millis.
+	q.Set("endTs", fmt.Sprintf("%d", endTs.UnixMilli()))
+	q.Set("lookback", fmt.Sprintf("%d", lookback.Milliseconds()))
+	reqURL := endpoint + "?" + q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("jaeger: build request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil, err
+		}
+		return nil, nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("jaeger: unexpected status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("jaeger: read body: %w", err)
+	}
+	var envelope dependenciesResponse
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, fmt.Errorf("jaeger: decode body: %w", err)
+	}
+	return envelope.Data, nil
 }

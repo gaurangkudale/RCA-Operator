@@ -19,6 +19,7 @@ import (
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 	"github.com/gaurangkudale/rca-operator/internal/correlator"
 	"github.com/gaurangkudale/rca-operator/internal/incidentstatus"
+	"github.com/gaurangkudale/rca-operator/internal/jaeger"
 	"github.com/gaurangkudale/rca-operator/internal/reporter"
 )
 
@@ -30,7 +31,18 @@ type Server struct {
 	log    logr.Logger
 	k8s    kubernetes.Interface
 	buffer *correlator.Buffer
+	jc     *jaeger.Client
+
+	// cache is a short-TTL JSON response cache + singleflight. It collapses
+	// bursts of dashboard polling onto a single k8s List per key and lets the
+	// UI skip re-renders via ETag/If-None-Match.
+	cache *jsonCache
 }
+
+// defaultCacheTTL is short enough to stay responsive under churn but long
+// enough to collapse the typical dashboard poll pattern (multiple tabs +
+// auto-refresh) onto one backend call.
+const defaultCacheTTL = 3 * time.Second
 
 // NewServer returns a dashboard server that will listen on addr.
 func NewServer(c client.Client, addr string, logger logr.Logger) *Server {
@@ -38,6 +50,7 @@ func NewServer(c client.Client, addr string, logger logr.Logger) *Server {
 		client: c,
 		addr:   addr,
 		log:    logger.WithName("dashboard"),
+		cache:  newJSONCache(defaultCacheTTL),
 	}
 }
 
@@ -59,6 +72,7 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/timeline", s.handleTimeline)
 	mux.HandleFunc("/api/topology", s.handleTopology)
+	mux.HandleFunc("/api/service-graph", s.handleServiceGraph)
 	mux.HandleFunc("/api/resources/", s.handleResource)
 	mux.HandleFunc("/api/logs", s.handleLogs)
 	mux.HandleFunc("/api/agents", s.handleAgents)
@@ -173,61 +187,69 @@ func (s *Server) handleIncidents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	list := &rcav1alpha1.IncidentReportList{}
-	opts := []client.ListOption{}
-
-	// Optional namespace filter.
-	if ns := r.URL.Query().Get("namespace"); ns != "" {
-		opts = append(opts, client.InNamespace(ns))
-	}
-
-	if err := s.client.List(r.Context(), list, opts...); err != nil {
-		s.log.Error(err, "Failed to list IncidentReports")
-		http.Error(w, "failed to list incidents", http.StatusInternalServerError)
-		return
-	}
-
-	// Optional phase and severity filters (applied in-memory).
-	phaseFilter := r.URL.Query().Get("phase")
-	sevFilter := r.URL.Query().Get("severity")
-	typeFilter := r.URL.Query().Get("type")
-	query := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("query")))
-	limit := parsePositiveInt(r.URL.Query().Get("limit"), 500)
-	offset := parsePositiveInt(r.URL.Query().Get("offset"), 0)
-	sortBy := r.URL.Query().Get("sort")
+	q := r.URL.Query()
+	nsFilter := q.Get("namespace")
+	phaseFilter := q.Get("phase")
+	sevFilter := q.Get("severity")
+	typeFilter := q.Get("type")
+	query := strings.ToLower(strings.TrimSpace(q.Get("query")))
+	limit := parsePositiveInt(q.Get("limit"), 500)
+	offset := parsePositiveInt(q.Get("offset"), 0)
+	sortBy := q.Get("sort")
 	if sortBy == "" {
 		sortBy = "newest"
 	}
 
-	result := make([]incidentResponse, 0, len(list.Items))
-	for i := range list.Items {
-		item := &list.Items[i]
-		if phaseFilter != "" && item.Status.Phase != phaseFilter {
-			continue
-		}
-		if sevFilter != "" && item.Status.Severity != sevFilter {
-			continue
-		}
-		if typeFilter != "" && item.Spec.IncidentType != typeFilter {
-			continue
-		}
-		if query != "" && !matchesIncidentQuery(item, query) {
-			continue
-		}
-		result = append(result, toIncidentResponse(item))
-	}
+	key := "incidents|" + nsFilter + "|" + phaseFilter + "|" + sevFilter + "|" + typeFilter +
+		"|" + query + "|" + sortBy + "|l=" + strconv.Itoa(limit) + "|o=" + strconv.Itoa(offset)
 
-	sortIncidentResponses(result, sortBy)
-
-	if offset > len(result) {
-		offset = len(result)
+	body, etag, err := s.cache.Fetch(key, func() (any, error) {
+		list := &rcav1alpha1.IncidentReportList{}
+		opts := []client.ListOption{}
+		if nsFilter != "" {
+			opts = append(opts, client.InNamespace(nsFilter))
+		}
+		if err := s.client.List(r.Context(), list, opts...); err != nil {
+			return nil, err
+		}
+		result := make([]incidentResponse, 0, len(list.Items))
+		for i := range list.Items {
+			item := &list.Items[i]
+			if phaseFilter != "" && item.Status.Phase != phaseFilter {
+				continue
+			}
+			if sevFilter != "" && item.Status.Severity != sevFilter {
+				continue
+			}
+			if typeFilter != "" && item.Spec.IncidentType != typeFilter {
+				continue
+			}
+			if query != "" && !matchesIncidentQuery(item, query) {
+				continue
+			}
+			result = append(result, toIncidentResponse(item))
+		}
+		sortIncidentResponses(result, sortBy)
+		if offset > len(result) {
+			offset = len(result)
+		}
+		end := len(result)
+		if limit > 0 && offset+limit < end {
+			end = offset + limit
+		}
+		// Always return a non-nil slice so JSON renders as `[]` not `null`.
+		sliced := result[offset:end]
+		if sliced == nil {
+			sliced = []incidentResponse{}
+		}
+		return sliced, nil
+	})
+	if err != nil {
+		s.log.Error(err, "Failed to list IncidentReports")
+		http.Error(w, "failed to list incidents", http.StatusInternalServerError)
+		return
 	}
-	end := len(result)
-	if limit > 0 && offset+limit < end {
-		end = offset + limit
-	}
-
-	writeJSON(w, result[offset:end])
+	writeCachedJSON(w, r, body, etag)
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
@@ -235,12 +257,22 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
-	list := &rcav1alpha1.IncidentReportList{}
-	if err := s.client.List(r.Context(), list); err != nil {
-		s.log.Error(err, "Failed to list IncidentReports for stats")
+	body, etag, err := s.cache.Fetch("stats", func() (any, error) {
+		return s.computeStats(r.Context())
+	})
+	if err != nil {
+		s.log.Error(err, "Failed to compute stats")
 		http.Error(w, "failed to list incidents", http.StatusInternalServerError)
 		return
+	}
+	writeCachedJSON(w, r, body, etag)
+}
+
+// computeStats builds the stats payload. Extracted so handleStats can cache it.
+func (s *Server) computeStats(ctx context.Context) (statsResponse, error) {
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := s.client.List(ctx, list); err != nil {
+		return statsResponse{}, err
 	}
 
 	resp := statsResponse{
@@ -276,7 +308,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	// Also list RCAAgent CRDs directly so agents without incidents still appear.
 	agentList := &rcav1alpha1.RCAAgentList{}
 	agentMap := make(map[string]*rcav1alpha1.RCAAgent)
-	if err := s.client.List(r.Context(), agentList); err != nil {
+	if err := s.client.List(ctx, agentList); err != nil {
 		s.log.Error(err, "Failed to list RCAAgents for stats")
 	} else {
 		for i := range agentList.Items {
@@ -320,8 +352,11 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		}
 		resp.Agents = append(resp.Agents, ai)
 	}
+	if resp.Agents == nil {
+		resp.Agents = []agentInfo{}
+	}
 
-	writeJSON(w, resp)
+	return resp, nil
 }
 
 func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
@@ -329,12 +364,21 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
-	list := &rcav1alpha1.RCACorrelationRuleList{}
-	if err := s.client.List(r.Context(), list); err != nil {
+	body, etag, err := s.cache.Fetch("rules", func() (any, error) {
+		return s.computeRules(r.Context())
+	})
+	if err != nil {
 		s.log.Error(err, "Failed to list RCACorrelationRules")
 		http.Error(w, "failed to list rules", http.StatusInternalServerError)
 		return
+	}
+	writeCachedJSON(w, r, body, etag)
+}
+
+func (s *Server) computeRules(ctx context.Context) ([]ruleResponse, error) {
+	list := &rcav1alpha1.RCACorrelationRuleList{}
+	if err := s.client.List(ctx, list); err != nil {
+		return nil, err
 	}
 
 	result := make([]ruleResponse, 0, len(list.Items))
@@ -378,7 +422,7 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		return result[i].Priority > result[j].Priority
 	})
 
-	writeJSON(w, result)
+	return result, nil
 }
 
 func (s *Server) handleIncidentDetail(w http.ResponseWriter, r *http.Request) {
