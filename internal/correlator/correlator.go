@@ -30,11 +30,36 @@ type Buffer struct {
 	byTrace map[string][]Entry
 	window  time.Duration
 	nowFn   func() time.Time // injectable for tests
+	subs    map[chan<- Entry]struct{}
 }
 
 // NewBuffer returns a Buffer with the given time window.
 func NewBuffer(window time.Duration) *Buffer {
-	return &Buffer{window: window, nowFn: time.Now, byTrace: make(map[string][]Entry)}
+	return &Buffer{
+		window:  window,
+		nowFn:   time.Now,
+		byTrace: make(map[string][]Entry),
+		subs:    make(map[chan<- Entry]struct{}),
+	}
+}
+
+// Subscribe registers ch to receive every new Entry appended to the buffer.
+// Delivery is non-blocking: if the subscriber's channel is full the entry is
+// dropped for that subscriber so a slow consumer cannot stall the event loop.
+// The returned unsub function removes the subscription; it is safe to call
+// multiple times.
+func (b *Buffer) Subscribe(ch chan<- Entry) func() {
+	b.mu.Lock()
+	if b.subs == nil {
+		b.subs = make(map[chan<- Entry]struct{})
+	}
+	b.subs[ch] = struct{}{}
+	b.mu.Unlock()
+	return func() {
+		b.mu.Lock()
+		delete(b.subs, ch)
+		b.mu.Unlock()
+	}
 }
 
 // Add appends event e to the buffer, pruning entries that have fallen outside
@@ -48,6 +73,12 @@ func (b *Buffer) Add(e watcher.CorrelatorEvent) {
 	b.entries = append(b.entries, entry)
 	if traceID := extractTraceID(e); traceID != "" {
 		b.byTrace[traceID] = append(b.byTrace[traceID], entry)
+	}
+	for ch := range b.subs {
+		select {
+		case ch <- entry:
+		default:
+		}
 	}
 }
 

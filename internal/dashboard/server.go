@@ -13,9 +13,11 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
+	"github.com/gaurangkudale/rca-operator/internal/correlator"
 	"github.com/gaurangkudale/rca-operator/internal/incidentstatus"
 	"github.com/gaurangkudale/rca-operator/internal/reporter"
 )
@@ -26,6 +28,8 @@ type Server struct {
 	client client.Client
 	addr   string
 	log    logr.Logger
+	k8s    kubernetes.Interface
+	buffer *correlator.Buffer
 }
 
 // NewServer returns a dashboard server that will listen on addr.
@@ -54,15 +58,22 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/rules", s.handleRules)
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/timeline", s.handleTimeline)
+	mux.HandleFunc("/api/topology", s.handleTopology)
+	mux.HandleFunc("/api/resources/", s.handleResource)
+	mux.HandleFunc("/api/logs", s.handleLogs)
+	mux.HandleFunc("/api/agents", s.handleAgents)
+	mux.HandleFunc("/api/stream", s.handleStream)
 
 	srv := &http.Server{
 		Addr:              s.addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
-		IdleTimeout:       60 * time.Second,
-		BaseContext:       func(_ net.Listener) context.Context { return ctx },
+		// WriteTimeout is intentionally 0: /api/stream is a long-lived SSE
+		// connection. Per-request timeouts are enforced via request context.
+		WriteTimeout: 0,
+		IdleTimeout:  60 * time.Second,
+		BaseContext:  func(_ net.Listener) context.Context { return ctx },
 	}
 
 	// Graceful shutdown when the manager context is cancelled.

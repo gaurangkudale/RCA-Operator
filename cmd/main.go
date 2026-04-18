@@ -29,6 +29,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -320,6 +321,14 @@ func main() {
 	}
 
 	dashboardServer := dashboard.NewServer(mgr.GetClient(), dashboardAddr, ctrl.Log)
+	if k8sClient, err := kubernetes.NewForConfig(mgr.GetConfig()); err == nil {
+		dashboardServer.WithOptions(dashboard.WithKubernetesClient(k8sClient))
+	} else {
+		setupLog.Error(err, "Failed to build kubernetes client for dashboard; /api/logs will be unavailable")
+	}
+	if crdFactory.Engine != nil {
+		dashboardServer.WithOptions(dashboard.WithBuffer(crdFactory.Engine.Buffer()))
+	}
 	if err := mgr.Add(dashboardServer); err != nil {
 		setupLog.Error(err, "Failed to add dashboard server")
 		os.Exit(1)
