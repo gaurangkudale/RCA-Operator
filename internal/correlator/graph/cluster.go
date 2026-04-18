@@ -104,6 +104,14 @@ func (b *ClusterBuilder) Build(ctx context.Context) (*ClusterGraph, error) {
 		}
 	}
 
+	// systemNamespaces are skipped so the cluster graph stays focused on workloads.
+	skipNS := map[string]bool{
+		"kube-system":        true,
+		"kube-public":        true,
+		"kube-node-lease":    true,
+		"local-path-storage": true,
+	}
+
 	// Nodes (k8s worker nodes)
 	for _, n := range nodes.Items {
 		status := nodeReadinessStatus(&n)
@@ -123,6 +131,9 @@ func (b *ClusterBuilder) Build(ctx context.Context) (*ClusterGraph, error) {
 
 	// Deployments
 	for _, d := range deps.Items {
+		if skipNS[d.Namespace] {
+			continue
+		}
 		key := d.Namespace + "/" + d.Name
 		status := deploymentStatus(&d)
 		if ov := depAffect[key]; ov != "" {
@@ -145,6 +156,9 @@ func (b *ClusterBuilder) Build(ctx context.Context) (*ClusterGraph, error) {
 
 	// Pods → edges to owning Deployment (by ownerRef) and to scheduled Node.
 	for _, p := range pods.Items {
+		if skipNS[p.Namespace] {
+			continue
+		}
 		key := p.Namespace + "/" + p.Name
 		status := podStatus(&p)
 		if ov := podAffect[key]; ov != "" {
@@ -172,6 +186,9 @@ func (b *ClusterBuilder) Build(ctx context.Context) (*ClusterGraph, error) {
 	// Services as standalone nodes (no edges yet; selector-based matching can
 	// be added later if the UI needs it).
 	for _, s := range svcs.Items {
+		if skipNS[s.Namespace] {
+			continue
+		}
 		g.Nodes = append(g.Nodes, ClusterNode{
 			Node: Node{
 				ID:        "svc:" + s.Namespace + "/" + s.Name,

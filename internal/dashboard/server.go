@@ -62,6 +62,7 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/resources/", s.handleResource)
 	mux.HandleFunc("/api/logs", s.handleLogs)
 	mux.HandleFunc("/api/agents", s.handleAgents)
+	mux.HandleFunc("/api/pods", s.handlePods)
 	mux.HandleFunc("/api/stream", s.handleStream)
 
 	srv := &http.Server{

@@ -182,7 +182,9 @@
         </div>
         <div>
           <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Pod</label>
-          <input id="logs-pod" type="text" placeholder="pod name" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 font-mono">
+          <select id="logs-pod" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 font-mono">
+            <option value="">(select namespace first)</option>
+          </select>
         </div>
         <div>
           <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Deployment</label>
@@ -349,6 +351,23 @@ function phaseClasses(phase){
   return `bg-${c}-500/10 text-${c}-400 border border-${c}-500/20`;
 }
 function incKey(i){ return `${i.namespace}/${i.name}`; }
+function incidentTitle(inc){
+  if (!inc) return '—';
+  const pod = (inc.podName||'').trim();
+  if (pod && pod.toLowerCase() !== 'unknown') return pod;
+  const affected = (inc.affectedResources||[]).find(r => r && r.name);
+  if (affected && affected.name) return affected.name;
+  if (inc.incidentType) return inc.incidentType;
+  if (inc.name) return inc.name;
+  return '—';
+}
+function cleanSignal(s){
+  // Drop empty "key=" fragments (e.g. trailing "message=") from correlated signal strings.
+  return String(s||'')
+    .replace(/(^|\s)[A-Za-z_][\w.-]*=(?=\s|$)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 function kindIcon(kind){
   switch((kind||'').toLowerCase()){
     case 'pod': return 'box';
@@ -532,7 +551,7 @@ function renderIncidentsList(){
         <div class="flex justify-between items-center mb-1.5">
           <div class="flex items-center gap-2 min-w-0">
             <span class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono ${sevClasses(sev)}">${escapeHtml(sev||'—')}</span>
-            <span class="font-bold text-slate-200 text-xs truncate">${escapeHtml(inc.podName || inc.name)}</span>
+            <span class="font-bold text-slate-200 text-xs truncate">${escapeHtml(incidentTitle(inc))}</span>
           </div>
           <span class="text-[10px] text-slate-500 font-mono shrink-0 ml-2">${escapeHtml(relTime(when))}</span>
         </div>
@@ -577,7 +596,10 @@ function renderIncidentDetail(){
       <span class="text-[10px] text-slate-500 font-mono shrink-0 ml-2">${escapeHtml(r.namespace||'')}</span>
     </div>`).join('') || `<div class="text-xs text-slate-500 italic">No resources</div>`;
 
-  const signals = (d.correlatedSignals || []).map(s => `
+  const signals = (d.correlatedSignals || [])
+    .map(s => cleanSignal(s))
+    .filter(s => s.length > 0)
+    .map(s => `
     <span class="inline-block bg-slate-800 text-slate-300 font-mono text-[10px] px-2 py-0.5 rounded mr-1 mb-1">${escapeHtml(s)}</span>
   `).join('') || `<span class="text-xs text-slate-500 italic">None</span>`;
 
@@ -609,7 +631,7 @@ function renderIncidentDetail(){
           <span class="px-2 py-0.5 bg-slate-800 text-slate-400 rounded text-[9px] font-mono">${escapeHtml(d.incidentType||'—')}</span>
           ${d.firedRule ? `<span class="px-2 py-0.5 bg-purple-500/10 text-purple-300 border border-purple-500/30 rounded text-[9px] font-mono">rule: ${escapeHtml(d.firedRule)}</span>` : ''}
         </div>
-        <h2 class="text-xl font-bold text-white tracking-tight mb-1 truncate">${escapeHtml(d.podName || d.name)}</h2>
+        <h2 class="text-xl font-bold text-white tracking-tight mb-1 truncate">${escapeHtml(incidentTitle(d))}</h2>
         <p class="text-xs text-slate-400 font-mono truncate">${escapeHtml(d.namespace)} &bull; ${escapeHtml(d.name)}</p>
       </div>
       <div class="text-right shrink-0 ml-4">
@@ -844,6 +866,11 @@ async function selectTopologyNode(id, e){
   body.innerHTML = `<div class="text-xs text-slate-500">Loading...</div>`;
   lucide.createIcons();
 
+  const supported = { Pod: true, Deployment: true, Node: true, Service: true };
+  if (!supported[node.kind]) {
+    body.innerHTML = `<div class="text-xs text-slate-500">No details available for kind <span class="font-mono">${escapeHtml(node.kind||'unknown')}</span>.</div>`;
+    return;
+  }
   if (!node.namespace && node.kind !== 'Node') { body.innerHTML = `<div class="text-xs text-slate-500">No details available for this node.</div>`; return; }
   try {
     const ns = node.namespace || '_';
@@ -915,6 +942,32 @@ function populateLogsNamespaces(){
   sel.innerHTML = `<option value="">(select namespace)</option>` +
     names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
   if (current && names.includes(current)) sel.value = current;
+  if (!sel._podBound) {
+    sel.addEventListener('change', populateLogsPods);
+    sel._podBound = true;
+  }
+  if (sel.value) populateLogsPods();
+}
+async function populateLogsPods(){
+  const ns = document.getElementById('logs-ns').value.trim();
+  const podSel = document.getElementById('logs-pod');
+  if (!podSel) return;
+  if (!ns) {
+    podSel.innerHTML = `<option value="">(select namespace first)</option>`;
+    return;
+  }
+  podSel.innerHTML = `<option value="">loading...</option>`;
+  try {
+    const pods = await apiGet('/api/pods?ns=' + encodeURIComponent(ns), {noCache:true}) || [];
+    if (!pods.length) {
+      podSel.innerHTML = `<option value="">(no pods)</option>`;
+      return;
+    }
+    podSel.innerHTML = `<option value="">(select pod)</option>` +
+      pods.map(p => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}${p.phase ? ' · '+escapeHtml(p.phase) : ''}</option>`).join('');
+  } catch(e){
+    podSel.innerHTML = `<option value="">(failed to load pods)</option>`;
+  }
 }
 async function fetchLogs(){
   const ns = document.getElementById('logs-ns').value.trim();

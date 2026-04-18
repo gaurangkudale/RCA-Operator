@@ -148,6 +148,14 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		resp.NodeReady = &ready
+	case "Service":
+		var svc corev1.Service
+		if err := s.client.Get(r.Context(), client.ObjectKey{Namespace: ns, Name: name}, &svc); err != nil {
+			writeResourceNotFound(w, err)
+			return
+		}
+		resp.Age = ageString(svc.CreationTimestamp.Time)
+		resp.Phase = string(svc.Spec.Type)
 	default:
 		http.Error(w, "unsupported kind", http.StatusBadRequest)
 		return
@@ -298,6 +306,52 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	_, _ = io.Copy(w, stream)
+}
+
+// ── /api/pods ─────────────────────────────────────────────────────────────────
+
+type podSummary struct {
+	Name       string `json:"name"`
+	Deployment string `json:"deployment,omitempty"`
+	Phase      string `json:"phase,omitempty"`
+}
+
+func (s *Server) handlePods(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	ns := r.URL.Query().Get("ns")
+	if ns == "" {
+		http.Error(w, "ns is required", http.StatusBadRequest)
+		return
+	}
+	var list corev1.PodList
+	if err := s.client.List(r.Context(), &list, client.InNamespace(ns)); err != nil {
+		http.Error(w, "failed to list pods", http.StatusInternalServerError)
+		return
+	}
+	var deps appsv1.DeploymentList
+	_ = s.client.List(r.Context(), &deps, client.InNamespace(ns))
+
+	out := make([]podSummary, 0, len(list.Items))
+	for i := range list.Items {
+		p := &list.Items[i]
+		ps := podSummary{Name: p.Name, Phase: string(p.Status.Phase)}
+		for _, o := range p.OwnerReferences {
+			if o.Kind != "ReplicaSet" {
+				continue
+			}
+			for _, d := range deps.Items {
+				if strings.HasPrefix(o.Name, d.Name+"-") {
+					ps.Deployment = d.Name
+					break
+				}
+			}
+		}
+		out = append(out, ps)
+	}
+	writeJSON(w, out)
 }
 
 // ── /api/agents ───────────────────────────────────────────────────────────────
