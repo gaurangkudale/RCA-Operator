@@ -1211,6 +1211,22 @@ function layoutIncidentTopology(g){
     columns[col].forEach((n, i) => orderByID.set(n.id, i));
   }
 
+  // Split over-stuffed columns: dense service meshes tend to dump most
+  // services into one rank. If a column holds more than MAX_PER_COL nodes we
+  // stripe them across two sub-columns so labels have room to breathe.
+  const MAX_PER_COL = 6;
+  const placedColumns = []; // each entry: { x-offset-in-steps (float), nodes[] }
+  columns.forEach((colNodes, colIdx) => {
+    if (colNodes.length <= MAX_PER_COL) {
+      placedColumns.push({ offset: colIdx, nodes: colNodes });
+      return;
+    }
+    const even = [], odd = [];
+    colNodes.forEach((n, i) => (i % 2 === 0 ? even : odd).push(n));
+    placedColumns.push({ offset: colIdx - 0.18, nodes: even });
+    placedColumns.push({ offset: colIdx + 0.18, nodes: odd });
+  });
+
   const prevIncident = state.topologyLayout || {};
   state.topologyLayout = {};
   const marginX = 120;
@@ -1219,8 +1235,8 @@ function layoutIncidentTopology(g){
   const usableH = Math.max(220, ch - marginY * 2);
   const xStep = maxLevel > 0 ? usableW / maxLevel : 0;
 
-  columns.forEach((colNodes, colIdx) => {
-    const x = maxLevel > 0 ? marginX + (colIdx * xStep) : cw / 2;
+  placedColumns.forEach(({ offset, nodes: colNodes }) => {
+    const x = maxLevel > 0 ? marginX + (offset * xStep) : cw / 2;
     if (colNodes.length === 1) {
       state.topologyLayout[colNodes[0].id] = { x, y: ch / 2 };
       return;
@@ -1274,6 +1290,19 @@ function renderTopologyEdges(){
   if (!g || !g.edges) { layer.innerHTML = ''; return; }
   const nodeStatusByID = new Map();
   (g.nodes || []).forEach(n => nodeStatusByID.set(n.id, nodeVisualStatus(n)));
+
+  // Simplification pass: service graphs from real clusters are mesh-dense.
+  // We hide two sources of visual noise by default:
+  //   1. Self-loops (a service calling itself) — almost always instrumentation
+  //      artefacts (e.g. retries, internal middleware spans).
+  //   2. Long-tail low-volume edges — keep them routed but draw them dimmed
+  //      so the dominant traffic and any failing path remain prominent.
+  // An unhealthy edge (either endpoint critical/warning) is always drawn at
+  // full opacity so error signal is never suppressed.
+  let maxCount = 0;
+  (g.edges || []).forEach(e => { if (e.count && e.count > maxCount) maxCount = e.count; });
+  const dimBelow = maxCount > 0 ? maxCount * 0.05 : 0;
+
   let defs = `<defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
@@ -1282,24 +1311,21 @@ function renderTopologyEdges(){
   let paths = '';
   let labels = '';
   g.edges.forEach(edge => {
+    if (edge.from === edge.to) return; // drop self-loops unconditionally
     const src = state.topologyLayout[edge.from];
     const tgt = state.topologyLayout[edge.to];
     if (!src || !tgt) return;
+    const cls = edgeClass(edge, nodeStatusByID);
+    const isUnhealthy = cls === 'critical' || cls === 'warning';
+    const dim = !isUnhealthy && edge.count && edge.count < dimBelow;
+    const opacity = dim ? 0.22 : 1;
     const count = edge.count ? formatCount(edge.count) : '';
-    if (edge.from === edge.to) {
-      const r = 26;
-      const cx = src.x + r;
-      const cy = src.y - r;
-      paths += `<path d="M ${src.x} ${src.y-14} A ${r} ${r} 0 1 1 ${src.x+14} ${src.y}" class="edge-path ${edgeClass(edge, nodeStatusByID)}" marker-end="url(#arrow)"></path>`;
-      if (count) labels += `<text x="${cx+10}" y="${cy-8}" class="edge-label">${escapeHtml(count)}</text>`;
-      return;
-    }
     const dx = tgt.x - src.x;
     const dy = tgt.y - src.y;
     const ctrl = Math.max(60, Math.abs(dx) * 0.45);
     const path = `M ${src.x} ${src.y} C ${src.x + ctrl} ${src.y}, ${tgt.x - ctrl} ${tgt.y}, ${tgt.x} ${tgt.y}`;
-    paths += `<path d="${path}" class="edge-path ${edgeClass(edge, nodeStatusByID)}" marker-end="url(#arrow)"></path>`;
-    if (count) {
+    paths += `<path d="${path}" class="edge-path ${cls}" opacity="${opacity}" marker-end="url(#arrow)"></path>`;
+    if (count && !dim) {
       const mx = (src.x + tgt.x) / 2;
       const my = (src.y + tgt.y) / 2 - Math.sign(dy || 1) * 6;
       labels += `<text x="${mx}" y="${my}" class="edge-label" text-anchor="middle">${escapeHtml(count)}</text>`;
