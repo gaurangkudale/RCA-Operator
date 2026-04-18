@@ -10,5 +10,5 @@
 !go.mod
 !go.sum
 
-# Re-include embedded static assets
-!internal/dashboard/static/
+# Re-include embedded static assets (must glob contents, not just the dir entry)
+!internal/dashboard/static/**
