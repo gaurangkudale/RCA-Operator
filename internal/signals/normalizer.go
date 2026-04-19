@@ -471,6 +471,16 @@ func extractTraceID(event watcher.CorrelatorEvent) string {
 	}
 }
 
+// truncateBody shortens an OTel log body so the enclosing summary stays well
+// under the Kubernetes Event.message 1024-char cap. Appends an ellipsis marker
+// so readers know the body was clipped.
+func truncateBody(s string, max int) string {
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	return s[:max] + "…(truncated)"
+}
+
 // emptyKVRegex matches whitespace + key= whose value is absent (end of string or
 // followed by whitespace). Used to strip trailing/mid-string `message=` etc.
 var emptyKVRegex = regexp.MustCompile(`(^|\s)[A-Za-z_][\w.-]*=(\s|$)`)
@@ -533,7 +543,7 @@ func buildSummary(event watcher.CorrelatorEvent) string {
 			e.ServiceName, e.SpanName, e.DurationNanos, e.ThresholdNs)
 	case watcher.OTelLogMatchEvent:
 		return fmt.Sprintf("Log match service=%s severity=%s body=%s",
-			e.ServiceName, e.Severity, e.Body)
+			e.ServiceName, e.Severity, truncateBody(e.Body, 512))
 	case watcher.OTelSpanEventEvent:
 		return fmt.Sprintf("Span event service=%s event=%s", e.ServiceName, e.EventName)
 	default:

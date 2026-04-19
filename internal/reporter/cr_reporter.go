@@ -231,8 +231,8 @@ func (r *Reporter) createIncident(ctx context.Context, input incident.Input, fin
 		"fingerprint", fingerprint,
 	)
 	if r.Recorder != nil {
-		r.Recorder.Eventf(report, nil, corev1.EventTypeWarning, "IncidentDetected", "Detect",
-			"New %s incident detected severity=%s: %s", input.IncidentType, input.Severity, input.Summary)
+		msg := truncateEventMessage(fmt.Sprintf("New %s incident detected severity=%s: %s", input.IncidentType, input.Severity, input.Summary))
+		r.Recorder.Eventf(report, nil, corev1.EventTypeWarning, "IncidentDetected", "Detect", "%s", msg)
 	}
 	return nil
 }
@@ -628,10 +628,21 @@ func (r *Reporter) reopenIncident(ctx context.Context, report *rcav1alpha1.Incid
 
 	r.openByFingerprint[fingerprint] = types.NamespacedName{Namespace: report.Namespace, Name: report.Name}
 	if r.Recorder != nil {
-		r.Recorder.Eventf(report, nil, corev1.EventTypeWarning, "IncidentReopened", "Reopen",
-			"Incident re-opened: %s", input.Summary)
+		msg := truncateEventMessage(fmt.Sprintf("Incident re-opened: %s", input.Summary))
+		r.Recorder.Eventf(report, nil, corev1.EventTypeWarning, "IncidentReopened", "Reopen", "%s", msg)
 	}
 	return nil
+}
+
+// truncateEventMessage enforces the Kubernetes Event.message 1024-char cap.
+// Returning an over-long note causes the event to be rejected ("can have at
+// most 1024 characters"), so clip with headroom for future prefix changes.
+func truncateEventMessage(s string) string {
+	const max = 1000
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "…(truncated)"
 }
 
 // buildInitialAnnotations assembles the annotation map used when an

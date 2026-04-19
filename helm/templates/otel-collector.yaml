@@ -104,6 +104,17 @@ spec:
         operators:
           - type: container
             add_metadata_from_filepath: true
+          - type: json_parser
+            parse_from: body
+            parse_to: attributes
+            if: 'body matches "^\\{.*\\}$"'
+          - type: severity_parser
+            parse_from: attributes.level
+            if: 'attributes.level != nil'
+            mapping:
+              warn:  WARNING
+              error: ERROR
+              info:  INFO
       {{- end }}
 
     processors:
