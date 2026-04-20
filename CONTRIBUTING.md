@@ -39,7 +39,8 @@ You don't have to write code to contribute meaningfully.
 | 🐛 Report a bug | [Open a Bug Report](../../issues/new?template=bug_report.md) |
 | 💡 Propose a feature | [Open a Feature Request](../../issues/new?template=feature_request.md) |
 | 📖 Improve docs | Edit any file in `docs/` and open a PR |
-| 🧪 Add a test | Find an untested path and cover it |
+| 🧪 Add a test | Find an untested path and cover it — see [Testing Guide](docs/development/testing-guide.md) for end-to-end scenarios |
+| 🌱 New to the codebase | Start with the [Beginner Guide](docs/development/beginner-guide.md) |
 | 🔧 Fix a bug | Pick an issue labeled `good first issue` or `bug` |
 | 🔗 Add a correlation rule | See [Adding a Correlation Rule](#adding-a-correlation-rule) |
 | 💬 Answer a question | Help out in [GitHub Discussions](../../discussions) |
