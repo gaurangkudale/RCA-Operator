@@ -1,6 +1,10 @@
-# RCA Operator — Helm Installation Guide
+# RCA Operator — Helm Reference
 
 > **Chart version:** `0.0.16` | **Kubernetes:** ≥ 1.26
+
+For a first-time install, start with [Getting Started → Installation](getting-started/installation.md).
+This page is the **reference** for installing from source, upgrading, override
+flags, and troubleshooting.
 
 ---
 

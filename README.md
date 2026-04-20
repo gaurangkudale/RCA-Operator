@@ -86,12 +86,14 @@ kubectl apply -f config/samples/rca_v1alpha1_rcaagent.yaml
 | [IncidentReport CRD Reference](docs/reference/incidentreport-crd.md) | `IncidentReport` schema and fields |
 | [RCACorrelationRule CRD Reference](docs/reference/rcacorrelationrule-crd.md) | Correlation rule schema and examples |
 | [Auto-Detection](docs/features/auto-detection.md) | Automatic correlation rule detection |
+| [OTLP Ingest](docs/features/otlp-ingest.md) | In-operator OTLP/HTTP receiver for traces and logs |
+| [Topology Graph](docs/features/topology-graph.md) | Incident topology graph (K8s + trace + Jaeger enrichment) |
 | [Dashboard](docs/features/DASHBOARD.md) | Dashboard data model and access patterns |
 | [Metrics Reference](docs/reference/metrics.md) | Prometheus metrics exposed by the operator |
 | [RBAC Reference](docs/reference/rbac.md) | Permissions used by the operator |
 | [Local Development](docs/development/local-setup.md) | Run locally against a cluster |
 | [Testing Guide](docs/development/testing.md) | Unit, envtest, and e2e coverage |
-| [Helm Installation](docs/helm-installation.md) | Helm install with OTel + Jaeger stack |
+| [Helm Reference](docs/helm-installation.md) | Override flags, from-source install, upgrade, troubleshooting |
 | [Helm Upgrade Guide](docs/HELM_UPGRADE.md) | CRD upgrade and migration steps |
 
 ## Custom Resources
