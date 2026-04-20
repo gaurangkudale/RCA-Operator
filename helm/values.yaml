@@ -1,16 +1,28 @@
 # RCA Operator Helm Chart Values
 
-# Number of replicas for the controller manager
+# Number of replicas for the controller manager.
 # Use case: Scale operator control-plane availability and throughput.
+# Sizing guidance:
+#   - 1  (default): small clusters, dev, single-AZ. Leader election keeps
+#                   reconciliation safe; a restart incurs ~10s of downtime.
+#   - 2+ (prod HA): pair with the podAntiAffinity block below to spread
+#                   replicas across nodes/zones. See values-production.yaml.
 replicaCount: 1
 
 # Controller manager image configuration
 # Use case: Select which RCA Operator image/version is deployed.
+#
+# Defaults pin to the published GHCR image at the chart's appVersion so that
+# `helm install rca-operator rca-operator/rca-operator` works out of the box
+# from a remote repo. Leave `tag` empty to follow the chart's appVersion;
+# override both fields for air-gapped or locally-loaded (kind) workflows
+# (see values-dev.yaml).
 image:
-  repository: controller
+  repository: ghcr.io/gaurangkudale/rca-operator
   pullPolicy: IfNotPresent
-  # Overrides the image tag whose default is the chart appVersion
-  tag: "latest"
+  # Empty string resolves to .Chart.AppVersion at render time. Pin to an
+  # explicit tag (e.g. "0.0.16") for reproducible upgrades.
+  tag: ""
 
 imagePullSecrets: []
 nameOverride: ""
@@ -101,8 +113,19 @@ podDisruptionBudget:
   enabled: true
   minAvailable: 1
 
-# Resources for the controller manager
+# Resources for the controller manager.
 # Use case: Reserve and cap CPU/memory for stable reconciliation performance.
+#
+# Sizing guidance (measured on a 3-node cluster with ~50 watched namespaces):
+#   Cluster size          | requests          | limits
+#   ---------------------- ------------------- ---------------------
+#   dev / kind             | 50m  / 64Mi       | 200m / 256Mi
+#   small (<=20 ns)        | 100m / 128Mi      | 500m / 512Mi   (default)
+#   medium (20-100 ns)     | 200m / 256Mi      | 1000m / 1Gi
+#   large (100+ ns, OTLP   | 500m / 512Mi      | 2000m / 2Gi
+#     ingest on)           |                   |
+# Scale up memory first if you see OOMKills under trace ingest load;
+# CPU only matters under bursty reconcile storms.
 resources:
   limits:
     cpu: 500m

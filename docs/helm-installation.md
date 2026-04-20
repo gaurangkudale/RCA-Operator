@@ -145,6 +145,29 @@ kubectl get incidentreports -A
 
 ---
 
+## Values overlays shipped with the chart
+
+| File | Purpose |
+|---|---|
+| [`helm/values.yaml`](../helm/values.yaml) | Chart defaults — safe for evaluation and small clusters |
+| [`helm/values-dev.yaml`](../helm/values-dev.yaml) | Local kind development: `pullPolicy: Never`, single replica, PDB off, low-resource Jaeger |
+| [`helm/values-production.yaml`](../helm/values-production.yaml) | Production hardening: pinned image, `replicaCount: 2`, pod anti-affinity across zones, network policies, self-telemetry, auto-detect off by default |
+
+Apply an overlay with `-f`:
+
+```bash
+helm upgrade --install rca-operator rca-operator/rca-operator \
+  -f helm/values-production.yaml \
+  --namespace rca-system --create-namespace \
+  --wait --timeout 10m
+```
+
+Review the header comment in `values-production.yaml` — it lists the fields
+you **must** edit before applying (image tag, Jaeger storage backend,
+instrumentation target namespaces).
+
+---
+
 ## Common configuration overrides
 
 ```bash
