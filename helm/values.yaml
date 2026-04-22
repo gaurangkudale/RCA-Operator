@@ -79,7 +79,7 @@ manager:
 # which instruments your application workloads.
 # Set enabled: true and provide an endpoint to trace the operator itself.
 otel:
-  enabled: false
+  enabled: true
   # Any OTLP gRPC endpoint, e.g. the bundled collector:
   # "rca-operator-otel-collector.rca-system.svc.cluster.local:4317"
   endpoint: ""
@@ -270,7 +270,7 @@ graphBuilder:
   #   http://<release-name>-jaeger:16686
   # Set explicitly when using an external Jaeger instance, e.g.:
   #   jaegerQueryURL: "http://jaeger-query.observability.svc.cluster.local:16686"
-  jaegerQueryURL: "http://rca-jaeger:16686"
+  jaegerQueryURL: "http://rca-operator-jaeger:16686"
 
 # ────────────────────────────────────────────────────────────────────────────
 # OpenTelemetry Operator sub-chart (alias: opentelemetryOperator)
@@ -374,10 +374,37 @@ otelCollector:
   # Use case: Tune log verbosity for the collector's own debug output.
   debugVerbosity: normal
 
+  # Metrics pipeline settings.
+  # Use case: Accept OTLP metrics from instrumented workloads to avoid
+  # /v1/metrics 404 responses and optionally forward to a metrics backend.
+  metrics:
+    # Enable collector metrics pipeline:
+    # receivers: [otlp]
+    # processors: [memory_limiter, k8sattributes, batch]
+    # exporters: [debug, (optional) otlp/metrics]
+    enabled: true
+
+    # Optional OTLP exporter for metrics pipeline.
+    # Set enabled=true and endpoint to forward metrics to a backend.
+    otlp:
+      enabled: false
+      # Example: "prometheus-agent.observability.svc.cluster.local:4317"
+      endpoint: ""
+      insecure: true
+      retry:
+        enabled: true
+        initialInterval: 5s
+        maxInterval: 30s
+        maxElapsedTime: 300s
+      queue:
+        enabled: true
+        numConsumers: 4
+        queueSize: 2000
+
   # Jaeger OTLP gRPC endpoint that the collector exports traces to.
   # Leave empty to use the auto-computed value: <release-name>-jaeger:4317
   # Override if Jaeger is installed separately or in a different namespace.
-  jaegerEndpoint: ""
+  jaegerEndpoint: "rca-operator-jaeger.rca-system.svc.cluster.local:4317"
 
   # OTLP exporter retry and queue settings (traces → Jaeger).
   # Use case: Tolerate transient Jaeger unavailability without dropping spans.
@@ -423,7 +450,18 @@ instrumentation:
     argument: "1.0"
 
   # Per-language SDK resource overrides (leave empty to use operator defaults).
-  python: {}
+  # Default python env focuses on traces path:
+  # app auto-instrumentation traces -> otel-collector (OTLP/HTTP 4318) -> Jaeger.
+  python:
+    env:
+      - name: OTEL_TRACES_EXPORTER
+        value: otlp
+      - name: OTEL_METRICS_EXPORTER
+        value: none
+      - name: OTEL_LOGS_EXPORTER
+        value: none
+      - name: OTEL_EXPORTER_OTLP_PROTOCOL
+        value: http/protobuf
   java: {}
   nodejs: {}
   dotnet: {}

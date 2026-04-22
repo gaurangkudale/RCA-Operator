@@ -179,6 +179,24 @@ spec:
       debug:
         verbosity: {{ .Values.otelCollector.debugVerbosity }}
 
+      {{- if and .Values.otelCollector.metrics.enabled .Values.otelCollector.metrics.otlp.enabled .Values.otelCollector.metrics.otlp.endpoint }}
+      # OTLP exporter for metrics pipeline.
+      # Configure endpoint when forwarding metrics to an external backend.
+      otlp/metrics:
+        endpoint: {{ .Values.otelCollector.metrics.otlp.endpoint | quote }}
+        tls:
+          insecure: {{ .Values.otelCollector.metrics.otlp.insecure }}
+        retry_on_failure:
+          enabled: {{ .Values.otelCollector.metrics.otlp.retry.enabled }}
+          initial_interval: {{ .Values.otelCollector.metrics.otlp.retry.initialInterval }}
+          max_interval: {{ .Values.otelCollector.metrics.otlp.retry.maxInterval }}
+          max_elapsed_time: {{ .Values.otelCollector.metrics.otlp.retry.maxElapsedTime }}
+        sending_queue:
+          enabled: {{ .Values.otelCollector.metrics.otlp.queue.enabled }}
+          num_consumers: {{ .Values.otelCollector.metrics.otlp.queue.numConsumers }}
+          queue_size: {{ .Values.otelCollector.metrics.otlp.queue.queueSize }}
+      {{- end }}
+
       # OTLP exporter — forwards traces to Jaeger's OTLP gRPC endpoint.
       # Retry and queue settings make the pipeline resilient to transient Jaeger downtime.
       otlp/jaeger:
@@ -238,6 +256,17 @@ spec:
           receivers: [otlp]
           processors: [memory_limiter, k8sattributes, batch]
           exporters: [debug, otlp/jaeger]
+        {{- if .Values.otelCollector.metrics.enabled }}
+        # Metrics pipeline: receive OTLP metrics → guard memory → enrich → export.
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, k8sattributes, batch]
+          exporters:
+            - debug
+            {{- if and .Values.otelCollector.metrics.otlp.enabled .Values.otelCollector.metrics.otlp.endpoint }}
+            - otlp/metrics
+            {{- end }}
+        {{- end }}
         {{- if .Values.rcaIngest.enabled }}
         # traces/rca: filtered by error-status → forward to operator ingest.
         traces/rca:
