@@ -147,6 +147,22 @@ func TestHandleResource_BadPath(t *testing.T) {
 	}
 }
 
+func TestIncidentReferences_ServiceMatchesWorkloadResource(t *testing.T) {
+	inc := &rcav1alpha1.IncidentReport{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "prod"},
+		Status: rcav1alpha1.IncidentReportStatus{
+			Phase: "Active",
+			AffectedResources: []rcav1alpha1.AffectedResource{
+				{Kind: "Deployment", Namespace: "prod", Name: "cart"},
+			},
+		},
+	}
+
+	if !incidentReferences(inc, "Service", "prod", "cart") {
+		t.Fatalf("expected Service/cart in prod to match workload-scoped incident")
+	}
+}
+
 func TestHandleLogs_MissingFilters(t *testing.T) {
 	s := newTestServer(t)
 	s.k8s = k8sfake.NewClientset()

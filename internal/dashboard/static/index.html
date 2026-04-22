@@ -477,6 +477,19 @@ function traceIDsForIncidents(list){
   return out;
 }
 
+function activeIncidentsList(){
+  const list = Array.isArray(state.incidents) ? state.incidents : [];
+  return list.filter(inc => String(inc.phase || '').toLowerCase() !== 'resolved');
+}
+
+function incidentInSelectedScope(inc){
+  if (!inc) return false;
+  if (!state.selectedIncidentKey) return true;
+  const ns = selectedIncidentNamespace();
+  if (!ns) return true;
+  return String(inc.namespace || '') === ns;
+}
+
 function renderTopologyTrace(){
   const toolbarPill = document.getElementById('topology-trace-pill');
   const panelTrace = document.getElementById('topo-panel-trace');
@@ -492,6 +505,10 @@ function renderTopologyTrace(){
     panelTrace.classList.add('hidden');
     panelTrace.textContent = '';
   }
+}
+
+function renderTopologyActiveIncidents(){
+  // Intentionally disabled: right-side active-incidents overlay removed from topology view.
 }
 
 function kindIcon(kind){
@@ -679,7 +696,13 @@ function switchTab(tab){
   });
   // Lazy-load per tab
   if (tab === 'topology') {
-    loadTopology();
+    if (state.incidentGraph) {
+      renderTopology();
+    } else if (state.topoMode === 'service') {
+      loadServiceGraph();
+    } else {
+      loadTopology();
+    }
     ensureStreamConnected();
     setTimeout(renderTopologyEdges, 50);
   } else {
@@ -701,7 +724,7 @@ function clearTopologyIncident(){
   state.incidentGraph = null;
   state.selectedIncidentKey = null;
   document.getElementById('topo-clear-incident').classList.add('hidden');
-  renderTopology();
+  refreshTopology(true);
 }
 
 // --- Render: Header
@@ -1067,6 +1090,7 @@ function renderTopology(){
   const err = document.getElementById('topology-error');
   err.classList.add('hidden');
   renderTopologyTrace();
+  renderTopologyActiveIncidents();
   if (!g || !g.nodes || g.nodes.length === 0) {
     if (state.incidentGraph) {
       empty.textContent = 'No service-to-service error topology for this incident';
@@ -1470,6 +1494,11 @@ function renderTopologyEdges(){
   const nodeStatusByID = new Map();
   (g.nodes || []).forEach(n => nodeStatusByID.set(n.id, nodeVisualStatus(n)));
 
+  const isServiceGraphView = state.topoMode === 'service' && !state.incidentGraph;
+  const edgesForRender = isServiceGraphView
+    ? simplifyServiceEdgesForRender(g.edges || [], nodeStatusByID)
+    : (g.edges || []);
+
   // Simplification pass: service graphs from real clusters are mesh-dense.
   // We hide two sources of visual noise by default:
   //   1. Self-loops (a service calling itself) — almost always instrumentation
@@ -1479,7 +1508,7 @@ function renderTopologyEdges(){
   // An unhealthy edge (either endpoint critical/warning) is always drawn at
   // full opacity so error signal is never suppressed.
   let maxCount = 0;
-  (g.edges || []).forEach(e => { if (e.count && e.count > maxCount) maxCount = e.count; });
+  edgesForRender.forEach(e => { if (e.count && e.count > maxCount) maxCount = e.count; });
   const dimBelow = maxCount > 0 ? maxCount * 0.05 : 0;
 
   let defs = `<defs>
@@ -1489,7 +1518,7 @@ function renderTopologyEdges(){
   </defs>`;
   let paths = '';
   let labels = '';
-  g.edges.forEach(edge => {
+  edgesForRender.forEach(edge => {
     if (edge.from === edge.to) return; // drop self-loops unconditionally
     const src = state.topologyLayout[edge.from];
     const tgt = state.topologyLayout[edge.to];
@@ -1511,6 +1540,46 @@ function renderTopologyEdges(){
     }
   });
   layer.innerHTML = defs + paths + labels;
+}
+
+function simplifyServiceEdgesForRender(edges, nodeStatusByID){
+  const list = Array.isArray(edges) ? edges.filter(e => e && e.from !== e.to) : [];
+  if (list.length <= 24) return list;
+
+  const unhealthy = (id) => {
+    const s = nodeStatusByID && nodeStatusByID.get(id);
+    return s === 'critical' || s === 'warning';
+  };
+
+  const ranked = list.slice().sort((a, b) => {
+    const au = unhealthy(a.from) || unhealthy(a.to);
+    const bu = unhealthy(b.from) || unhealthy(b.to);
+    if (au !== bu) return au ? -1 : 1;
+    const ac = Number(a.count || 0);
+    const bc = Number(b.count || 0);
+    if (ac !== bc) return bc - ac;
+    if (a.from !== b.from) return String(a.from).localeCompare(String(b.from));
+    return String(a.to).localeCompare(String(b.to));
+  });
+
+  const keep = [];
+  const outBySource = new Map();
+  const inByTarget = new Map();
+  const perNodeCap = 3;
+  const globalCap = Math.max(32, Math.ceil(Math.sqrt(list.length) * 6));
+
+  for (const e of ranked) {
+    if (keep.length >= globalCap) break;
+    const srcCount = outBySource.get(e.from) || 0;
+    const tgtCount = inByTarget.get(e.to) || 0;
+    const mustKeep = unhealthy(e.from) || unhealthy(e.to);
+    if (!mustKeep && (srcCount >= perNodeCap || tgtCount >= perNodeCap)) continue;
+    keep.push(e);
+    outBySource.set(e.from, srcCount + 1);
+    inByTarget.set(e.to, tgtCount + 1);
+  }
+
+  return keep.length ? keep : ranked.slice(0, Math.min(24, ranked.length));
 }
 
 function formatCount(n){
@@ -1574,7 +1643,17 @@ function resetLayout(){
   setZoom(1);
   if (g) { layoutTopology(g); renderTopologyNodes(g); renderTopologyEdges(); }
 }
-function refreshTopology(force){ loadTopology(!!force); }
+function refreshTopology(force){
+  if (state.incidentGraph) {
+    renderTopology();
+    return;
+  }
+  if (state.topoMode === 'service') {
+    loadServiceGraph(!!force);
+    return;
+  }
+  loadTopology(!!force);
+}
 
 async function selectTopologyNode(id, e){
   if (didDrag) { didDrag = false; return; }
@@ -1619,7 +1698,7 @@ async function selectTopologyNode(id, e){
   try {
     const ns = node.namespace || '_';
     const r = await apiGet(`/api/resources/${encodeURIComponent(ns)}/${encodeURIComponent(node.kind)}/${encodeURIComponent(node.name)}`, {noCache:true});
-    renderResourcePanel(r, { traceIDs: traces, showTraceList, incidents: nodeIncidents });
+    renderResourcePanel(r, { traceIDs: traces, showTraceList, incidents: nodeIncidents, node });
   } catch(e){
     body.innerHTML = `<div class="text-xs text-amber-300">Failed to load resource: ${escapeHtml(e.message)}</div>`;
   }
@@ -1672,9 +1751,14 @@ function renderResourcePanel(r, opts){
   if (!r) { body.innerHTML = `<div class="text-xs text-slate-500">No data.</div>`; return; }
   const traceIDs = Array.isArray(opts && opts.traceIDs) ? opts.traceIDs : [];
   const showTraceList = !!(opts && opts.showTraceList);
+  const nodeIncidents = Array.isArray(opts && opts.incidents) ? opts.incidents : [];
+  const resourceIncidents = Array.isArray(r.openIncidents) ? r.openIncidents : [];
+  const mergedOpenIncidents = resourceIncidents.length ? resourceIncidents : nodeIncidents;
+
   const row = (k,v) => `<div class="flex justify-between py-1 border-b border-slate-800/50 last:border-0">
     <span class="text-slate-500">${escapeHtml(k)}</span><span class="text-slate-300 font-mono">${escapeHtml(v)}</span></div>`;
-  const incidents = (r.openIncidents || []).map(inc => `
+
+  const incidents = mergedOpenIncidents.map(inc => `
     <div class="bg-red-500/5 border border-red-500/30 rounded p-2 mb-1.5 cursor-pointer hover:bg-red-500/10"
          onclick="switchTab('incidents'); selectIncident('${escapeHtml(inc.namespace)}','${escapeHtml(inc.name)}')">
       <div class="flex justify-between items-center">
@@ -1683,7 +1767,21 @@ function renderResourcePanel(r, opts){
       </div>
       <div class="text-[11px] text-slate-300 mt-1 truncate">${escapeHtml(inc.summary || inc.message || inc.name)}</div>
     </div>`).join('') || `<div class="text-xs text-slate-500 italic">None</div>`;
-  const events = (r.recentEvents || []).map(ev => `
+
+  const fallbackEvents = mergedOpenIncidents
+    .slice(0, 10)
+    .map(inc => ({
+      time: inc.activeAt || inc.firstObservedAt || inc.lastObservedAt || null,
+      type: 'Incident',
+      reason: inc.incidentType || inc.phase || 'Incident',
+      message: inc.summary || inc.message || inc.name || '',
+    }));
+
+  const recentEvents = (Array.isArray(r.recentEvents) && r.recentEvents.length)
+    ? r.recentEvents
+    : fallbackEvents;
+
+  const events = recentEvents.map(ev => `
     <div class="text-[11px] py-1 border-b border-slate-800/50 last:border-0">
       <div class="flex justify-between">
         <span class="text-${ev.type==='Warning'?'amber':'slate'}-400 font-bold">${escapeHtml(ev.reason||'')}</span>
@@ -1691,6 +1789,19 @@ function renderResourcePanel(r, opts){
       </div>
       <div class="text-slate-400 truncate">${escapeHtml(ev.message||'')}</div>
     </div>`).join('') || `<div class="text-xs text-slate-500 italic">No recent events</div>`;
+
+  const statusRows = [];
+  if (r.age) statusRows.push(row('Age', r.age));
+  if (r.kind === 'Service') {
+    if (r.phase) statusRows.push(row('Type', r.phase));
+  } else if (r.phase) {
+    statusRows.push(row('Phase', r.phase));
+  }
+  if (r.nodeName) statusRows.push(row('Node', r.nodeName));
+  if (r.kind === 'Deployment') statusRows.push(row('Replicas', `${r.readyReplicas||0}/${r.desiredReplicas||0} (${r.currentReplicas||0} current)`));
+  if (r.kind === 'Pod') statusRows.push(row('Restarts', r.restartCount||0));
+  if (r.nodeReady !== undefined && r.nodeReady !== null) statusRows.push(row('Ready', r.nodeReady ? 'True' : 'False'));
+
   const tracesSection = (showTraceList && traceIDs.length)
     ? `<div>
       <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Trace IDs</h3>
@@ -1704,12 +1815,7 @@ function renderResourcePanel(r, opts){
     <div>
       <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Resource Status</h3>
       <div class="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs font-mono">
-        ${r.age ? row('Age', r.age) : ''}
-        ${r.phase ? row('Phase', r.phase) : ''}
-        ${r.nodeName ? row('Node', r.nodeName) : ''}
-        ${r.kind==='Deployment' ? row('Replicas', `${r.readyReplicas||0}/${r.desiredReplicas||0} (${r.currentReplicas||0} current)`) : ''}
-        ${r.kind==='Pod' ? row('Restarts', r.restartCount||0) : ''}
-        ${r.nodeReady !== undefined && r.nodeReady !== null ? row('Ready', r.nodeReady ? 'True' : 'False') : ''}
+        ${statusRows.join('') || '<div class="text-slate-500">No status fields</div>'}
       </div>
     </div>
     ${tracesSection}

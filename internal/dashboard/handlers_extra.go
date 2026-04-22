@@ -256,6 +256,28 @@ func incidentReferences(inc *rcav1alpha1.IncidentReport, kind, ns, name string) 
 	if kind == "Pod" && inc.Namespace == ns && inc.Labels["rca.rca-operator.tech/pod"] == name {
 		return true
 	}
+	if kind == "Service" {
+		for _, r := range inc.Status.AffectedResources {
+			if r.Name != name {
+				continue
+			}
+			if r.Namespace != "" && r.Namespace != ns {
+				continue
+			}
+			switch r.Kind {
+			case "Service", "Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "Pod":
+				if r.Namespace == "" && inc.Namespace != ns {
+					continue
+				}
+				return true
+			}
+		}
+		if pod := inc.Labels["rca.rca-operator.tech/pod"]; pod != "" && inc.Namespace == ns {
+			if strings.HasPrefix(pod, name+"-") {
+				return true
+			}
+		}
+	}
 	for _, r := range inc.Status.AffectedResources {
 		if r.Kind == kind && r.Name == name {
 			if kind == kindNode || inc.Namespace == ns {
