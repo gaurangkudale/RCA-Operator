@@ -507,7 +507,10 @@ func reportMatchesWorkloadRef(report *rcav1alpha1.IncidentReport, workloadRef *r
 		if reportIncidentType == "" {
 			reportIncidentType = report.Status.IncidentType
 		}
-		if reportIncidentType != incomingIncidentType {
+		// Coalesce OTel signals (span errors, log matches, span events, latency
+		// spikes) for the same workload into a single incident while still
+		// preventing OTel incidents from merging into Kubernetes-native incidents.
+		if !incident.IsOTelIncidentType(reportIncidentType) {
 			return false
 		}
 	}
@@ -526,6 +529,19 @@ func reportMatchesWorkloadRef(report *rcav1alpha1.IncidentReport, workloadRef *r
 
 func (r *Reporter) updateActiveIncident(ctx context.Context, report *rcav1alpha1.IncidentReport, input incident.Input, fingerprint, hash string) error {
 	now := metav1.NewTime(input.ObservedAt)
+	reportIncidentType := report.Spec.IncidentType
+	if reportIncidentType == "" {
+		reportIncidentType = report.Status.IncidentType
+	}
+	preserveIncidentType := incident.IsOTelIncidentType(reportIncidentType) &&
+		incident.IsOTelIncidentType(input.IncidentType) &&
+		reportIncidentType != "" &&
+		reportIncidentType != input.IncidentType
+	targetIncidentType := input.IncidentType
+	if preserveIncidentType {
+		targetIncidentType = reportIncidentType
+	}
+
 	if report.Labels == nil {
 		report.Labels = make(map[string]string)
 	}
@@ -538,7 +554,7 @@ func (r *Reporter) updateActiveIncident(ctx context.Context, report *rcav1alpha1
 
 	metaBase := report.DeepCopy()
 	report.Labels[LabelSeverity] = higherSeverity(report.Labels[LabelSeverity], input.Severity)
-	report.Labels[LabelIncidentType] = input.IncidentType
+	report.Labels[LabelIncidentType] = targetIncidentType
 	report.Labels[LabelFingerprintHash] = hash
 	report.Labels[LabelPodName] = safeLabelValue(primaryPodName(input))
 	report.Annotations[AnnotationSignal] = input.Summary
@@ -547,7 +563,7 @@ func (r *Reporter) updateActiveIncident(ctx context.Context, report *rcav1alpha1
 	report.Annotations[AnnotationSignalSeen] = incrementCounter(report.Annotations[AnnotationSignalSeen])
 	applyDiagnosticAnnotations(report.Annotations, input)
 	report.Spec.Fingerprint = fingerprint
-	report.Spec.IncidentType = input.IncidentType
+	report.Spec.IncidentType = targetIncidentType
 	report.Spec.Scope = input.Scope
 	if err := r.client.Patch(ctx, report, client.MergeFrom(metaBase)); err != nil {
 		return fmt.Errorf("failed to patch IncidentReport metadata: %w", err)
@@ -555,7 +571,7 @@ func (r *Reporter) updateActiveIncident(ctx context.Context, report *rcav1alpha1
 
 	statusBase := report.DeepCopy()
 	report.Status.Severity = higherSeverity(report.Status.Severity, input.Severity)
-	report.Status.IncidentType = input.IncidentType
+	report.Status.IncidentType = targetIncidentType
 	report.Status.Summary = input.Summary
 	report.Status.Reason = input.Reason
 	report.Status.Message = input.Message
@@ -576,6 +592,19 @@ func (r *Reporter) updateActiveIncident(ctx context.Context, report *rcav1alpha1
 
 func (r *Reporter) reopenIncident(ctx context.Context, report *rcav1alpha1.IncidentReport, input incident.Input, fingerprint, hash string) error {
 	now := metav1.NewTime(input.ObservedAt)
+	reportIncidentType := report.Spec.IncidentType
+	if reportIncidentType == "" {
+		reportIncidentType = report.Status.IncidentType
+	}
+	preserveIncidentType := incident.IsOTelIncidentType(reportIncidentType) &&
+		incident.IsOTelIncidentType(input.IncidentType) &&
+		reportIncidentType != "" &&
+		reportIncidentType != input.IncidentType
+	targetIncidentType := input.IncidentType
+	if preserveIncidentType {
+		targetIncidentType = reportIncidentType
+	}
+
 	if report.Labels == nil {
 		report.Labels = make(map[string]string)
 	}
@@ -585,7 +614,7 @@ func (r *Reporter) reopenIncident(ctx context.Context, report *rcav1alpha1.Incid
 
 	metaBase := report.DeepCopy()
 	report.Labels[LabelSeverity] = higherSeverity(report.Labels[LabelSeverity], input.Severity)
-	report.Labels[LabelIncidentType] = input.IncidentType
+	report.Labels[LabelIncidentType] = targetIncidentType
 	report.Labels[LabelFingerprintHash] = hash
 	report.Annotations[AnnotationLastSeen] = now.Format(time.RFC3339)
 	report.Annotations[AnnotationSignalSeen] = incrementCounter(report.Annotations[AnnotationSignalSeen])
@@ -593,7 +622,7 @@ func (r *Reporter) reopenIncident(ctx context.Context, report *rcav1alpha1.Incid
 	report.Annotations[AnnotationDedupKey] = input.DedupKey
 	applyDiagnosticAnnotations(report.Annotations, input)
 	report.Spec.Fingerprint = fingerprint
-	report.Spec.IncidentType = input.IncidentType
+	report.Spec.IncidentType = targetIncidentType
 	report.Spec.Scope = input.Scope
 	if err := r.client.Patch(ctx, report, client.MergeFrom(metaBase)); err != nil {
 		return fmt.Errorf("failed to patch IncidentReport metadata on reopen: %w", err)
@@ -608,7 +637,7 @@ func (r *Reporter) reopenIncident(ctx context.Context, report *rcav1alpha1.Incid
 	report.Status.LastObservedAt = &now
 	report.Status.StartTime = &now
 	report.Status.Severity = higherSeverity(report.Status.Severity, input.Severity)
-	report.Status.IncidentType = input.IncidentType
+	report.Status.IncidentType = targetIncidentType
 	report.Status.Summary = input.Summary
 	report.Status.Reason = input.Reason
 	report.Status.Message = input.Message

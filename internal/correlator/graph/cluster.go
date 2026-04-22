@@ -20,6 +20,8 @@ const (
 	StatusHealthy  = "healthy"
 	StatusWarning  = "warning"
 	StatusCritical = "critical"
+	phaseResolved  = "resolved"
+	phaseClosed    = "closed"
 )
 
 // ClusterNode extends Node with a status field used by the cluster-wide
@@ -77,7 +79,7 @@ func buildIncidentOverlay(list []rcav1alpha1.IncidentReport) incidentOverlay {
 	}
 	for _, inc := range list {
 		phase := strings.ToLower(inc.Status.Phase)
-		if phase == "resolved" || phase == "closed" {
+		if phase == phaseResolved || phase == phaseClosed {
 			continue
 		}
 		status := severityToStatus(inc.Status.Severity)

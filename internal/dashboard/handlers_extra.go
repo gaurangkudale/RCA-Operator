@@ -27,7 +27,11 @@ import (
 
 // Option configures optional Server dependencies. Keeps NewServer backward
 // compatible while adding the cluster-topology, logs, and SSE features.
-const kindNode = "Node"
+const (
+	kindPod     = "Pod"
+	kindNode    = "Node"
+	kindService = "Service"
+)
 
 type Option func(*Server)
 
@@ -151,7 +155,7 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 	resp := resourceResponse{Kind: kind, Namespace: ns, Name: name}
 
 	switch kind {
-	case "Pod":
+	case kindPod:
 		var p corev1.Pod
 		if err := s.client.Get(r.Context(), client.ObjectKey{Namespace: ns, Name: name}, &p); err != nil {
 			writeResourceNotFound(w, err)
@@ -190,7 +194,7 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		resp.NodeReady = &ready
-	case "Service":
+	case kindService:
 		var svc corev1.Service
 		if err := s.client.Get(r.Context(), client.ObjectKey{Namespace: ns, Name: name}, &svc); err != nil {
 			writeResourceNotFound(w, err)
@@ -253,10 +257,10 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 }
 
 func incidentReferences(inc *rcav1alpha1.IncidentReport, kind, ns, name string) bool {
-	if kind == "Pod" && inc.Namespace == ns && inc.Labels["rca.rca-operator.tech/pod"] == name {
+	if kind == kindPod && inc.Namespace == ns && inc.Labels["rca.rca-operator.tech/pod"] == name {
 		return true
 	}
-	if kind == "Service" {
+	if kind == kindService {
 		for _, r := range inc.Status.AffectedResources {
 			if r.Name != name {
 				continue
