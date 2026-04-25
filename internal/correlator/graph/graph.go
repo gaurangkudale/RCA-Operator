@@ -299,9 +299,19 @@ func (b *Builder) enrichFromEvent(e watcher.CorrelatorEvent, nodes *nodeSet, edg
 // calls edge between services. Pod identity is taken from the first span's
 // k8s.pod.name tag when present.
 func enrichFromJaeger(trace *jaeger.Trace, nodes *nodeSet, edges *[]Edge) {
+	if trace == nil {
+		return
+	}
 	spanService := make(map[string]string, len(trace.Spans))
 	for _, span := range trace.Spans {
-		svc := trace.Processes[span.ProcessID].ServiceName
+		// Processes is a map keyed by ProcessID; a span may legally reference a
+		// missing entry (collector dropped the process record, batch crossed a
+		// process eviction). Guard the lookup so we don't read the zero-value
+		// service name and emit a "" service node.
+		var svc string
+		if proc, ok := trace.Processes[span.ProcessID]; ok {
+			svc = proc.ServiceName
+		}
 		spanService[span.SpanID] = svc
 
 		if svc != "" {
@@ -442,6 +452,9 @@ func k8sNodeID(kind, namespace, name string) string {
 // node id for determinism) until the encoding fits; edges touching dropped
 // nodes are dropped with them. The incident root is always preserved.
 func truncate(g *IncidentGraph, maxBytes int) (*IncidentGraph, error) {
+	if g == nil {
+		return nil, nil
+	}
 	encoded, err := json.Marshal(g)
 	if err != nil {
 		return nil, err
@@ -483,10 +496,34 @@ func truncate(g *IncidentGraph, maxBytes int) (*IncidentGraph, error) {
 		}
 	}
 
-	// Worst case: only the root survives.
-	rootOnly := filter(g, nodeIDSetExcept(g, rootID(g)))
+	// Worst case: only the root survives. If no root is present (caller built a
+	// graph without one — should not happen via Build, but be defensive), keep
+	// the highest-blast-radius node so the truncated graph is not empty and the
+	// dashboard still has something to render.
+	root := rootID(g)
+	if root == "" {
+		root = highestBlastRadiusID(g)
+	}
+	rootOnly := filter(g, nodeIDSetExcept(g, root))
 	rootOnly.Truncated = true
 	return rootOnly, nil
+}
+
+// highestBlastRadiusID returns the id of the node with the largest BlastRadius
+// in g (ties broken by id for determinism), or "" when g has no nodes.
+func highestBlastRadiusID(g *IncidentGraph) string {
+	if g == nil || len(g.Nodes) == 0 {
+		return ""
+	}
+	bestID := ""
+	bestWeight := -1
+	for _, n := range g.Nodes {
+		if n.BlastRadius > bestWeight || (n.BlastRadius == bestWeight && n.ID < bestID) {
+			bestID = n.ID
+			bestWeight = n.BlastRadius
+		}
+	}
+	return bestID
 }
 
 // filter returns a copy of g with every node whose ID is in dropped removed,

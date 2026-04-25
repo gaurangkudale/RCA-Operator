@@ -60,6 +60,13 @@ const (
 	resourceKindPod = "Pod"
 )
 
+// graphBuildTimeout caps a single GraphBuilder.Build call so a slow Jaeger
+// (or other enrichment dependency) cannot stall the reconcile loop. The
+// graph is best-effort: a timeout drops the graph for this transition only,
+// and a future reconcile (ensureIncidentGraph) will retry. Declared as a var
+// so tests can shorten it.
+var graphBuildTimeout = 5 * time.Second
+
 type IncidentReportReconciler struct {
 	client.Client
 	Scheme       *runtime.Scheme
@@ -251,7 +258,9 @@ func (r *IncidentReportReconciler) buildIncidentGraph(ctx context.Context, log l
 	if r.GraphBuilder == nil {
 		return nil
 	}
-	g, err := r.GraphBuilder.Build(ctx, report)
+	buildCtx, cancel := context.WithTimeout(ctx, graphBuildTimeout)
+	defer cancel()
+	g, err := r.GraphBuilder.Build(buildCtx, report)
 	if err != nil {
 		log.V(1).Info("Incident graph build failed; skipping graph persistence",
 			"namespace", report.Namespace, "name", report.Name, "err", err.Error())

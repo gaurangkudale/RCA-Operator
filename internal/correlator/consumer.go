@@ -95,16 +95,19 @@ func (c *Consumer) Run(ctx context.Context) {
 }
 
 func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEvent) error {
-	if c.ruleEngine != nil {
-		c.ruleEngine.Add(event)
-	}
-
-	// Lifecycle events bypass the signal pipeline.
+	// Lifecycle (resolution) events bypass both the rule engine and the signal
+	// pipeline. Feeding them into the rule engine's sliding-window buffer would
+	// pollute correlation state with non-failure events and risk masking real
+	// failures that share a dedup key.
 	if healthy, ok := event.(watcher.PodHealthyEvent); ok {
 		return c.rep.ResolveForHealthyPod(ctx, healthy.Namespace, healthy.PodName)
 	}
 	if deleted, ok := event.(watcher.PodDeletedEvent); ok {
 		return c.rep.ResolveForDeletedPod(ctx, deleted.Namespace, deleted.PodName)
+	}
+
+	if c.ruleEngine != nil {
+		c.ruleEngine.Add(event)
 	}
 
 	// ── Signal Processing Pipeline: Normalize → Enrich → Rule Engine ──
