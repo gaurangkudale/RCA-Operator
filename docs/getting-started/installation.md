@@ -103,6 +103,9 @@ cd RCA-Operator
 helm dep update ./helm
 helm upgrade --install rca-operator ./helm \
   --namespace rca-system --create-namespace \
+  --set jaeger.enabled=true \
+  --set otelCollector.enabled=true \
+  --set opentelemetryOperator.enabled=true \
   --wait --timeout 10m
 ```
 
