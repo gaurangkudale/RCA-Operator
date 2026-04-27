@@ -1398,59 +1398,139 @@ function layoutIncidentTopology(g){
   });
 }
 
-// layoutServiceTopology places service-graph nodes using a hybrid strategy.
-// For small graphs we defer to the DAG layered layout (clearer call flow).
-// For dense meshes (>12 services) we switch to a balanced grid so nodes are
-// evenly distributed across the viewport instead of piling up in one column.
+// layoutServiceTopology places service-graph nodes using a Sugiyama-style
+// layered layout that is cycle-safe and degrades gracefully for dense meshes.
+//
+// 1. Each node's column is the longest cycle-broken path from any source to
+//    that node (i.e. depth via longest-incoming-chain DFS). This produces a
+//    proper left-to-right call flow even when the trace graph contains
+//    bidirectional edges or short cycles, which previously collapsed every
+//    node into a single column.
+// 2. If depths still collapse (true mesh / single SCC), we fall back to a
+//    sqrt-balanced grid so nodes never pile on top of each other.
+// 3. Within a column nodes are ordered by the barycenter of their parents'
+//    row positions to minimise edge crossings.
+// 4. Vertical and horizontal spacing are clamped to per-cell minimums so
+//    labels never collide with edge counts on small viewports — the canvas
+//    grows past the viewport instead, and the scroll container handles pan.
 function layoutServiceTopology(g){
-  const nodes = Array.isArray(g.nodes) ? g.nodes : [];
-  if (nodes.length <= 12) { layoutIncidentTopology(g); return; }
-
   const scrollEl = document.getElementById('canvas-scroll') || document.getElementById('canvas-container');
   const cw = scrollEl.clientWidth  || 900;
   const ch = scrollEl.clientHeight || 600;
+  const nodes = Array.isArray(g.nodes) ? g.nodes : [];
+  const edges = Array.isArray(g.edges) ? g.edges : [];
+  if (!nodes.length) { state.topologyLayout = {}; return; }
 
-  // Sort: unhealthy first (surfaces problems), then by in-degree desc (hubs
-  // before leaves), then alphabetical.
-  const indeg = new Map();
-  nodes.forEach(n => indeg.set(n.id, 0));
-  (g.edges || []).forEach(e => {
-    if (e.from === e.to) return;
-    if (indeg.has(e.to)) indeg.set(e.to, indeg.get(e.to) + 1);
-  });
-  const sorted = nodes.slice().sort((a, b) => {
-    const sa = nodeVisualStatus(a), sb = nodeVisualStatus(b);
-    const rank = (s) => s === 'critical' ? 0 : s === 'warning' ? 1 : 2;
-    if (rank(sa) !== rank(sb)) return rank(sa) - rank(sb);
-    const da = indeg.get(a.id) || 0, db = indeg.get(b.id) || 0;
-    if (da !== db) return db - da;
-    return (a.label || a.name || a.id).localeCompare(b.label || b.name || b.id);
+  // --- adjacency, ignoring self-loops & dangling refs -----------------------
+  const inAdj = new Map();
+  const outAdj = new Map();
+  nodes.forEach(n => { inAdj.set(n.id, []); outAdj.set(n.id, []); });
+  edges.forEach(e => {
+    if (!e || e.from === e.to) return;
+    if (!inAdj.has(e.to) || !outAdj.has(e.from)) return;
+    inAdj.get(e.to).push(e.from);
+    outAdj.get(e.from).push(e.to);
   });
 
-  const marginX = 100;
-  const marginY = 80;
-  const minCellW = 170; // room for label + spacing
-  const minCellH = 100;
-  const usableW = Math.max(minCellW, cw - marginX * 2);
-  // Grid dimensions: aim for near-square, capped so cells don't get tiny.
-  let cols = Math.max(3, Math.min(Math.floor(usableW / minCellW), Math.ceil(Math.sqrt(sorted.length * 1.6))));
-  const rows = Math.ceil(sorted.length / cols);
-  const cellW = Math.max(minCellW, usableW / cols);
-  const cellH = Math.max(minCellH, (ch - marginY * 2) / Math.max(1, rows - 1 || 1));
+  // --- column = longest cycle-broken incoming path --------------------------
+  // DFS with an in-progress set so revisiting a node via a back-edge yields 0
+  // rather than recursing infinitely. This produces correct depths on DAGs
+  // and a stable "best-effort" depth on graphs with cycles.
+  const depth = new Map();
+  const visiting = new Set();
+  const computeDepth = (id) => {
+    if (depth.has(id)) return depth.get(id);
+    if (visiting.has(id)) return 0;
+    visiting.add(id);
+    let d = 0;
+    (inAdj.get(id) || []).forEach(p => {
+      const pd = computeDepth(p);
+      if (pd + 1 > d) d = pd + 1;
+    });
+    visiting.delete(id);
+    depth.set(id, d);
+    return d;
+  };
+  nodes.forEach(n => computeDepth(n.id));
+  let maxDepth = 0;
+  depth.forEach(v => { if (v > maxDepth) maxDepth = v; });
+
+  // --- mesh fallback: when depth collapses, spread by alpha order ----------
+  // A pure cycle / single-SCC graph leaves every node at depth 0. Detect that
+  // (or any case where most nodes share one column) and fall back to a
+  // sqrt-balanced grid so nothing piles up.
+  const meshFallback = (maxDepth + 1) < Math.min(nodes.length, 4);
+  if (meshFallback) {
+    const sorted = nodes.slice().sort((a, b) => {
+      const sa = nodeVisualStatus(a), sb = nodeVisualStatus(b);
+      const rank = (s) => s === 'critical' ? 0 : s === 'warning' ? 1 : 2;
+      if (rank(sa) !== rank(sb)) return rank(sa) - rank(sb);
+      return (a.label || a.name || a.id).localeCompare(b.label || b.name || b.id);
+    });
+    const cols = Math.max(2, Math.ceil(Math.sqrt(sorted.length)));
+    sorted.forEach((n, i) => depth.set(n.id, i % cols));
+    maxDepth = cols - 1;
+  }
+
+  // --- bucket into columns --------------------------------------------------
+  const columns = Array.from({ length: maxDepth + 1 }, () => []);
+  nodes.forEach(n => columns[depth.get(n.id) || 0].push(n));
+
+  // --- order within column: barycenter of parents' positions ---------------
+  const orderByID = new Map();
+  const labelOf = (n) => (n.label || n.name || n.id || '').toLowerCase();
+  if (columns[0]) {
+    columns[0].sort((a, b) => labelOf(a).localeCompare(labelOf(b)));
+    columns[0].forEach((n, i) => orderByID.set(n.id, i));
+  }
+  for (let c = 1; c < columns.length; c++) {
+    columns[c].sort((a, b) => {
+      const score = (id) => {
+        const ps = (inAdj.get(id) || []).filter(p => orderByID.has(p));
+        if (!ps.length) return Number.POSITIVE_INFINITY;
+        let total = 0;
+        ps.forEach(p => { total += orderByID.get(p); });
+        return total / ps.length;
+      };
+      const sa = score(a.id), sb = score(b.id);
+      if (sa !== sb) return sa - sb;
+      return labelOf(a).localeCompare(labelOf(b));
+    });
+    columns[c].forEach((n, i) => orderByID.set(n.id, i));
+  }
+
+  // --- placement ------------------------------------------------------------
+  // Per-cell minimums prevent label/edge-count overlap on dense layouts. The
+  // canvas grows past the viewport when a column is too tall to fit; the
+  // scroll container surfaces both axes.
+  const marginX = 110;
+  const marginY = 90;
+  const minColW = 200; // wide enough for "product-catalog" + edge counts
+  const minRowH = 130; // circle (48) + label (~28) + edge-label clearance
+  const colCount = columns.length;
+  const rowCount = columns.reduce((m, c) => Math.max(m, c.length), 0);
+
+  const usableW = Math.max(minColW * Math.max(1, colCount - 1), cw - marginX * 2);
+  const usableH = Math.max(minRowH * Math.max(1, rowCount - 1), ch - marginY * 2);
+  const xStep = colCount > 1 ? usableW / (colCount - 1) : 0;
 
   const prev = state.topologyLayout || {};
   state.topologyLayout = {};
-  sorted.forEach((n, i) => {
-    const r = Math.floor(i / cols);
-    const c = i % cols;
-    // Stagger odd rows by half a cell to break grid rigidity and reduce
-    // straight-line edge collisions.
-    const offsetX = (r % 2 === 1) ? cellW * 0.25 : 0;
-    state.topologyLayout[n.id] = {
-      x: marginX + c * cellW + cellW / 2 + offsetX,
-      y: marginY + r * cellH,
-    };
+  columns.forEach((col, idx) => {
+    const x = colCount > 1 ? marginX + idx * xStep : cw / 2;
+    if (col.length === 1) {
+      state.topologyLayout[col[0].id] = { x, y: ch / 2 };
+      return;
+    }
+    const totalH = Math.max(usableH, (col.length - 1) * minRowH);
+    const startY = Math.max(marginY, (ch - totalH) / 2);
+    const step = totalH / (col.length - 1);
+    col.forEach((n, i) => {
+      state.topologyLayout[n.id] = { x, y: startY + i * step };
+    });
   });
+
+  // Preserve user-dragged positions for nodes still present.
   Object.keys(state.topologyLayout).forEach(id => {
     if (prev[id]) state.topologyLayout[id] = prev[id];
   });
@@ -1535,8 +1615,23 @@ function renderTopologyEdges(){
     paths += `<path d="${path}" class="edge-path ${cls}" opacity="${opacity}" marker-end="url(#arrow)"></path>`;
     if (count && !dim) {
       const mx = (src.x + tgt.x) / 2;
-      const my = (src.y + tgt.y) / 2 - Math.sign(dy || 1) * 6;
-      labels += `<text x="${mx}" y="${my}" class="edge-label" text-anchor="middle">${escapeHtml(count)}</text>`;
+      // Push the count off the path's tangent normal so it never overlaps the
+      // node-label band that sits ~28px below each circle. For mostly-vertical
+      // edges (small |dx|) we offset horizontally; otherwise we offset along
+      // the perpendicular of the segment.
+      const len = Math.hypot(dx, dy) || 1;
+      let nx, ny;
+      if (Math.abs(dx) < 24) {
+        nx = 14; ny = 0;
+      } else {
+        // perpendicular unit vector, pointing "up" for left-to-right edges
+        nx = -dy / len * 14;
+        ny =  dx / len * 14;
+        if (ny > 0) { nx = -nx; ny = -ny; } // bias above the curve
+      }
+      const lx = mx + nx;
+      const ly = (src.y + tgt.y) / 2 + ny;
+      labels += `<text x="${lx}" y="${ly}" class="edge-label" text-anchor="middle" dominant-baseline="middle">${escapeHtml(count)}</text>`;
     }
   });
   layer.innerHTML = defs + paths + labels;
