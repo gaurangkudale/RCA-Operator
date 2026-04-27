@@ -148,22 +148,6 @@
           <div class="text-xs text-slate-500">Click a node to view details.</div>
         </div>
       </aside>
-
-      <!-- Live Correlation Stream (Topology-only) -->
-      <div class="h-48 bg-slate-900 border-t border-slate-800 shrink-0 flex flex-col z-40 shadow-[0_-5px_20px_rgba(0,0,0,0.3)] relative">
-        <div class="flex items-center justify-between px-6 py-2 border-b border-slate-800 bg-slate-950/80 backdrop-blur z-20">
-          <h3 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-            <i data-lucide="git-commit" class="w-3.5 h-3.5 text-indigo-400"></i> Live Correlation Stream
-            <span id="stream-status" class="ml-2 text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">disconnected</span>
-          </h3>
-        </div>
-        <div class="flex-grow overflow-x-auto overflow-y-hidden bg-slate-900 relative pl-4 py-4 custom-scrollbar">
-          <div class="absolute top-[40px] left-0 right-0 h-[1px] bg-slate-800 z-0"></div>
-          <div class="flex gap-4 min-w-max items-start h-full px-2 relative z-10" id="stream-timeline">
-            <div class="text-xs text-slate-600 italic mt-6">Awaiting correlation events...</div>
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- ======== INCIDENTS VIEW ======== -->
@@ -314,7 +298,6 @@ const state = {
   rules: [],
   agents: [],
   stats: null,
-  stream: { events: [], connected: false, sse: null, retries: 0, fallbackTimer: null }
 };
 
 const cache = {}; // endpoint -> { t, data, etag }
@@ -703,10 +686,7 @@ function switchTab(tab){
     } else {
       loadTopology();
     }
-    ensureStreamConnected();
     setTimeout(renderTopologyEdges, 50);
-  } else {
-    disconnectStream();
   }
   if (tab === 'rules') loadRules();
   if (tab === 'agents') loadAgents();
@@ -1897,11 +1877,13 @@ function renderResourcePanel(r, opts){
   if (r.kind === 'Pod') statusRows.push(row('Restarts', r.restartCount||0));
   if (r.nodeReady !== undefined && r.nodeReady !== null) statusRows.push(row('Ready', r.nodeReady ? 'True' : 'False'));
 
-  const tracesSection = (showTraceList && traceIDs.length)
+  const tracesSection = showTraceList
     ? `<div>
-      <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Trace IDs</h3>
-      <div class="bg-slate-950 border border-slate-800 rounded-lg p-2 space-y-1">
-        ${traceIDs.map(t => `<div class="text-[11px] font-mono text-indigo-300 break-all">${escapeHtml(t)}</div>`).join('')}
+      <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Trace IDs <span class="text-slate-600 font-mono normal-case tracking-normal">(${traceIDs.length})</span></h3>
+      <div class="bg-slate-950 border border-slate-800 rounded-lg p-2 ${traceIDs.length ? 'space-y-1' : ''}">
+        ${traceIDs.length
+          ? traceIDs.map(t => `<div class="text-[11px] font-mono text-indigo-300 break-all">${escapeHtml(t)}</div>`).join('')
+          : `<div class="text-[11px] text-slate-500 italic">None recorded</div>`}
       </div>
     </div>`
     : '';
@@ -2093,100 +2075,6 @@ function renderAgents(){
   }).join('');
 }
 
-// --- SSE stream
-function ensureStreamConnected(){
-  if (state.stream.sse) return;
-  connectStream();
-}
-function connectStream(){
-  try {
-    const es = new EventSource('/api/stream');
-    state.stream.sse = es;
-    setStreamStatus('connecting');
-    es.addEventListener('open', () => {
-      state.stream.connected = true;
-      state.stream.retries = 0;
-      if (state.stream.fallbackTimer) { clearInterval(state.stream.fallbackTimer); state.stream.fallbackTimer = null; }
-      setStreamStatus('live');
-    });
-    es.addEventListener('correlation', ev => {
-      try {
-        const p = JSON.parse(ev.data);
-        pushStreamEvent(p);
-      } catch(e){}
-    });
-    es.addEventListener('error', () => {
-      setStreamStatus('disconnected');
-      state.stream.connected = false;
-      es.close();
-      state.stream.sse = null;
-      state.stream.retries += 1;
-      if (state.stream.retries >= 2) {
-        startFallbackPolling();
-        // still keep trying SSE with backoff
-      }
-      const delay = Math.min(30000, 1000 * Math.pow(2, state.stream.retries));
-      setTimeout(() => { if (state.activeTab === 'topology') connectStream(); }, delay);
-    });
-  } catch(e){
-    setStreamStatus('disconnected');
-  }
-}
-function disconnectStream(){
-  if (state.stream.sse) { state.stream.sse.close(); state.stream.sse = null; }
-  if (state.stream.fallbackTimer) { clearInterval(state.stream.fallbackTimer); state.stream.fallbackTimer = null; }
-  state.stream.connected = false;
-  setStreamStatus('disconnected');
-}
-function setStreamStatus(s){
-  const el = document.getElementById('stream-status');
-  if (el) el.textContent = s;
-}
-function startFallbackPolling(){
-  if (state.stream.fallbackTimer) return;
-  setStreamStatus('polling');
-  state.stream.fallbackTimer = setInterval(async () => {
-    // /api/timeline requires a fingerprint. Without one, no-op.
-    // Still show status polling.
-  }, 10000);
-}
-function pushStreamEvent(p){
-  state.stream.events.push(p);
-  if (state.stream.events.length > 50) state.stream.events.shift();
-  renderStream();
-}
-function renderStream(){
-  const container = document.getElementById('stream-timeline');
-  if (!container) return;
-  if (!state.stream.events.length) {
-    container.innerHTML = `<div class="text-xs text-slate-600 italic mt-6">Awaiting correlation events...</div>`;
-    return;
-  }
-  const colors = {
-    trace:  { border:'border-purple-500/30', bg:'bg-purple-500/10', text:'text-purple-400', dot:'bg-purple-500' },
-    log:    { border:'border-slate-500/30', bg:'bg-slate-500/10', text:'text-slate-300', dot:'bg-slate-400' },
-    k8s:    { border:'border-red-500/50',   bg:'bg-red-500/20',   text:'text-red-400',   dot:'bg-red-500' },
-    metric: { border:'border-blue-500/30',  bg:'bg-blue-500/10',  text:'text-blue-400',  dot:'bg-blue-500' }
-  };
-  container.innerHTML = state.stream.events.slice().reverse().map(ev => {
-    const c = colors[(ev.kind||'').toLowerCase()] || colors.log;
-    const tstr = ev.time ? new Date(ev.time).toISOString().slice(11,19) : '';
-    return `
-      <div class="relative flex flex-col items-center group w-56 shrink-0 cursor-default mt-1">
-        <div class="w-4 h-4 rounded-full ${c.dot} border-4 border-slate-900 z-10 mb-2"></div>
-        <div class="bg-slate-950 border ${c.border} ${c.bg} ${c.text} rounded-lg p-3 w-full">
-          <div class="flex justify-between items-start mb-1.5">
-            <span class="text-[9px] uppercase tracking-wider font-bold opacity-80">${escapeHtml(ev.source||ev.kind||'event')}</span>
-            <span class="font-mono text-[9px] text-slate-500">${escapeHtml(tstr)}</span>
-          </div>
-          <h4 class="text-xs font-bold text-white mb-1 leading-tight truncate">${escapeHtml(cleanSignal(ev.title||''))}</h4>
-          <p class="text-[10px] opacity-80 leading-snug truncate">${escapeHtml(cleanSignal(ev.msg||''))}</p>
-          ${ev.resource ? `<p class="text-[9px] opacity-60 font-mono mt-1 truncate">${escapeHtml(ev.resource)}</p>` : ''}
-        </div>
-      </div>`;
-  }).join('');
-}
-
 // --- Orchestration
 function renderAll(){
   renderHeader();
@@ -2194,7 +2082,6 @@ function renderAll(){
   if (state.incidentDetail) renderIncidentDetail();
   renderRules();
   renderAgents();
-  renderStream();
   if (state.activeTab === 'topology') renderTopology();
 }
 
