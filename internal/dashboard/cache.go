@@ -43,11 +43,21 @@ func newJSONCache(ttl time.Duration) *jsonCache {
 	}
 }
 
-// Fetch returns (body, etag) for key, building it via fn if missing or stale.
-// Concurrent calls for the same key coalesce onto a single build. When c is
-// nil (tests that construct Server literals without the constructor), Fetch
-// degrades to a direct uncached build.
+// Fetch is FetchWithTTL using the cache's default TTL.
 func (c *jsonCache) Fetch(key string, fn func() (any, error)) ([]byte, string, error) {
+	var ttl time.Duration
+	if c != nil {
+		ttl = c.ttl
+	}
+	return c.FetchWithTTL(key, ttl, fn)
+}
+
+// FetchWithTTL returns (body, etag) for key, building it via fn if missing or
+// older than ttl. Concurrent calls for the same key coalesce onto a single
+// build. Use this for entries whose freshness expectations differ from the
+// cache default (e.g. immutable trace data that should cache for minutes).
+// When c is nil, FetchWithTTL degrades to a direct uncached build.
+func (c *jsonCache) FetchWithTTL(key string, ttl time.Duration, fn func() (any, error)) ([]byte, string, error) {
 	if c == nil {
 		val, err := fn()
 		if err != nil {
@@ -60,8 +70,11 @@ func (c *jsonCache) Fetch(key string, fn func() (any, error)) ([]byte, string, e
 		sum := sha256.Sum256(body)
 		return body, `"` + hex.EncodeToString(sum[:16]) + `"`, nil
 	}
+	if ttl <= 0 {
+		ttl = c.ttl
+	}
 	c.mu.Lock()
-	if e, ok := c.entries[key]; ok && time.Since(e.at) < c.ttl {
+	if e, ok := c.entries[key]; ok && time.Since(e.at) < ttl {
 		body, etag := e.body, e.etag
 		c.mu.Unlock()
 		return body, etag, nil

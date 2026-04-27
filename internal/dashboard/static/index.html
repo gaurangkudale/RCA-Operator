@@ -280,6 +280,21 @@
   <span id="toast-msg">Notification message</span>
 </div>
 
+<!-- Trace detail modal (Tier 1 + Tier 2 view of a Jaeger trace) -->
+<div id="trace-modal" class="fixed inset-0 z-[120] hidden items-center justify-center bg-black/70 backdrop-blur-sm" onclick="if(event.target===this) closeTrace()">
+  <div class="bg-slate-950 border border-slate-800 rounded-xl shadow-2xl w-[min(1100px,95vw)] h-[min(85vh,900px)] flex flex-col overflow-hidden">
+    <div class="flex items-center justify-between px-5 py-3 border-b border-slate-800 bg-slate-900/60 shrink-0">
+      <div class="flex items-center gap-3 min-w-0">
+        <i data-lucide="git-branch" class="w-4 h-4 text-indigo-400 shrink-0"></i>
+        <h2 class="text-sm font-bold text-white shrink-0">Trace</h2>
+        <code id="trace-modal-id" class="text-[11px] font-mono text-indigo-300 truncate"></code>
+      </div>
+      <button onclick="closeTrace()" class="text-slate-500 hover:text-white p-1"><i data-lucide="x" class="w-4 h-4"></i></button>
+    </div>
+    <div id="trace-modal-body" class="flex-grow overflow-y-auto p-5 space-y-5"></div>
+  </div>
+</div>
+
 <script>
 // --- State
 const state = {
@@ -854,9 +869,9 @@ function renderIncidentDetail(){
       </div>`
     : `<div class="text-xs text-slate-500 italic">No timeline entries</div>`;
 
-  const traceIds = (d.traceIds || []).map(id =>
-    `<code class="block text-indigo-300 font-mono text-[10px] bg-slate-950 border border-slate-800 px-2 py-1 rounded mb-1 truncate">${escapeHtml(id)}</code>`
-  ).join('') || (d.traceId ? `<code class="block text-indigo-300 font-mono text-[10px] bg-slate-950 border border-slate-800 px-2 py-1 rounded truncate">${escapeHtml(d.traceId)}</code>` : `<span class="text-xs text-slate-500 italic">—</span>`);
+  const traceIdRow = (id) => `<button onclick="openTrace('${escapeHtml(id)}')" class="block w-full text-left text-indigo-300 hover:text-indigo-200 hover:bg-slate-800/60 transition font-mono text-[10px] bg-slate-950 border border-slate-800 px-2 py-1 rounded mb-1 truncate cursor-pointer">${escapeHtml(id)}</button>`;
+  const traceIds = (d.traceIds || []).map(traceIdRow).join('')
+    || (d.traceId ? traceIdRow(d.traceId) : `<span class="text-xs text-slate-500 italic">—</span>`);
 
   const elapsedRef = d.resolvedAt || null;
   const startRef = d.activeAt || d.firstObservedAt;
@@ -1870,6 +1885,229 @@ function fmtCount(n){
   return String(n);
 }
 
+// --- Trace detail modal --------------------------------------------------
+async function openTrace(id){
+  const modal = document.getElementById('trace-modal');
+  const body = document.getElementById('trace-modal-body');
+  const idEl = document.getElementById('trace-modal-id');
+  idEl.textContent = id;
+  body.innerHTML = `<div class="text-xs text-slate-500 italic">Loading trace…</div>`;
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+  document.body.style.overflow = 'hidden';
+  try {
+    const data = await apiGet('/api/traces/' + encodeURIComponent(id));
+    renderTraceModal(data);
+  } catch(e) {
+    body.innerHTML = `<div class="text-xs text-amber-300">Failed to load trace: ${escapeHtml(e.message || 'unknown error')}</div>
+      <div class="text-[11px] text-slate-500 mt-2">This usually means the Jaeger query API isn't reachable from the operator, or the trace expired.</div>`;
+  }
+  lucide.createIcons();
+}
+
+function closeTrace(){
+  const modal = document.getElementById('trace-modal');
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+  document.body.style.overflow = '';
+}
+
+function fmtDuration(us){
+  if (!us || us < 0) return '—';
+  if (us < 1000) return us + 'µs';
+  const ms = us / 1000;
+  if (ms < 1000) return (ms < 10 ? ms.toFixed(1) : Math.round(ms)) + 'ms';
+  return (ms / 1000).toFixed(2) + 's';
+}
+
+function renderTraceModal(d){
+  const body = document.getElementById('trace-modal-body');
+  if (!d || !Array.isArray(d.spans) || !d.spans.length) {
+    body.innerHTML = `<div class="text-xs text-slate-500 italic">Trace not found in Jaeger. It may have expired or never been ingested.</div>`;
+    return;
+  }
+  const isErr = d.status === 'error';
+  const errSet = new Set(Array.isArray(d.errorSpans) ? d.errorSpans : []);
+
+  // --- Tier 1.1: Summary header
+  const startStr = d.startTime ? new Date(d.startTime).toLocaleString() : '—';
+  const summary = `
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
+      <div class="bg-slate-900 border border-slate-800 rounded p-2.5">
+        <div class="text-[9px] text-slate-500 uppercase tracking-wider">Status</div>
+        <div class="mt-0.5 text-xs font-bold ${isErr ? 'text-red-400' : 'text-emerald-400'}">${isErr ? 'ERROR' : 'OK'}</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded p-2.5">
+        <div class="text-[9px] text-slate-500 uppercase tracking-wider">Duration</div>
+        <div class="mt-0.5 text-sm font-mono text-white">${fmtDuration(d.durationMicros)}</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded p-2.5">
+        <div class="text-[9px] text-slate-500 uppercase tracking-wider">Spans</div>
+        <div class="mt-0.5 text-sm font-mono text-white">${d.spanCount}</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded p-2.5">
+        <div class="text-[9px] text-slate-500 uppercase tracking-wider">Services</div>
+        <div class="mt-0.5 text-sm font-mono text-white">${d.serviceCount}</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded p-2.5">
+        <div class="text-[9px] text-slate-500 uppercase tracking-wider">Started</div>
+        <div class="mt-0.5 text-[11px] font-mono text-slate-300 truncate" title="${escapeHtml(startStr)}">${escapeHtml(startStr)}</div>
+      </div>
+    </div>
+    ${d.rootService || d.rootOperation ? `<div class="text-[11px] text-slate-400">
+      <span class="text-slate-500">Root</span>
+      <span class="font-mono text-slate-200 ml-2">${escapeHtml(d.rootService||'')}</span>
+      <span class="font-mono text-indigo-300 ml-1.5">${escapeHtml(d.rootOperation||'')}</span>
+      ${d.criticalPathMs ? `<span class="text-slate-500 ml-3">critical path</span><span class="font-mono text-slate-300 ml-1.5">${d.criticalPathMs}ms</span>` : ''}
+    </div>` : ''}`;
+
+  // --- Tier 1.3: Error spans pinned at top (if any)
+  let errorBlock = '';
+  if (errSet.size) {
+    const errs = d.spans.filter(s => errSet.has(s.spanId)).slice(0, 6);
+    errorBlock = `<div>
+      <h3 class="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-2">Errors (${errSet.size})</h3>
+      <div class="space-y-1.5">
+        ${errs.map(s => `
+          <div class="bg-red-500/5 border border-red-500/30 rounded p-2.5">
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="text-[11px] font-mono font-bold text-red-300">${escapeHtml(s.service||'')}</span>
+                <span class="text-[11px] text-slate-300 truncate">${escapeHtml(s.operation||'')}</span>
+                ${s.statusCode ? `<span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-red-500/20 text-red-300">${escapeHtml(s.statusCode)}</span>` : ''}
+              </div>
+              <span class="text-[10px] font-mono text-slate-500 shrink-0">${fmtDuration(s.durationUs)}</span>
+            </div>
+            ${s.exceptionType || s.exceptionMessage ? `
+              <div class="mt-1.5 text-[11px] font-mono">
+                ${s.exceptionType ? `<span class="text-amber-300">${escapeHtml(s.exceptionType)}</span>` : ''}
+                ${s.exceptionMessage ? `<span class="text-slate-300 ml-1">${escapeHtml(s.exceptionMessage)}</span>` : ''}
+              </div>` : ''}
+            ${s.podName ? `<div class="mt-1.5 flex items-center gap-1.5 text-[10px]">
+              <span class="text-slate-500">pod</span>
+              <button onclick="openPodLogs('${escapeHtml(s.podNamespace||'')}','${escapeHtml(s.podName)}')"
+                      class="font-mono text-indigo-300 hover:text-indigo-200 hover:underline">${escapeHtml(s.podName)}</button>
+            </div>` : ''}
+          </div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  // --- Tier 1.2: Waterfall span list
+  const totalUs = Math.max(1, d.durationMicros);
+  const slowestUs = d.spans.reduce((m, s) => Math.max(m, s.durationUs || 0), 0);
+  const waterfall = `<div>
+    <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Waterfall</h3>
+    <div class="bg-slate-900 border border-slate-800 rounded-lg divide-y divide-slate-800">
+      ${d.spans.map(s => {
+        const isErrSpan = errSet.has(s.spanId);
+        const isSlow = !isErrSpan && slowestUs > 0 && s.durationUs >= slowestUs * 0.5 && s.durationUs >= totalUs * 0.2;
+        const left = (s.startOffsetUs / totalUs) * 100;
+        const w = Math.max(0.5, (s.durationUs / totalUs) * 100);
+        const barColor = isErrSpan ? 'bg-red-500' : isSlow ? 'bg-amber-500' : 'bg-indigo-500';
+        const indent = Math.min(8, s.depth || 0) * 12;
+        return `<div class="px-3 py-2 hover:bg-slate-800/40 transition cursor-pointer" onclick="this.querySelector('[data-tags]').classList.toggle('hidden')">
+          <div class="flex items-center gap-3" style="padding-left:${indent}px">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 text-[11px]">
+                <span class="font-mono text-slate-200 truncate">${escapeHtml(s.service||'')}</span>
+                <span class="text-slate-500">·</span>
+                <span class="text-slate-400 truncate">${escapeHtml(s.operation||'')}</span>
+                ${s.kind ? `<span class="text-[9px] font-mono text-slate-600">${escapeHtml(s.kind)}</span>` : ''}
+                ${s.statusCode ? `<span class="text-[9px] font-mono px-1 rounded ${isErrSpan ? 'bg-red-500/20 text-red-300' : 'bg-slate-800 text-slate-400'}">${escapeHtml(s.statusCode)}</span>` : ''}
+              </div>
+              <div class="relative h-2 mt-1.5 bg-slate-950 rounded-sm overflow-hidden">
+                <div class="absolute top-0 h-full ${barColor} rounded-sm" style="left:${left}%;width:${w}%"></div>
+              </div>
+            </div>
+            <div class="text-[10px] font-mono text-slate-400 w-16 text-right shrink-0">${fmtDuration(s.durationUs)}</div>
+          </div>
+          ${renderSpanDetails(s)}
+        </div>`;
+      }).join('')}
+    </div>
+    <div class="text-[10px] text-slate-600 mt-1.5">Click a span to expand tags · pod links open in Logs tab.${d.truncated ? ` <span class="text-amber-400">Trace has ${d.spanCount} spans; showing the ${d.spans.length} most relevant.</span>` : ''}</div>
+  </div>`;
+
+  // --- Tier 1.4: Service breakdown
+  const breakdownMax = (d.serviceBreakdown || []).reduce((m, s) => Math.max(m, s.percentOfTrace || 0), 0) || 1;
+  const breakdown = (d.serviceBreakdown || []).length ? `<div>
+    <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Service Breakdown</h3>
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-3 space-y-1.5">
+      ${d.serviceBreakdown.map(s => `
+        <div class="flex items-center gap-3">
+          <div class="text-[11px] font-mono text-slate-200 w-32 truncate">${escapeHtml(s.service||'')}</div>
+          <div class="flex-1 h-1.5 bg-slate-950 rounded-sm overflow-hidden">
+            <div class="h-full bg-indigo-500/70" style="width:${(s.percentOfTrace/breakdownMax)*100}%"></div>
+          </div>
+          <div class="text-[10px] font-mono text-slate-400 w-14 text-right">${s.percentOfTrace.toFixed(1)}%</div>
+          <div class="text-[10px] font-mono text-slate-500 w-16 text-right">${fmtDuration(s.totalDurationUs)}</div>
+          <div class="text-[10px] font-mono text-slate-600 w-10 text-right">${s.spanCount}sp</div>
+        </div>
+      `).join('')}
+    </div>
+  </div>` : '';
+
+  body.innerHTML = summary + errorBlock + waterfall + breakdown;
+  lucide.createIcons();
+}
+
+// renderSpanDetails returns the collapsible detail block shown when a span
+// row is clicked: HTTP/DB/RPC tags, k8s context, and freeform tags.
+function renderSpanDetails(s){
+  const rows = [];
+  if (s.httpMethod || s.httpUrl) {
+    rows.push(['HTTP', `${escapeHtml(s.httpMethod||'')} ${escapeHtml(s.httpUrl||'')}`.trim()]);
+  }
+  if (s.dbSystem || s.dbStatement) {
+    const v = (s.dbSystem ? `<span class="text-slate-500">${escapeHtml(s.dbSystem)}</span> ` : '') + escapeHtml(s.dbStatement||'');
+    rows.push(['DB', v]);
+  }
+  if (s.peerService) rows.push(['Peer', escapeHtml(s.peerService)]);
+  if (s.podName) {
+    const podLink = `<button onclick="event.stopPropagation(); openPodLogs('${escapeHtml(s.podNamespace||'')}','${escapeHtml(s.podName)}')" class="text-indigo-300 hover:text-indigo-200 hover:underline">${escapeHtml(s.podName)}</button>`;
+    const meta = [s.podNamespace, s.containerName, s.nodeName].filter(Boolean).map(escapeHtml).join(' · ');
+    rows.push(['Pod', podLink + (meta ? ` <span class="text-slate-600">${meta}</span>` : '')]);
+  }
+  if (s.exceptionType || s.exceptionMessage) {
+    rows.push(['Exception', `<span class="text-amber-300">${escapeHtml(s.exceptionType||'')}</span> ${escapeHtml(s.exceptionMessage||'')}`]);
+  }
+  if (s.tags) {
+    const keys = Object.keys(s.tags).sort();
+    keys.forEach(k => rows.push([k, escapeHtml(s.tags[k])]));
+  }
+  if (!rows.length) {
+    return `<div data-tags class="hidden mt-2 text-[10px] text-slate-600 italic">No additional tags.</div>`;
+  }
+  return `<div data-tags class="hidden mt-2 bg-slate-950/80 border border-slate-800 rounded p-2 space-y-0.5">
+    ${rows.map(([k,v]) => `<div class="flex gap-3 text-[10px] font-mono">
+      <span class="text-slate-500 w-20 shrink-0">${escapeHtml(k)}</span>
+      <span class="text-slate-300 break-all">${v}</span>
+    </div>`).join('')}
+  </div>`;
+}
+
+// openPodLogs jumps to the Logs tab and prefills namespace + pod selectors.
+function openPodLogs(ns, pod){
+  closeTrace();
+  switchTab('logs');
+  setTimeout(() => {
+    const nsEl = document.getElementById('logs-ns');
+    const podEl = document.getElementById('logs-pod');
+    if (nsEl && ns) {
+      nsEl.value = ns;
+      nsEl.dispatchEvent(new Event('change'));
+    }
+    setTimeout(() => {
+      if (podEl && pod) {
+        podEl.value = pod;
+        podEl.dispatchEvent(new Event('change'));
+      }
+      if (typeof fetchLogs === 'function') fetchLogs();
+    }, 250);
+  }, 50);
+}
+
 function copyTrace(id, btn){
   navigator.clipboard?.writeText(id).then(() => {
     if (!btn) return;
@@ -1961,7 +2199,8 @@ function renderResourcePanel(r, opts){
           const hidden = i >= TRACE_PREVIEW ? 'hidden' : '';
           const dataExtra = i >= TRACE_PREVIEW ? 'data-trace-extra' : '';
           return `<div class="flex items-center gap-2 group ${hidden}" ${dataExtra}>
-            <div class="text-[11px] font-mono text-indigo-300 break-all flex-1">${escapeHtml(t)}</div>
+            <button onclick="openTrace('${escapeHtml(t)}')"
+                    class="text-[11px] font-mono text-indigo-300 hover:text-indigo-200 break-all flex-1 text-left cursor-pointer">${escapeHtml(t)}</button>
             <button onclick="copyTrace('${escapeHtml(t)}', this)" title="Copy"
                     class="shrink-0 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-white transition p-1">
               <i data-lucide="copy" class="w-3 h-3"></i>
@@ -2239,6 +2478,16 @@ window.closeTopologyPanel = closeTopologyPanel;
 window.startNodeDrag = startNodeDrag;
 window.copyTrace = copyTrace;
 window.toggleTraceList = toggleTraceList;
+window.openTrace = openTrace;
+window.closeTrace = closeTrace;
+window.openPodLogs = openPodLogs;
+
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape') {
+    const m = document.getElementById('trace-modal');
+    if (m && !m.classList.contains('hidden')) closeTrace();
+  }
+});
 window.fetchLogs = fetchLogs;
 window.showAllLogs = showAllLogs;
 window.showTailLogs = showTailLogs;
