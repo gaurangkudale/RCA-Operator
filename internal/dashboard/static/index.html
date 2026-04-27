@@ -602,8 +602,10 @@ async function loadTopology(force){
   try {
     if (force) invalidateCache('/api/topology');
     const data = await apiGet('/api/topology');
+    const first = !state.topology;
     state.topology = data || { nodes: [], edges: [] };
     renderTopology();
+    if (first || force) autoFitIfOverflow();
   } catch(e){
     document.getElementById('topology-error').classList.remove('hidden');
     document.getElementById('topology-error').textContent = 'Topology: ' + e.message;
@@ -613,12 +615,33 @@ async function loadServiceGraph(force){
   try {
     if (force) invalidateCache('/api/service-graph?lookback=1h');
     const data = await apiGet('/api/service-graph?lookback=1h');
+    const first = !state.serviceGraph;
     state.serviceGraph = data || { nodes: [], edges: [] };
     renderTopology();
+    if (first || force) autoFitIfOverflow();
   } catch(e){
     document.getElementById('topology-error').classList.remove('hidden');
     document.getElementById('topology-error').textContent = 'Service graph: ' + e.message;
   }
+}
+
+// autoFitIfOverflow zooms the topology canvas to fit when laid-out content
+// exceeds the viewport. Avoids the off-screen fan-out effect on dense workload
+// graphs without changing zoom for graphs that already fit.
+function autoFitIfOverflow(){
+  const scroll = document.getElementById('canvas-scroll');
+  if (!scroll) return;
+  const positions = Object.values(state.topologyLayout || {});
+  if (!positions.length) return;
+  let maxX = 0, maxY = 0;
+  positions.forEach(p => {
+    if (p && p.x > maxX) maxX = p.x;
+    if (p && p.y > maxY) maxY = p.y;
+  });
+  const contentW = maxX + 260;
+  const contentH = maxY + 160;
+  if (contentW <= scroll.clientWidth && contentH <= scroll.clientHeight) return;
+  zoomFit();
 }
 function setTopoMode(mode){
   if (state.topoMode === mode) return;
@@ -1821,6 +1844,55 @@ function closeTopologyPanel(){
   const panel = document.getElementById('topology-panel');
   panel.classList.remove('panel-open'); panel.classList.add('panel-closed');
 }
+// serviceTrafficStats sums call counts on edges incident to the given service
+// node from the loaded service graph. Returns null when no service graph is
+// loaded or the node is not a service.
+function serviceTrafficStats(node){
+  if (!node || node.kind !== 'Service') return null;
+  const sg = state.serviceGraph;
+  if (!sg || !Array.isArray(sg.edges)) return null;
+  let inCalls = 0, outCalls = 0;
+  const peers = new Set();
+  sg.edges.forEach(e => {
+    if (!e || e.kind !== 'calls' || e.from === e.to) return;
+    const c = Number(e.count || 0);
+    if (e.from === node.id) { outCalls += c; peers.add(e.to); }
+    else if (e.to === node.id) { inCalls += c; peers.add(e.from); }
+  });
+  if (!inCalls && !outCalls && peers.size === 0) return null;
+  return { inCalls, outCalls, peerCount: peers.size };
+}
+
+function fmtCount(n){
+  n = Number(n||0);
+  if (n >= 1_000_000) return (n/1_000_000).toFixed(1).replace(/\.0$/,'') + 'M';
+  if (n >= 1_000) return (n/1_000).toFixed(1).replace(/\.0$/,'') + 'k';
+  return String(n);
+}
+
+function copyTrace(id, btn){
+  navigator.clipboard?.writeText(id).then(() => {
+    if (!btn) return;
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<i data-lucide="check" class="w-3 h-3 text-emerald-400"></i>';
+    lucide.createIcons();
+    setTimeout(() => { btn.innerHTML = orig; lucide.createIcons(); }, 900);
+  });
+}
+
+function toggleTraceList(btn){
+  const wrap = btn.closest('[data-trace-wrap]');
+  if (!wrap) return;
+  const expanded = wrap.getAttribute('data-expanded') === '1';
+  wrap.setAttribute('data-expanded', expanded ? '0' : '1');
+  wrap.querySelectorAll('[data-trace-extra]').forEach(el => {
+    el.classList.toggle('hidden', expanded);
+  });
+  btn.textContent = expanded
+    ? `Show all (${wrap.getAttribute('data-total')})`
+    : 'Show fewer';
+}
+
 function renderResourcePanel(r, opts){
   const body = document.getElementById('topo-panel-body');
   if (!r) { body.innerHTML = `<div class="text-xs text-slate-500">No data.</div>`; return; }
@@ -1829,81 +1901,132 @@ function renderResourcePanel(r, opts){
   const nodeIncidents = Array.isArray(opts && opts.incidents) ? opts.incidents : [];
   const resourceIncidents = Array.isArray(r.openIncidents) ? r.openIncidents : [];
   const mergedOpenIncidents = resourceIncidents.length ? resourceIncidents : nodeIncidents;
+  const node = (opts && opts.node) || null;
+  const isService = r.kind === 'Service';
 
-  const row = (k,v) => `<div class="flex justify-between py-1 border-b border-slate-800/50 last:border-0">
-    <span class="text-slate-500">${escapeHtml(k)}</span><span class="text-slate-300 font-mono">${escapeHtml(v)}</span></div>`;
-
-  const incidents = mergedOpenIncidents.map(inc => `
-    <div class="bg-red-500/5 border border-red-500/30 rounded p-2 mb-1.5 cursor-pointer hover:bg-red-500/10"
-         onclick="switchTab('incidents'); selectIncident('${escapeHtml(inc.namespace)}','${escapeHtml(inc.name)}')">
-      <div class="flex justify-between items-center">
-        <span class="text-[10px] font-bold text-red-400">${escapeHtml(inc.severity||'')} &bull; ${escapeHtml(inc.incidentType||'')}</span>
-        <i data-lucide="arrow-right" class="w-3 h-3 text-slate-500"></i>
-      </div>
-      <div class="text-[11px] text-slate-300 mt-1 truncate">${escapeHtml(inc.summary || inc.message || inc.name)}</div>
-    </div>`).join('') || `<div class="text-xs text-slate-500 italic">None</div>`;
-
-  const fallbackEvents = mergedOpenIncidents
-    .slice(0, 10)
-    .map(inc => ({
-      time: inc.activeAt || inc.firstObservedAt || inc.lastObservedAt || null,
-      type: 'Incident',
-      reason: inc.incidentType || inc.phase || 'Incident',
-      message: inc.summary || inc.message || inc.name || '',
-    }));
-
-  const recentEvents = (Array.isArray(r.recentEvents) && r.recentEvents.length)
-    ? r.recentEvents
-    : fallbackEvents;
-
-  const events = recentEvents.map(ev => `
-    <div class="text-[11px] py-1 border-b border-slate-800/50 last:border-0">
-      <div class="flex justify-between">
-        <span class="text-${ev.type==='Warning'?'amber':'slate'}-400 font-bold">${escapeHtml(ev.reason||'')}</span>
-        <span class="text-slate-500 font-mono">${escapeHtml(relTime(ev.time))}</span>
-      </div>
-      <div class="text-slate-400 truncate">${escapeHtml(ev.message||'')}</div>
-    </div>`).join('') || `<div class="text-xs text-slate-500 italic">No recent events</div>`;
-
-  const statusRows = [];
-  if (r.age) statusRows.push(row('Age', r.age));
-  if (r.kind === 'Service') {
-    if (r.phase) statusRows.push(row('Type', r.phase));
+  // --- Status: compact key/value bar (no header) for Services; full card otherwise.
+  const statusBits = [];
+  if (r.age) statusBits.push(['Age', r.age]);
+  if (isService) {
+    if (r.phase) statusBits.push(['Type', r.phase]);
   } else if (r.phase) {
-    statusRows.push(row('Phase', r.phase));
+    statusBits.push(['Phase', r.phase]);
   }
-  if (r.nodeName) statusRows.push(row('Node', r.nodeName));
-  if (r.kind === 'Deployment') statusRows.push(row('Replicas', `${r.readyReplicas||0}/${r.desiredReplicas||0} (${r.currentReplicas||0} current)`));
-  if (r.kind === 'Pod') statusRows.push(row('Restarts', r.restartCount||0));
-  if (r.nodeReady !== undefined && r.nodeReady !== null) statusRows.push(row('Ready', r.nodeReady ? 'True' : 'False'));
+  if (r.nodeName) statusBits.push(['Node', r.nodeName]);
+  if (r.kind === 'Deployment') statusBits.push(['Replicas', `${r.readyReplicas||0}/${r.desiredReplicas||0}`]);
+  if (r.kind === 'Pod') statusBits.push(['Restarts', String(r.restartCount||0)]);
+  if (r.nodeReady !== undefined && r.nodeReady !== null) statusBits.push(['Ready', r.nodeReady ? 'True' : 'False']);
 
+  const statusBar = isService
+    ? `<div class="flex flex-wrap gap-x-5 gap-y-1.5 text-[11px] pb-3 border-b border-slate-800">
+         ${statusBits.map(([k,v]) => `<span class="text-slate-500">${escapeHtml(k)} <span class="text-slate-200 font-mono ml-1">${escapeHtml(v)}</span></span>`).join('')}
+       </div>`
+    : `<div>
+         <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Resource Status</h3>
+         <div class="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs font-mono">
+           ${statusBits.map(([k,v]) => `<div class="flex justify-between py-1 border-b border-slate-800/50 last:border-0"><span class="text-slate-500">${escapeHtml(k)}</span><span class="text-slate-300">${escapeHtml(v)}</span></div>`).join('') || '<div class="text-slate-500">No status fields</div>'}
+         </div>
+       </div>`;
+
+  // --- Service traffic block (from graph edge counts).
+  const traffic = isService ? serviceTrafficStats(node) : null;
+  const trafficBlock = traffic
+    ? `<div class="grid grid-cols-3 gap-2">
+         <div class="bg-slate-950 border border-slate-800 rounded-lg p-2.5">
+           <div class="text-[9px] text-slate-500 uppercase tracking-wider">Inbound</div>
+           <div class="text-sm font-mono text-emerald-300 mt-0.5">${fmtCount(traffic.inCalls)}</div>
+         </div>
+         <div class="bg-slate-950 border border-slate-800 rounded-lg p-2.5">
+           <div class="text-[9px] text-slate-500 uppercase tracking-wider">Outbound</div>
+           <div class="text-sm font-mono text-sky-300 mt-0.5">${fmtCount(traffic.outCalls)}</div>
+         </div>
+         <div class="bg-slate-950 border border-slate-800 rounded-lg p-2.5">
+           <div class="text-[9px] text-slate-500 uppercase tracking-wider">Peers</div>
+           <div class="text-sm font-mono text-slate-200 mt-0.5">${traffic.peerCount}</div>
+         </div>
+       </div>`
+    : '';
+
+  // --- Trace IDs: collapsed with "Show all (N)", copy-to-clipboard buttons.
+  const TRACE_PREVIEW = 5;
   const tracesSection = showTraceList
-    ? `<div>
-      <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Trace IDs <span class="text-slate-600 font-mono normal-case tracking-normal">(${traceIDs.length})</span></h3>
-      <div class="bg-slate-950 border border-slate-800 rounded-lg p-2 ${traceIDs.length ? 'space-y-1' : ''}">
-        ${traceIDs.length
-          ? traceIDs.map(t => `<div class="text-[11px] font-mono text-indigo-300 break-all">${escapeHtml(t)}</div>`).join('')
-          : `<div class="text-[11px] text-slate-500 italic">None recorded</div>`}
+    ? (() => {
+        if (!traceIDs.length) {
+          return `<div>
+            <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Trace IDs <span class="text-slate-600 font-mono normal-case tracking-normal">(0)</span></h3>
+            <div class="text-[11px] text-slate-500 italic">None recorded</div>
+          </div>`;
+        }
+        const rows = traceIDs.map((t, i) => {
+          const hidden = i >= TRACE_PREVIEW ? 'hidden' : '';
+          const dataExtra = i >= TRACE_PREVIEW ? 'data-trace-extra' : '';
+          return `<div class="flex items-center gap-2 group ${hidden}" ${dataExtra}>
+            <div class="text-[11px] font-mono text-indigo-300 break-all flex-1">${escapeHtml(t)}</div>
+            <button onclick="copyTrace('${escapeHtml(t)}', this)" title="Copy"
+                    class="shrink-0 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-white transition p-1">
+              <i data-lucide="copy" class="w-3 h-3"></i>
+            </button>
+          </div>`;
+        }).join('');
+        const more = traceIDs.length > TRACE_PREVIEW
+          ? `<button onclick="toggleTraceList(this)" class="text-[10px] font-mono text-indigo-400 hover:text-indigo-300 mt-1.5">Show all (${traceIDs.length})</button>`
+          : '';
+        return `<div data-trace-wrap data-expanded="0" data-total="${traceIDs.length}">
+          <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Trace IDs <span class="text-slate-600 font-mono normal-case tracking-normal">(${traceIDs.length})</span></h3>
+          <div class="bg-slate-950 border border-slate-800 rounded-lg p-2 space-y-1">${rows}</div>
+          ${more}
+        </div>`;
+      })()
+    : '';
+
+  // --- Incidents: single-line, click to drill in.
+  const incidents = mergedOpenIncidents.map(inc => {
+    const sev = inc.severity || '';
+    const typ = inc.incidentType || '';
+    const sumLine = inc.summary || inc.message || inc.name || '';
+    const ts = inc.activeAt || inc.firstObservedAt || inc.lastObservedAt || null;
+    return `<div class="bg-red-500/5 border border-red-500/30 rounded px-2.5 py-1.5 mb-1.5 cursor-pointer hover:bg-red-500/10 transition"
+                 onclick="switchTab('incidents'); selectIncident('${escapeHtml(inc.namespace)}','${escapeHtml(inc.name)}')">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="text-[10px] font-mono font-bold text-red-400 shrink-0">${escapeHtml(typ)}</span>
+          <span class="text-[9px] font-mono text-red-300/70 shrink-0">${escapeHtml(sev)}</span>
+          <span class="text-[10px] text-slate-500 font-mono shrink-0">${escapeHtml(relTime(ts))}</span>
+        </div>
+        <i data-lucide="arrow-right" class="w-3 h-3 text-slate-500 shrink-0"></i>
       </div>
-    </div>`
+      <div class="text-[11px] text-slate-400 mt-0.5 truncate">${escapeHtml(sumLine)}</div>
+    </div>`;
+  }).join('') || `<div class="text-xs text-slate-500 italic">None</div>`;
+
+  // --- Recent events: only show if the API actually returned k8s events
+  // distinct from the incidents we already render above. Avoids two sections
+  // showing the same payload.
+  const realEvents = Array.isArray(r.recentEvents) ? r.recentEvents : [];
+  const eventsSection = realEvents.length
+    ? `<div>
+         <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Recent Events</h3>
+         <div class="bg-slate-950 border border-slate-800 rounded-lg p-2">
+           ${realEvents.map(ev => `<div class="text-[11px] py-1 border-b border-slate-800/50 last:border-0">
+             <div class="flex justify-between">
+               <span class="text-${ev.type==='Warning'?'amber':'slate'}-400 font-bold">${escapeHtml(ev.reason||'')}</span>
+               <span class="text-slate-500 font-mono">${escapeHtml(relTime(ev.time))}</span>
+             </div>
+             <div class="text-slate-400 truncate">${escapeHtml(ev.message||'')}</div>
+           </div>`).join('')}
+         </div>
+       </div>`
     : '';
 
   body.innerHTML = `
-    <div>
-      <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Resource Status</h3>
-      <div class="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs font-mono">
-        ${statusRows.join('') || '<div class="text-slate-500">No status fields</div>'}
-      </div>
-    </div>
+    ${statusBar}
+    ${trafficBlock}
     ${tracesSection}
     <div>
       <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Open Incidents</h3>
       ${incidents}
     </div>
-    <div>
-      <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Recent Events</h3>
-      <div class="bg-slate-950 border border-slate-800 rounded-lg p-2">${events}</div>
-    </div>
+    ${eventsSection}
   `;
   lucide.createIcons();
 }
@@ -2114,6 +2237,8 @@ window.refreshTopology = refreshTopology;
 window.selectTopologyNode = selectTopologyNode;
 window.closeTopologyPanel = closeTopologyPanel;
 window.startNodeDrag = startNodeDrag;
+window.copyTrace = copyTrace;
+window.toggleTraceList = toggleTraceList;
 window.fetchLogs = fetchLogs;
 window.showAllLogs = showAllLogs;
 window.showTailLogs = showTailLogs;
