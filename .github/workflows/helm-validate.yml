@@ -124,9 +124,16 @@ jobs:
 
       - name: Install kubeconform
         run: |
-          curl -sSL \
+          tmpdir="$(mktemp -d)"
+          archive="${tmpdir}/kubeconform-linux-amd64.tar.gz"
+
+          curl --fail --silent --show-error --location \
+            --retry 5 --retry-delay 2 --retry-all-errors \
             "https://github.com/yannh/kubeconform/releases/download/${{ env.KUBECONFORM_VERSION }}/kubeconform-linux-amd64.tar.gz" \
-            | tar -xz -C /usr/local/bin kubeconform
+            -o "${archive}"
+
+          tar -xzf "${archive}" -C /usr/local/bin kubeconform
+          chmod +x /usr/local/bin/kubeconform
           kubeconform -v
           echo "✓ kubeconform installed"
 
