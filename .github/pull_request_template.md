@@ -18,7 +18,7 @@ make build
 
 ## Scope
 - [ ] This PR is focused on one concern (feature, fix, docs, test, or chore)
-- [ ] This PR is in scope for the current roadmap phase (`docs/phases/PHASE1.md`)
+- [ ] This PR is in scope for the current roadmap phase (`docs/phases/PHASE1_ARCHITECTURE.md`)
 
 ## Checklist
 - [ ] PR title follows Conventional Commits format (`type(scope): short description`)

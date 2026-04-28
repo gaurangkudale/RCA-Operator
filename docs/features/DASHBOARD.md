@@ -43,7 +43,7 @@ The CRDs remain the source of truth for incident lifecycle; everything else is e
 
 **Logs tab** — streams pod logs via `/api/logs` with namespace/pod/deployment selectors.
 
-**Rules tab** — all `RCACorrelationRule` CRDs, including auto-detected rules (priority 30, labeled `rca.rca-operator.tech/auto-generated: "true"`).
+**Rules tab** — all `RCACorrelationRule` CRDs, including auto-detected rules (default priority 30, labeled `rca.rca-operator.tech/auto-generated: "true"`).
 
 **Agents tab** — `RCAAgent` CRDs with status and last-sync time.
 

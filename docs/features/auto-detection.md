@@ -171,9 +171,9 @@ On first tick after startup, the detector seeds its accumulator from existing au
 - Re-creating rules that already exist
 - Expiring rules prematurely before the accumulator has warmed up
 
-## TODO
+## Roadmap
 
-- **Confidence scoring**: Add P(B|A) conditional probability to weight patterns by statistical significance and scale priority dynamically
+- **Confidence scoring** — weight patterns by P(B|A) conditional probability so priority scales with statistical significance instead of using a fixed value of 30. Tracked at <https://github.com/gaurangkudale/RCA-Operator/issues> — contributions welcome.
 
 ## kubectl Cheatsheet
 

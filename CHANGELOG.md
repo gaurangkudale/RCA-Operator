@@ -9,7 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 > **How to read this file**
 >
-> - `[Unreleased]` — changes on `main-gk` not yet in a release
+> - `[Unreleased]` — changes on `main` not yet in a release
 > - Entries are newest-first within each section
 > - Each version links to the GitHub diff since the previous release
 > - Section types: `Added` · `Changed` · `Deprecated` · `Removed` · `Fixed` · `Security`

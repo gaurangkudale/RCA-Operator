@@ -138,11 +138,18 @@ When auto-detection is enabled (`--enable-autodetect`), the operator also create
 
 ## Contributing
 
-Contributions are welcome.
+Contributions are welcome — bug reports, docs, tests, correlation rules, or features.
 
-1. Read [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
-2. Run `make test`
-3. Open a pull request
+1. Read [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+2. Find a `good first issue` on the [issue tracker](https://github.com/gaurangkudale/RCA-Operator/issues), or open a new one to discuss larger changes before coding.
+3. `make lint && make test && make build` must pass locally.
+4. Open a pull request — the [PR template](.github/pull_request_template.md) lists the merge checklist.
+
+## Community & Support
+
+- **Bug reports / feature requests** — [GitHub Issues](https://github.com/gaurangkudale/RCA-Operator/issues)
+- **Questions and design discussion** — [GitHub Discussions](https://github.com/gaurangkudale/RCA-Operator/discussions)
+- **Security disclosures** — see [SECURITY.md](SECURITY.md); please do **not** open public issues for vulnerabilities.
 
 ## License
 

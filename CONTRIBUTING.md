@@ -107,8 +107,8 @@ The operator will connect to your `kind` cluster using your local kubeconfig. Yo
 ### Step 6 — Verify with a sample agent
 
 ```bash
-kubectl apply -f config/samples/rcaagent-minimal.yaml
-kubectl get rcaagent -n rca-system
+kubectl apply -f config/samples/rca_v1alpha1_rcaagent.yaml
+kubectl get rcaagent -A
 ```
 
 ### Useful Make Targets
@@ -134,29 +134,33 @@ make helm-lint         # lint the Helm chart
 ```
 rca-operator/
 ├── api/v1alpha1/          ← CRD type definitions (RCAAgent, IncidentReport, RCACorrelationRule)
+├── cmd/main.go            ← Manager entry point — flag parsing, controller registration
 ├── internal/
-│   ├── controller/        ← Kubernetes controllers (RCAAgent, IncidentReport, RCACorrelationRule reconcilers)
-│   ├── collectors/        ← Collector-facing runtime seam for pod, event, node, and workload signals
-│   ├── watcher/           ← Informer-backed collector implementations
-│   ├── engine/            ← Incident engine: factory registry, rule engine resolution
-│   ├── correlator/        ← Consumer event loop, correlation buffer, rule infrastructure
-│   ├── rulengine/         ← CRD-driven rule engine: loads RCACorrelationRule CRDs dynamically
-│   ├── signals/           ← Signal processing pipeline: normalizer, enricher
-│   ├── reporter/          ← Slack, PagerDuty, CR reporter for incident lifecycle
+│   ├── autodetect/        ← Mines the correlation buffer for recurring patterns; auto-creates CRD rules
+│   ├── collectors/        ← Read-only seam shared by signal collectors
+│   ├── controller/        ← Kubernetes reconcilers (RCAAgent, IncidentReport, RCACorrelationRule)
+│   ├── correlator/        ← Consumer event loop, correlation buffer, topology graph builder (`graph/`)
+│   ├── dashboard/         ← Built-in dashboard API server + embedded static UI
+│   ├── engine/            ← Rule-engine factory registry
 │   ├── incident/          ← Incident scope and fingerprint model
-│   ├── dashboard/         ← Built-in dashboard API server and static assets
-│   ├── notify/            ← Notification dispatcher (Slack, PagerDuty)
-│   ├── retention/         ← Incident retention duration parsing
-│   ├── metrics/           ← Prometheus metrics
-│   ├── otel/              ← OpenTelemetry setup
+│   ├── incidentstatus/    ← Status condition helpers
+│   ├── jaeger/            ← Jaeger Query client (used by graph builder + trace API)
+│   ├── notify/            ← Slack + PagerDuty dispatcher
+│   ├── otel/              ← OpenTelemetry SDK setup for the operator's own spans
+│   ├── otelingest/        ← OTLP/HTTP receiver for traces and logs
+│   ├── reporter/          ← IncidentReport CR lifecycle writes
+│   ├── retention/         ← Retention duration parsing
+│   ├── rulengine/         ← CRD-driven rule engine — loads RCACorrelationRule CRDs at runtime
+│   ├── signals/           ← Signal processing pipeline (normalizer + enricher)
+│   ├── watcher/           ← Informer-backed collector implementations
 │   └── webhook/           ← Admission webhooks for RCAAgent and RCACorrelationRule validation
 ├── config/
-│   ├── crd/               ← Generated CRD manifests
-│   ├── rbac/              ← RBAC rules
-│   ├── rules/             ← Default RCACorrelationRule YAML samples
+│   ├── crd/               ← Generated CRD manifests (do not edit by hand)
+│   ├── rbac/              ← Generated RBAC (do not edit by hand)
+│   ├── rules/             ← Default RCACorrelationRule YAMLs
 │   └── samples/           ← Example CRs
-├── helm/                  ← Helm chart (templates, values, CRDs, default rules)
-├── docs/                  ← All documentation
+├── helm/                  ← Helm chart (templates, values, default rules, CRD templates)
+├── docs/                  ← All user-facing documentation
 └── test/                  ← E2E tests and fixtures
 ```
 
@@ -342,20 +346,21 @@ Use the [fake client](https://pkg.go.dev/sigs.k8s.io/controller-runtime/pkg/clie
 
 ### E2E tests
 
-E2E tests live in `tests/e2e/` and use a real `kind` cluster. They test the full path: CR applied → incident detected → notification sent.
+E2E tests live in `test/e2e/` and use a real `kind` cluster. They test the full path: CR applied → incident detected → notification sent.
 
 ```bash
 make test-e2e
 ```
 
-E2E tests are slower and are only run in CI on PRs to `main`. Don't gate your local development loop on them.
+E2E tests are slower and only run in CI on PRs to `main`. Don't gate your local development loop on them.
 
 ### Coverage target
 
-We aim for strong coverage across the incident pipeline, especially `internal/controller/`, `internal/engine/`, `internal/correlator/`, and the informer-backed collectors under `internal/watcher/`. Check with:
+Strong coverage is expected across the incident pipeline — especially `internal/controller/`, `internal/correlator/`, `internal/reporter/`, `internal/rulengine/`, and the informer-backed collectors under `internal/watcher/`. Generate a coverage profile with:
 
 ```bash
-make test-coverage
+go test ./... -coverprofile=coverage.out
+go tool cover -func=coverage.out | tail -1
 ```
 
 ---
@@ -404,6 +409,7 @@ The operator reloads rules automatically — no restart needed.
 | `samePod` | Same namespace and pod name |
 | `sameNode` | Same node name |
 | `sameNamespace` | Same namespace |
+| `sameTrace` | Same OTel `trace_id` (for cross-service span/log correlation) |
 | `any` | No scope restriction |
 
 ### 5. Summary template variables
@@ -433,8 +439,8 @@ Docs are first-class contributions. The bar is the same as code.
 
 - Docs live in `docs/`. Keep architecture, getting-started, reference, and development docs aligned with the current Phase 1 architecture.
 - Don't add long explanations to `README.md` — link to `docs/` instead.
-- If you change a CRD field, update `docs/reference/rcaagent-crd.md` or `docs/reference/incidentreport-crd.md` in the same PR.
-- All links in `docs/` are checked by CI (`lychee`). Don't add dead links.
+- If you change a CRD field, update the matching file under `docs/reference/` in the same PR.
+- Internal markdown links (`[text](relative-path)`) must resolve. CI does not yet enforce this, so verify locally before pushing.
 
 ---
 
