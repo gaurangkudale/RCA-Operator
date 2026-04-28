@@ -10,7 +10,11 @@ import (
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 )
 
+// validEventTypes mirrors the EventType constants in
+// internal/watcher/events.go. Keep in sync — the webhook rejects CRs with
+// event types the operator can never emit.
 var validEventTypes = map[string]bool{
+	// Pod-level
 	"CrashLoopBackOff":     true,
 	"OOMKilled":            true,
 	"ImagePullBackOff":     true,
@@ -18,19 +22,35 @@ var validEventTypes = map[string]bool{
 	"GracePeriodViolation": true,
 	"PodHealthy":           true,
 	"PodDeleted":           true,
-	"NodeNotReady":         true,
-	"PodEvicted":           true,
 	"ProbeFailure":         true,
-	"StalledRollout":       true,
-	"NodePressure":         true,
+	// Node-level
+	"NodeNotReady": true,
+	"PodEvicted":   true,
+	"NodePressure": true,
+	// Workload-level
+	"StalledRollout":     true,
+	"StalledStatefulSet": true,
+	"StalledDaemonSet":   true,
+	"JobFailed":          true,
+	"CronJobFailed":      true,
+	// OTel-derived
+	"OTelSpanError":        true,
+	"OTelSpanLatencySpike": true,
+	"OTelLogMatch":         true,
+	"OTelSpanEvent":        true,
 }
 
 var validSeverities = map[string]bool{
 	"P1": true, "P2": true, "P3": true, "P4": true,
 }
 
+// validScopes mirrors api/v1alpha1/rcacorrelationrule_types.go RuleCondition.Scope enum.
 var validScopes = map[string]bool{
-	"samePod": true, "sameNode": true, "sameNamespace": true, "any": true,
+	"samePod":       true,
+	"sameNode":      true,
+	"sameNamespace": true,
+	"sameTrace":     true,
+	"any":           true,
 }
 
 // RCACorrelationRuleWebhook implements typed validating webhook for RCACorrelationRule.
@@ -74,7 +94,7 @@ func validateRule(rule *rcav1alpha1.RCACorrelationRule) (admission.Warnings, err
 			return nil, fmt.Errorf("spec.conditions[%d].eventType %q is not a known event type", i, cond.EventType)
 		}
 		if !validScopes[cond.Scope] {
-			return nil, fmt.Errorf("spec.conditions[%d].scope %q must be one of samePod, sameNode, sameNamespace, any", i, cond.Scope)
+			return nil, fmt.Errorf("spec.conditions[%d].scope %q must be one of samePod, sameNode, sameNamespace, sameTrace, any", i, cond.Scope)
 		}
 	}
 

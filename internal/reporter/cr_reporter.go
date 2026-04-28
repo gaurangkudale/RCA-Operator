@@ -21,6 +21,7 @@ import (
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 	"github.com/gaurangkudale/rca-operator/internal/incident"
 	"github.com/gaurangkudale/rca-operator/internal/incidentstatus"
+	"github.com/gaurangkudale/rca-operator/internal/metrics"
 )
 
 const (
@@ -230,6 +231,7 @@ func (r *Reporter) createIncident(ctx context.Context, input incident.Input, fin
 		"incidentType", input.IncidentType,
 		"fingerprint", fingerprint,
 	)
+	metrics.RecordIncidentDetecting(input.IncidentType, input.Severity)
 	if r.Recorder != nil {
 		msg := truncateEventMessage(fmt.Sprintf("New %s incident detected severity=%s: %s", input.IncidentType, input.Severity, input.Summary))
 		r.Recorder.Eventf(report, nil, corev1.EventTypeWarning, "IncidentDetected", "Detect", "%s", msg)
@@ -528,6 +530,7 @@ func reportMatchesWorkloadRef(report *rcav1alpha1.IncidentReport, workloadRef *r
 }
 
 func (r *Reporter) updateActiveIncident(ctx context.Context, report *rcav1alpha1.IncidentReport, input incident.Input, fingerprint, hash string) error {
+	metrics.RecordSignalDeduplicated(input.IncidentType)
 	now := metav1.NewTime(input.ObservedAt)
 	reportIncidentType := report.Spec.IncidentType
 	if reportIncidentType == "" {

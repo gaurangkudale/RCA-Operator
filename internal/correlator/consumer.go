@@ -13,6 +13,7 @@ import (
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 	"github.com/gaurangkudale/rca-operator/internal/incident"
+	"github.com/gaurangkudale/rca-operator/internal/metrics"
 	"github.com/gaurangkudale/rca-operator/internal/reporter"
 	"github.com/gaurangkudale/rca-operator/internal/signals"
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
@@ -95,6 +96,8 @@ func (c *Consumer) Run(ctx context.Context) {
 }
 
 func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEvent) error {
+	metrics.RecordSignalReceived(string(event.Type()))
+
 	// Lifecycle (resolution) events bypass both the rule engine and the signal
 	// pipeline. Feeding them into the rule engine's sliding-window buffer would
 	// pollute correlation state with non-failure events and risk masking real

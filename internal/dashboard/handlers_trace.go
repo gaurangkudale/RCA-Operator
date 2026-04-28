@@ -27,6 +27,10 @@ const maxSpansReturned = 500
 // Jaeger's JSON model. Centralised so goconst stays happy.
 const boolTrue = "true"
 
+// statusError is the literal value assigned to traceResponse.Status when any
+// span in the trace is flagged as an error. Centralised so goconst stays happy.
+const statusError = "error"
+
 type traceResponse struct {
 	TraceID          string             `json:"traceId"`
 	StartTime        time.Time          `json:"startTime"`
@@ -209,7 +213,7 @@ func buildTraceResponse(id string, t *jaeger.Trace) traceResponse {
 		return out[i].Depth < out[j].Depth
 	})
 	if len(errorSpans) > 0 {
-		resp.Status = "error"
+		resp.Status = statusError
 	}
 	// Cap span list. Keep all error spans + the longest non-error spans up to
 	// the cap so the waterfall stays meaningful for huge traces.
