@@ -83,11 +83,16 @@ status:
 | `activeAt` | `Time` | When the incident crossed the stabilization window |
 | `lastObservedAt` | `Time` | When the most recent confirming signal was received |
 | `resolvedAt` | `Time` | When the incident was resolved (empty while active) |
+| `startTime` | `Time` | Deprecated alias for `firstObservedAt`; retained for backward compatibility |
+| `resolvedTime` | `Time` | Deprecated alias for `resolvedAt`; retained for backward compatibility |
 | `signalCount` | `int64` | Number of confirming signals in the current lifecycle |
+| `stabilizationWindowSeconds` | `int64` | Stabilization window applied to this incident, in seconds |
 | `notified` | `bool` | Whether Slack/PagerDuty notifications have been sent |
 | `affectedResources` | `[]AffectedResource` | Kubernetes resources involved in this incident |
 | `correlatedSignals` | `[]string` | Raw signals that triggered this incident |
 | `timeline` | `[]TimelineEvent` | Ordered sequence of incident events |
+| `conditions` | `[]metav1.Condition` | Standard Kubernetes status conditions (Active, Resolved, etc.) |
+| `incidentGraph` | `runtime.RawExtension` | Serialized blast-radius topology graph — see [Topology Graph](../features/topology-graph.md) |
 
 ### Lifecycle Phases
 
@@ -125,15 +130,21 @@ Detecting ──(stabilization window)──> Active ──(pod healthy/deleted)
 
 ## kubectl Cheatsheet
 
+The reporter writes incident metadata to labels prefixed with `rca.rca-operator.tech/` (see `internal/reporter/cr_reporter.go`). Phase is **not** mirrored to a label — filter by phase with the `STATUS` print column or jq.
+
 ```bash
-# List all incidents
+# List all incidents (with the operator's print columns)
 kubectl get incidentreport -A
 
-# Active incidents only
-kubectl get incidentreport -A -l phase=Active
+# Filter by severity (label) — works with selectors
+kubectl get incidentreport -A -l rca.rca-operator.tech/severity=P1
 
-# Incidents for a specific severity
-kubectl get incidentreport -A -l severity=P1
+# Filter by incident type (label)
+kubectl get incidentreport -A -l rca.rca-operator.tech/incident-type=CrashLoopBackOff
+
+# Active incidents only — phase lives in status, not a label, so use jq
+kubectl get incidentreport -A -o json \
+  | jq -r '.items[] | select(.status.phase=="Active") | "\(.metadata.namespace)/\(.metadata.name)"'
 
 # Full detail
 kubectl describe incidentreport <name> -n <namespace>

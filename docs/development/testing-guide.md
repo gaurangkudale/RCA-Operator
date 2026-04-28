@@ -1,7 +1,7 @@
 # RCA Operator — Local Testing Guide
 
-> **Goal**: Test the three untested scenarios end-to-end:
-> 1. Topology UI panel (vis-network rendering in browser)
+> **Goal**: Test the three end-to-end paths that are hard to cover in unit tests:
+> 1. Topology UI (Workload + Services modes, plus the inline trace detail modal)
 > 2. Jaeger trace enrichment (real Jaeger instance + traces)
 > 3. OTel ingest pipeline (real OTLP collector + span injection)
 
@@ -208,17 +208,23 @@ curl -s http://localhost:9090/api/incidents/default/$INC/graph | python3 -m json
 open http://localhost:9090
 ```
 
-1. Dashboard opens → click on the incident in the list
-2. Detail panel slides in on the right
-3. Scroll down to **"Incident Topology"** section
-4. You should see:
-   - A graph canvas with nodes (circles/stars)
-   - Incident node (red star) connected to Pod node (blue dot)
-   - Bottom text: `2 nodes · 1 edges`
-5. Hover over nodes → tooltip shows kind/namespace
-6. Drag nodes around → physics simulation moves them
+1. Open the **Incidents** tab and click an incident — its blast-radius graph
+   loads in the right pane.
+2. Open the **Topology** tab. It has two modes:
+   - **Workload** — Deployments / Pods / Nodes laid out as a hierarchical DAG.
+   - **Services** — Jaeger-style service dependency graph; edges carry call counts.
+3. Click any node — the side panel shows resource status, open incidents,
+   recent events, and (for services) inbound/outbound/peers traffic plus
+   observed trace IDs.
+4. Click any trace ID anywhere in the UI — the inline trace detail modal
+   opens with summary tiles, the span waterfall, errors, and per-service
+   breakdown. Click a pod chip on a span to deep-link into the Logs tab
+   prefilled with that namespace + pod.
+5. Drag a node to reposition it (positions are remembered for the session;
+   layout is static — no physics simulation).
 
-**Topology UI is working ✅** if you can see and interact with the graph.
+**Topology UI is working ✅** if you can navigate between modes, open node
+panels, and open a trace modal that renders a waterfall.
 
 ---
 
@@ -308,14 +314,12 @@ kubectl get incidentreport $INC -n default \
 open http://localhost:9090
 ```
 
-1. Find the payment-service incident
-2. Click it → detail panel opens
-3. Scroll to **"Trace & Rule Engine"** section
-4. Should show:
-   - `rule` → `OTelSpanError` (or matched CRD rule)
-   - `trace` → `4bf92f3577b34da6a3ce929d0e0e4736` with copy button
+1. Find the payment-service incident in the **Incidents** tab.
+2. Click it → detail panel opens on the right.
+3. The header chips show the fired rule (e.g. `rule: auto-otellogmatch-otelspanerror-samepod` or `OTelSpanError` for a single-signal incident).
+4. The **Trace IDs** section lists the trace IDs collected on the incident; click one to open the inline trace detail modal.
 
-**OTel ingest is working ✅** if incident is created with trace annotation.
+**OTel ingest is working ✅** if the incident was created with at least one trace ID and the modal renders the span waterfall.
 
 ### 6.6 Send a latency spike span (bonus test)
 
@@ -540,10 +544,14 @@ kind delete cluster --name rca-dev
 - Graph is built on the Active transition; check operator logs for `buildIncidentGraph`
 - Verify: `kubectl get incidentreport $INC -o jsonpath='{.status.phase}'`
 
-### vis-network doesn't render (blank canvas)
-- Check browser console for errors (`F12 → Console`)
-- If "vis is not defined" → CDN blocked; check network access to `unpkg.com`
-- Check: `curl -I https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js`
+### Topology canvas is blank or nodes have no labels
+- Check browser console (`F12 → Console`) for JavaScript errors.
+- The dashboard loads Tailwind, Lucide, and Inter from `cdn.tailwindcss.com` /
+  `unpkg.com` / `fonts.googleapis.com`. If your environment blocks those CDNs,
+  the layout will render with bare HTML — verify network access:
+  `curl -I https://unpkg.com/lucide@latest`.
+- If only labels are missing, `lucide.createIcons()` is failing — usually a
+  follow-on of the above CDN check.
 
 ### OTel span sends 200 but no incident created
 - Check operator logs for ingest errors

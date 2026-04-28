@@ -484,22 +484,12 @@ Read:
 
 ## Metrics and Observability
 
-The project exposes Prometheus metrics for:
-
-- signals received
-- signals deduplicated
-- incidents detecting
-- incidents activated
-- incidents resolved
-- active incident gauge
-- lifecycle transition timings
-- rule evaluations
-- notifications
+The operator currently exposes the standard **controller-runtime** metrics endpoint only — reconcile counts, durations, queue depth, client-go API request stats, leader election status, and Go runtime metrics. There is no `internal/metrics/` package yet; the bespoke `rca_*` metrics described in the Phase 1 architecture are not implemented.
 
 Read:
 
-- `internal/metrics/incidents.go`
-- `docs/reference/metrics.md`
+- `cmd/main.go` — search for `metrics-bind-address` to see how the endpoint is wired
+- `docs/reference/metrics.md` — what's actually exposed and how to scrape it
 
 ---
 

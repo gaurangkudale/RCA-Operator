@@ -21,6 +21,7 @@ metadata:
 spec:
   watchNamespaces:
     - default
+    - rca-demo
   incidentRetention: 7d
 ```
 
@@ -51,10 +52,13 @@ The repo ships fixture pods that fail in known-correlatable ways.
 ```bash
 # Clone fixtures if you installed via Helm repo
 git clone --depth 1 https://github.com/gaurangkudale/RCA-Operator.git /tmp/rca
+
+# The fixture deploys into the rca-demo namespace — create it first
+kubectl create namespace rca-demo
 kubectl apply -f /tmp/rca/test/fixtures/pods/crashloop.yaml
 
 # Watch the incident get created
-kubectl get incidentreports -n default -w
+kubectl get incidentreports -n rca-demo -w
 ```
 
 Within ~30 seconds you should see an `IncidentReport` appear in
@@ -70,8 +74,12 @@ All fixtures: [test/fixtures/README.md](../../test/fixtures/README.md).
 
 1. **Signal collection.** The pod's `BackOff` + container `CrashLoopBackOff`
    events reached the operator's watcher.
-2. **Correlation.** The correlator matched the `crashloop-plus-oom` default
-   rule (one of the four rules installed by the chart).
+2. **Correlation.** The CrashLoopBackOff signal flowed through the correlator
+   buffer. With only a single signal the multi-signal default rules don't fire,
+   but the operator still records a `CrashLoopBackOff` incident from the
+   single signal. To see a correlated multi-signal incident (e.g.
+   `crashloop-plus-oom`), apply a fixture that produces both crash loops and
+   OOM kills.
 3. **Incident creation.** The reporter deduplicated signals into a single
    `IncidentReport` CR, set its phase to `Active`, and emitted a Kubernetes
    Event.

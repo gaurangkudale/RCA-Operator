@@ -4,10 +4,10 @@
 
 ## Unit Tests
 
-The project uses two testing styles:
+The project mixes two testing styles:
 
-- **Controller tests** use **envtest** (real Kubernetes API server + etcd, no real cluster needed) with Ginkgo + Gomega. See `internal/controller/suite_test.go` for the envtest setup.
-- **All other unit tests** use the **standard `testing` package** with table-driven tests. New tests should follow this convention.
+- **Older controller suite** uses **envtest** (real Kubernetes API server + etcd, no real cluster needed) wrapped with Ginkgo + Gomega. The entry point is `TestControllers` in `internal/controller/suite_test.go`.
+- **Everything else** — including most newer controller tests — uses the **standard `testing` package** with table-driven tests and `sigs.k8s.io/controller-runtime/pkg/client/fake` for clients. New tests should follow this convention.
 
 ```bash
 make test
@@ -18,11 +18,11 @@ Test files follow the pattern `*_test.go` in `internal/`.
 ## Run a Specific Test
 
 ```bash
-# By test function name
+# Standard testing package — by test function name
 go test ./internal/correlator/... -v -run TestCorrelator_InjectedRuleFires
 
-# Controller tests (Ginkgo)
-go test ./internal/controller/... -v -run TestControllers/"RCAAgent reconciler"
+# Ginkgo entry point — focus by description (Ginkgo's own selector, not -run)
+go test ./internal/controller/... -v -ginkgo.focus="RCAAgent reconciler"
 ```
 
 ## E2E Tests
@@ -43,15 +43,16 @@ E2E test source is in `test/e2e/`.
 
 ## Manual Scenario Testing
 
-Use the fixtures in `test/fixtures/pods/` to trigger specific collector signals against a live operator:
+Use the fixtures in `test/fixtures/pods/` to trigger specific collector signals against a live operator. Most fixtures deploy into the `rca-demo` namespace — make sure your `RCAAgent` includes it in `watchNamespaces`.
 
 ```bash
 # See README for the full scenario list
 cat test/fixtures/README.md
 
 # Example: trigger a CrashLoopBackOff incident
+kubectl create namespace rca-demo  # if you haven't already
 kubectl apply -f test/fixtures/pods/crashloop.yaml
-kubectl get incidentreports -n default -w
+kubectl get incidentreports -n rca-demo -w
 ```
 
 For exit-code validation, use `test/fixtures/pods/exit-code.yaml`. The operator no longer creates a standalone `ExitCode` incident; instead, the resulting `CrashLoopBackOff` incident includes the classified exit-code context in its summary and timeline.

@@ -105,7 +105,7 @@ Multi-signal correlation rules are defined as `RCACorrelationRule` cluster-scope
 
 - loads rules dynamically at startup and on CRD changes
 - evaluates rules by priority (highest first, first match wins)
-- correlates signals within a sliding time window using scope constraints (`samePod`, `sameNode`, `sameNamespace`)
+- correlates signals within a sliding time window using scope constraints (`samePod`, `sameNode`, `sameNamespace`, `sameTrace`, `any`)
 
 See [RCACorrelationRule Reference](../reference/rcacorrelationrule-crd.md) for the full CRD spec.
 

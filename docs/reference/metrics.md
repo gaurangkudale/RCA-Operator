@@ -1,81 +1,78 @@
 # Metrics Reference
 
-RCA Operator exposes Prometheus-compatible metrics via the controller-runtime metrics endpoint. These are available when `metrics.enabled: true` in the Helm values (default).
+RCA Operator currently exposes the standard **controller-runtime metrics endpoint** only. No bespoke `rca_*` Prometheus metrics are registered yet — the Phase 1 metric set listed in [Phase 1 Architecture](../phases/PHASE1_ARCHITECTURE.md) is on the roadmap but not implemented.
 
-## Phase 1 Incident Lifecycle Metrics
+This document describes what is actually exported today and how to scrape it.
 
-These metrics track the core incident pipeline from signal ingestion through resolution.
+## What's Exposed
 
-| Metric | Type | Labels | Description |
-|---|---|---|---|
-| `rca_signals_received_total` | Counter | `event_type`, `agent` | Total signals entering the pipeline |
-| `rca_signals_deduplicated_total` | Counter | `event_type` | Signals suppressed by the deduplication window |
-| `rca_incidents_detecting_total` | Counter | `agent`, `incident_type`, `severity` | Incidents that entered the Detecting phase |
-| `rca_incidents_activated_total` | Counter | `agent`, `incident_type`, `severity` | Incidents promoted from Detecting to Active |
-| `rca_incidents_resolved_total` | Counter | `agent`, `incident_type`, `severity` | Incidents that reached Resolved |
-| `rca_active_incidents` | Gauge | `agent`, `incident_type`, `severity` | Current number of Active (non-resolved) incidents |
-| `rca_incident_transition_seconds` | Histogram | `from_phase`, `to_phase` | Duration of phase transitions (detecting to active, active to resolved, detecting to resolved) |
+The metrics endpoint is wired via `sigs.k8s.io/controller-runtime/pkg/metrics/server`. It serves the controller-runtime defaults:
 
-### Histogram Buckets
+| Metric family | Source | Description |
+|---|---|---|
+| `controller_runtime_*` | controller-runtime | Reconcile counts, durations, queue depth, errors, per controller |
+| `workqueue_*` | controller-runtime / client-go | Workqueue depth, latency, retries |
+| `rest_client_*` | client-go | API server request latency, count, response codes |
+| `go_*` / `process_*` | Prometheus Go client | Goroutines, GC, memory, file descriptors, CPU |
+| `leader_election_master_status` | controller-runtime | `1` when this pod holds the leader lease, `0` otherwise |
 
-`rca_incident_transition_seconds` uses these buckets (in seconds): 10, 30, 60, 120, 300, 600, 1800, 3600.
+Useful queries against the controller-runtime metrics:
 
-## Operational Metrics
+```promql
+# Reconcile rate per controller
+sum by (controller) (rate(controller_runtime_reconcile_total[5m]))
 
-| Metric | Type | Labels | Description |
-|---|---|---|---|
-| `rca_notifications_sent_total` | Counter | `channel`, `action`, `outcome`, `severity` | Notification attempts by channel (slack, pagerduty), action (trigger, resolve), and outcome (success, error) |
-| `rca_notification_duration_seconds` | Histogram | `channel` | Duration of notification dispatch |
-| `rca_signal_processing_duration_seconds` | Histogram | `event_type` | Duration of signal processing in the pipeline |
-| `rca_rule_evaluations_total` | Counter | `rule_name`, `fired` | Correlation rule evaluations with fired=true/false |
-| `rca_correlation_buffer_size` | Gauge | `agent` | Current number of events in the correlation buffer |
+# 95p reconcile duration
+histogram_quantile(0.95, sum by (controller, le) (rate(controller_runtime_reconcile_time_seconds_bucket[5m])))
 
-## Auto-Detection Metrics
+# Reconcile errors
+sum by (controller) (rate(controller_runtime_reconcile_errors_total[5m]))
 
-These metrics are only active when `--enable-autodetect` is set.
+# Workqueue depth (per controller)
+controller_runtime_workqueue_depth
 
-| Metric | Type | Labels | Description |
-|---|---|---|---|
-| `rca_autodetect_patterns_tracked` | Gauge | | Current patterns in the accumulator |
-| `rca_autodetect_rules_active` | Gauge | | Current auto-generated rule count |
-| `rca_autodetect_rules_created_total` | Counter | | Total auto rules created |
-| `rca_autodetect_rules_expired_total` | Counter | | Total auto rules expired |
-| `rca_autodetect_analysis_duration_seconds` | Histogram | | Time per analysis tick |
+# API throttling (client-go side)
+sum(rate(rest_client_requests_total{code=~"4..|5.."}[5m]))
+```
+
+## CLI Flags
+
+`cmd/main.go` exposes these metrics-related flags:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--metrics-bind-address` | `0` | `:8443` for HTTPS, `:8080` for HTTP, `0` to disable |
+| `--metrics-secure` | `true` | Serve over HTTPS (BearerToken-protected) |
+| `--metrics-cert-path` | _empty_ | Directory holding TLS cert + key (otherwise self-signed) |
+| `--metrics-cert-name` | `tls.crt` | Cert filename inside `--metrics-cert-path` |
+| `--metrics-cert-key`  | `tls.key` | Key filename inside `--metrics-cert-path` |
+
+When `--metrics-secure=true` (default), the endpoint requires a valid `Authorization: Bearer <token>` header tied to a ServiceAccount with `nonResourceURLs: ["/metrics"]` `get`.
 
 ## Scraping
 
 ### In-cluster (Helm)
 
-The Helm chart creates a metrics `Service` on port 8443 (HTTPS by default). Configure your Prometheus to scrape this endpoint, or use the ServiceMonitor if your cluster runs the Prometheus Operator.
+The Helm chart provisions a metrics `Service` and (optionally) a `ServiceMonitor`. See `helm/values.yaml` keys:
+
+```yaml
+metrics:
+  enabled: true
+  port: 8443
+  secure: true
+serviceMonitor:
+  enabled: false  # set true to register with the Prometheus Operator
+```
 
 ### Local development
 
 ```bash
-# Start with HTTP metrics on port 8080
+# Disable TLS for easy scraping
 make run ARGS="--metrics-bind-address=:8080 --metrics-secure=false"
 
-# Scrape
-curl http://localhost:8080/metrics
+curl http://localhost:8080/metrics | head
 ```
 
-## Alerting Examples
+## Roadmap
 
-```yaml
-# Alert when incidents stay in Detecting for too long
-- alert: RCAIncidentStuckDetecting
-  expr: histogram_quantile(0.95, rate(rca_incident_transition_seconds_bucket{from_phase="detecting",to_phase="active"}[1h])) > 600
-  for: 15m
-  labels:
-    severity: warning
-  annotations:
-    summary: "95th percentile detecting-to-active transition exceeds 10 minutes"
-
-# Alert when active incidents are rising
-- alert: RCAActiveIncidentsHigh
-  expr: sum(rca_active_incidents) > 10
-  for: 5m
-  labels:
-    severity: critical
-  annotations:
-    summary: "More than 10 active incidents in the cluster"
-```
+The Phase 1 architecture document describes a planned set of `rca_*` metrics covering the incident lifecycle (signals received, deduplicated, transitions per phase, active incident gauge, etc.). These are **not** in the codebase today; if you build dashboards or alerts, do so against the controller-runtime / client-go metrics listed above. This page will be updated when bespoke metrics are wired through `internal/metrics/`.
