@@ -20,6 +20,9 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Inline Jaeger trace detail modal** — `GET /api/traces/{id}` wraps Jaeger Query and reshapes the response into a UI-friendly payload (summary tiles, ordered span waterfall, pinned error spans, per-service breakdown with overlap-merged intervals, per-span k8s/HTTP/DB tags). Trace IDs in the incident pane and topology service panel are now clickable; the modal opens inline. Pod chips on spans deep-link into the Logs tab with namespace + pod prefilled — no more hopping to the Jaeger UI to inspect a trace. Server-side cache TTL of 5 minutes (immutable trace data); responses bounded at 500 spans with error spans always preserved and `truncated: true` flagged
+- **Service topology view** — second mode in the Topology tab renders a Jaeger-style service dependency graph with edge call counts. The service-node side panel shows compact resource status, an inbound/outbound/peers traffic block computed from edge counts, a "Trace IDs" section (collapsed past 5, with copy-to-clipboard), open incidents, and recent K8s events
+- **Auto fit-to-view** on first topology load — dense graphs that exceed the viewport are zoomed to fit instead of overflowing; graphs that already fit are left at 100%
 - **Phase 1 metrics alignment** — all Prometheus metrics now match the Phase 1 architecture spec: `rca_signals_received_total`, `rca_signals_deduplicated_total`, `rca_incidents_detecting_total`, `rca_incidents_activated_total`, `rca_incidents_resolved_total`, `rca_active_incidents` (gauge), `rca_incident_transition_seconds` (histogram); backward-compatible aliases retained for existing dashboards
 - **Timeline API** — `GET /api/timeline?fingerprint=...` returns a unified chronological timeline across all lifecycle phases for a given incident fingerprint, including lifecycle transition events
 - **Leader election namespace flag** — `--leader-election-namespace` flag for explicit control; auto-detects out-of-cluster runs and defaults to `default` namespace
@@ -53,6 +56,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- **Live Correlation Stream** bottom panel from the dashboard topology view — the embedded SSE stream UI was redundant with the Incidents tab and added visual noise. The `/api/stream` endpoint itself is retained for external consumers
 - All 4 hardcoded correlation rules from Go code (replaced by CRD rules)
 - Legacy correlator rule engine factory (`internal/engine/correlator_rule_engine.go`)
 - CPU throttling and `ResourceSaturation` incident paths that are outside the current architecture

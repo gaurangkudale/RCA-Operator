@@ -97,14 +97,26 @@ K8s + trace-buffer graph:
 
 ## Dashboard rendering
 
-The built-in dashboard renders `status.incidentGraph` as an interactive
-service topology view, with:
+The built-in dashboard exposes three related views over this data:
 
-- colored nodes per resource kind (Pod, Service, Deployment, etc.)
-- clickable edges that show span-id / trace-id chips
-- a zoomable, draggable canvas for dense graphs
+1. **Per-incident graph** — when you open an incident, the dashboard renders
+   `status.incidentGraph` as an interactive blast-radius view (colored nodes
+   per kind, zoomable canvas, clickable edges that show span-id / trace-id
+   chips).
+2. **Cluster topology** — the Topology tab "Workload" mode shows the
+   live K8s graph (Deployments / Pods / Nodes) via `GET /api/topology`,
+   independent of any single incident.
+3. **Service dependencies** — the Topology tab "Services" mode renders a
+   Jaeger-style service graph with edge call counts via
+   `GET /api/service-graph`. Click a service to see traffic stats
+   (inbound / outbound / peers), trace IDs observed on incidents touching
+   that service, open incidents, and recent K8s events.
 
-See [Dashboard](./DASHBOARD.md) for the API surface.
+Trace IDs surfaced in the incident pane and the service panel are
+clickable — the dashboard opens an inline Jaeger trace detail modal
+(`GET /api/traces/{id}`) without sending you to the Jaeger UI. See
+[Dashboard](./DASHBOARD.md) for the full API surface and the trace payload
+schema.
 
 ---
 
