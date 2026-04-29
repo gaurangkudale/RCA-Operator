@@ -521,21 +521,31 @@ function renderTraceIDRows(traceIDs, opts = {}){
 
 function renderTraceIDSection(traceIDs, opts = {}){
   const ids = normalizeTraceIDs(traceIDs);
-  const title = opts.title || 'Trace IDs';
+  const title = opts.title || 'Trace Evidence';
+  const description = opts.description || 'Open traces captured from correlated OTel signals.';
   const preview = Number.isFinite(opts.preview) ? opts.preview : 5;
   const emptyText = opts.emptyText || 'None recorded';
+  const countText = `${ids.length} ${ids.length === 1 ? 'trace' : 'traces'}`;
   if (!ids.length) {
     return `<div>
-      <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">${escapeHtml(title)} <span class="text-slate-600 font-mono normal-case tracking-normal">(0)</span></h3>
+      <div class="flex items-center justify-between gap-3 mb-1">
+        <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">${escapeHtml(title)}</h3>
+        <span class="text-[10px] font-mono text-slate-600">${escapeHtml(countText)}</span>
+      </div>
+      <p class="text-[11px] text-slate-600 mb-2">${escapeHtml(description)}</p>
       <div class="text-[11px] text-slate-500 italic">${escapeHtml(emptyText)}</div>
     </div>`;
   }
   const rows = renderTraceIDRows(ids, { preview });
   const more = ids.length > preview
-    ? `<button onclick="toggleTraceList(this)" class="text-[10px] font-mono text-indigo-400 hover:text-indigo-300 mt-1.5">Show all (${ids.length})</button>`
+    ? `<button onclick="toggleTraceList(this)" class="text-[10px] font-mono text-indigo-400 hover:text-indigo-300 mt-1.5">Show more (${ids.length - preview})</button>`
     : '';
   return `<div data-trace-wrap data-expanded="0" data-total="${ids.length}">
-    <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">${escapeHtml(title)} <span class="text-slate-600 font-mono normal-case tracking-normal">(${ids.length})</span></h3>
+    <div class="flex items-center justify-between gap-3 mb-1">
+      <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">${escapeHtml(title)}</h3>
+      <span class="text-[10px] font-mono text-slate-500 bg-slate-900 border border-slate-800 rounded px-1.5 py-0.5">${escapeHtml(countText)}</span>
+    </div>
+    <p class="text-[11px] text-slate-600 mb-2">${escapeHtml(description)}</p>
     <div class="bg-slate-950 border border-slate-800 rounded-lg p-2 space-y-1">${rows}</div>
     ${more}
   </div>`;
@@ -935,8 +945,8 @@ function renderIncidentDetail(){
       </div>`
     : `<div class="text-xs text-slate-500 italic">No timeline entries</div>`;
 
-  const traceIds = renderTraceIDRows([...(Array.isArray(d.traceIds) ? d.traceIds : []), d.traceId], {
-    emptyHtml: `<span class="text-xs text-slate-500 italic">—</span>`
+  const traceEvidence = renderTraceIDSection([...(Array.isArray(d.traceIds) ? d.traceIds : []), d.traceId], {
+    emptyText: 'No trace IDs captured for this incident.'
   });
 
   const elapsedRef = d.resolvedAt || null;
@@ -1018,8 +1028,7 @@ function renderIncidentDetail(){
       </section>
 
       <section>
-        <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Trace IDs</h3>
-        <div>${traceIds}</div>
+        ${traceEvidence}
       </section>
 
       <section>
@@ -2187,8 +2196,10 @@ function toggleTraceList(btn){
   wrap.querySelectorAll('[data-trace-extra]').forEach(el => {
     el.classList.toggle('hidden', expanded);
   });
+  const total = Number(wrap.getAttribute('data-total') || '0');
+  const hiddenCount = wrap.querySelectorAll('[data-trace-extra]').length;
   btn.textContent = expanded
-    ? `Show all (${wrap.getAttribute('data-total')})`
+    ? `Show more (${hiddenCount || total})`
     : 'Show fewer';
 }
 
