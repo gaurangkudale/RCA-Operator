@@ -28,7 +28,7 @@
 # Pin an immutable tag. Do NOT use "latest" in production.
 image:
   repository: ghcr.io/gaurangkudale/rca-operator
-  tag: "0.0.16"
+  tag: "0.1.0"
   pullPolicy: IfNotPresent
 
 # ── HA control plane ──────────────────────────────────────────────────────────
@@ -63,6 +63,10 @@ affinity:
 leaderElection:
   enabled: true
 
+signals:
+  bufferSize: 16384
+  emitDedupWindow: 5s
+
 # ── Resources (medium cluster sizing — adjust per values.yaml table) ─────────
 resources:
   requests:
@@ -93,7 +97,8 @@ otelIngest:
       httpStatusGte: 500
       latencyP99Ms: 5000
     logs:
-      minSeverity: "WARN"
+      minSeverity: "ERROR"
+      maxSignalsPerRequest: 128
 
 # ── Auto-detection: off in prod until you've reviewed a few weeks of signals ─
 autoDetect:

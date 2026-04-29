@@ -282,6 +282,47 @@ func TestTranslator_LogAtOrAboveSeverityEmits(t *testing.T) {
 	}
 }
 
+func TestTranslator_LogsDedupedAndCappedPerRequest(t *testing.T) {
+	em := &captureEmitter{}
+	cfg := defaultCfg()
+	cfg.LogFilters.MaxSignalsPerRequest = 2
+	tr := NewTranslator(cfg, em)
+
+	rls := []*logspb.ResourceLogs{{
+		Resource: k8sResource(),
+		ScopeLogs: []*logspb.ScopeLogs{{LogRecords: []*logspb.LogRecord{
+			{
+				SeverityNumber: logspb.SeverityNumber_SEVERITY_NUMBER_ERROR,
+				Body:           &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "same failure"}},
+				TraceId:        []byte{0x01},
+			},
+			{
+				SeverityNumber: logspb.SeverityNumber_SEVERITY_NUMBER_ERROR,
+				Body:           &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "same failure"}},
+				TraceId:        []byte{0x02},
+			},
+			{
+				SeverityNumber: logspb.SeverityNumber_SEVERITY_NUMBER_ERROR,
+				Body:           &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "second failure"}},
+				TraceId:        []byte{0x03},
+			},
+			{
+				SeverityNumber: logspb.SeverityNumber_SEVERITY_NUMBER_ERROR,
+				Body:           &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "third failure"}},
+				TraceId:        []byte{0x04},
+			},
+		}}},
+	}}
+
+	n := tr.TranslateResourceLogs(rls)
+	if n != 2 {
+		t.Fatalf("emitted = %d, want 2 unique capped signals", n)
+	}
+	if got := len(em.all()); got != 2 {
+		t.Fatalf("captured events = %d, want 2", got)
+	}
+}
+
 // ---- small utility tests -----------------------------------------------
 
 func TestSeverityNumberForText(t *testing.T) {

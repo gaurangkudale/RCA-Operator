@@ -40,7 +40,7 @@ spec:
       mentionOnP1: "@oncall"
     pagerduty:
       secretRef: pagerduty-key
-      severity: P2
+      severity: P2 # High
   incidentRetention: 30d
 ```
 
@@ -64,14 +64,14 @@ Optional. Remove the whole block if you do not want outbound alerts.
 |---|---|---|---|
 | `webhookSecretRef` | `string` | Yes | Name of a Secret with key `webhookURL` |
 | `channel` | `string` | Yes | Slack channel, for example `#incidents` |
-| `mentionOnP1` | `string` | No | Slack user or group to mention on P1 incidents |
+| `mentionOnP1` | `string` | No | Slack user or group to mention on P1 Critical incidents |
 
 #### spec.notifications.pagerduty
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `secretRef` | `string` | Yes | — | Name of a Secret with key `apiKey` |
-| `severity` | `string` | No | `P2` | Minimum severity to page. One of `P1`, `P2`, `P3`, `P4` |
+| `severity` | `string` | No | `P2` | Minimum severity to page: `P1` Critical, `P2` High, `P3` Medium, or `P4` Low |
 
 The controller validates any referenced notification secrets in the same namespace as the `RCAAgent`.
 

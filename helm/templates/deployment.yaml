@@ -51,6 +51,8 @@ spec:
             {{- if .Values.leaderElection.namespace }}
             - --leader-election-namespace={{ .Values.leaderElection.namespace }}
             {{- end }}
+            - --signal-buffer-size={{ .Values.signals.bufferSize }}
+            - --signal-emit-dedup-window={{ .Values.signals.emitDedupWindow }}
             {{- if .Values.autoDetect.enabled }}
             - --enable-autodetect=true
             - --autodetect-min-occurrences={{ .Values.autoDetect.minOccurrences }}
@@ -64,6 +66,7 @@ spec:
             - --otel-ingest-filter-http-status-gte={{ .Values.otelIngest.filters.traces.httpStatusGte }}
             - --otel-ingest-filter-latency-ms={{ .Values.otelIngest.filters.traces.latencyP99Ms }}
             - --otel-ingest-filter-min-log-severity={{ .Values.otelIngest.filters.logs.minSeverity }}
+            - --otel-ingest-max-log-signals-per-request={{ .Values.otelIngest.filters.logs.maxSignalsPerRequest }}
             {{- end }}
             {{- with include "rca-operator.jaegerQueryURL" . }}
             - --jaeger-query-url={{ . }}

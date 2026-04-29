@@ -69,6 +69,10 @@ type LogFilters struct {
 	// MinSeverity is the OTel severity text ("WARN", "ERROR", "FATAL").
 	// Records below this are dropped at ingest.
 	MinSeverity string
+
+	// MaxSignalsPerRequest caps the number of log-derived signals emitted from
+	// one OTLP request after per-request deduplication. Zero disables the cap.
+	MaxSignalsPerRequest int
 }
 
 // DefaultConfig returns a Config populated with the Phase 2 defaults documented
@@ -86,7 +90,7 @@ func DefaultConfig() Config {
 			HTTPStatusGte:   500,
 			LatencyP99Ms:    5000,
 		},
-		LogFilters: LogFilters{MinSeverity: "WARN"},
+		LogFilters: LogFilters{MinSeverity: "WARN", MaxSignalsPerRequest: 256},
 	}
 }
 

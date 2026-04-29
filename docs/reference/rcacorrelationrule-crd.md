@@ -31,7 +31,7 @@ spec:
       scope: sameNode
   fires:
     incidentType: NodeNotReady
-    severity: P1
+    severity: P1 # Critical
     summary: "NodeNotReady with pod evictions on node {{.NodeName}}"
     resource: node
     scope: Cluster
@@ -53,7 +53,7 @@ spec:
       scope: samePod
   fires:
     incidentType: OOMKilled
-    severity: P2
+    severity: P2 # High
     summary: "OOMKilled: CrashLoopBackOff with OOMKilled on pod {{.PodName}} in {{.Namespace}}"
 ```
 
@@ -74,7 +74,7 @@ spec:
       negate: true   # fires only if PodHealthy is NOT in the buffer
   fires:
     incidentType: ImagePullBackOff
-    severity: P2
+    severity: P2 # High
     summary: "ImagePullBackOff: no prior healthy state for pod {{.PodName}} in {{.Namespace}}"
 ```
 
@@ -150,7 +150,7 @@ conditions:
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `incidentType` | `string` | Yes | Canonical incident category |
-| `severity` | `string` | Yes | `P1`, `P2`, `P3`, or `P4` |
+| `severity` | `string` | Yes | Canonical severity code: `P1` Critical, `P2` High, `P3` Medium, or `P4` Low |
 | `summary` | `string` | Yes | Go `text/template` rendered with event context |
 | `resource` | `string` | No | Override dedup resource: `node` for node-scoped, `deployment` for deployment-scoped |
 | `scope` | `string` | No | Override incident scope: `Pod`, `Workload`, `Namespace`, `Cluster` |
@@ -172,10 +172,10 @@ The Helm chart ships 4 default rules (enabled via `defaultRules.enabled: true`):
 
 | Name | Priority | Trigger | Condition | Fires | Severity |
 |---|---|---|---|---|---|
-| `node-plus-eviction` | 500 | NodeNotReady | PodEvicted (sameNode) | NodeNotReady | P1 |
-| `crashloop-plus-oom` | 400 | CrashLoopBackOff | OOMKilled (samePod) | OOMKilled | P2 |
-| `crashloop-plus-deploy` | 300 | CrashLoopBackOff | StalledRollout (sameNamespace) | StalledRollout | P2 |
-| `imagepull-no-history` | 200 | ImagePullBackOff | !PodHealthy (samePod) | ImagePullBackOff | P2 |
+| `node-plus-eviction` | 500 | NodeNotReady | PodEvicted (sameNode) | NodeNotReady | P1 Critical |
+| `crashloop-plus-oom` | 400 | CrashLoopBackOff | OOMKilled (samePod) | OOMKilled | P2 High |
+| `crashloop-plus-deploy` | 300 | CrashLoopBackOff | StalledRollout (sameNamespace) | StalledRollout | P2 High |
+| `imagepull-no-history` | 200 | ImagePullBackOff | !PodHealthy (samePod) | ImagePullBackOff | P2 High |
 
 ## Print Columns
 
@@ -186,7 +186,7 @@ The Helm chart ships 4 default rules (enabled via `defaultRules.enabled: true`):
 | Priority | Evaluation priority |
 | Trigger | Trigger event type |
 | Fires | Incident type produced |
-| Severity | Incident severity |
+| Severity | Canonical incident severity code (`P1`–`P4`) |
 | Age | Resource age |
 
 ## kubectl Cheatsheet

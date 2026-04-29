@@ -135,10 +135,10 @@ Four default rules are installed with the Helm chart (`defaultRules.enabled: tru
 
 | Rule | Trigger | Condition | Severity |
 |---|---|---|---|
-| `node-plus-eviction` | NodeNotReady | PodEvicted on same node | P1 |
-| `crashloop-plus-oom` | CrashLoopBackOff | OOMKilled on same pod | P2 |
-| `crashloop-plus-deploy` | CrashLoopBackOff | StalledRollout in same namespace | P2 |
-| `imagepull-no-history` | ImagePullBackOff | No PodHealthy on same pod | P2 |
+| `node-plus-eviction` | NodeNotReady | PodEvicted on same node | P1 Critical |
+| `crashloop-plus-oom` | CrashLoopBackOff | OOMKilled on same pod | P2 High |
+| `crashloop-plus-deploy` | CrashLoopBackOff | StalledRollout in same namespace | P2 High |
+| `imagepull-no-history` | ImagePullBackOff | No PodHealthy on same pod | P2 High |
 
 When auto-detection is enabled (`--enable-autodetect`), the operator also creates rules automatically from observed signal patterns. Auto-generated rules use a fixed priority of 30 (below user rules) and are labeled `rca.rca-operator.tech/auto-generated: "true"`. See [Auto-Detection](docs/features/auto-detection.md) for details.
 

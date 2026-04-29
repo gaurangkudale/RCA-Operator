@@ -69,6 +69,7 @@ func (t *Translator) TranslateResourceSpans(rss []*tracepb.ResourceSpans) int {
 func (t *Translator) TranslateResourceLogs(rls []*logspb.ResourceLogs) int {
 	minSevNum := severityNumberForText(t.cfg.LogFilters.MinSeverity)
 	emitted := 0
+	seen := map[string]struct{}{}
 	for _, rl := range rls {
 		resAttrs := resourceAttrs(rl.GetResource())
 		base := t.baseFromResource(resAttrs)
@@ -97,8 +98,16 @@ func (t *Translator) TranslateResourceLogs(rls []*logspb.ResourceLogs) int {
 					Attrs:         attrs,
 					ResourceAttrs: resAttrs,
 				}
+				key := evt.DedupKey()
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
 				t.emitter.Emit(evt)
 				emitted++
+				if t.cfg.LogFilters.MaxSignalsPerRequest > 0 && emitted >= t.cfg.LogFilters.MaxSignalsPerRequest {
+					return emitted
+				}
 			}
 		}
 	}

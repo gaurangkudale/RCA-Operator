@@ -29,7 +29,7 @@ spec:
       name: payment-service
 status:
   phase: Active
-  severity: P2
+  severity: P2 # High
   incidentType: CrashLoopBackOff
   summary: "CrashLoopBackOff: container app in pod payment-abc123 (restarts: 8)"
   firstObservedAt: "2026-04-01T10:00:00Z"
@@ -74,7 +74,7 @@ status:
 | Field | Type | Description |
 |---|---|---|
 | `phase` | `string` | Current lifecycle phase: `Detecting`, `Active`, or `Resolved` |
-| `severity` | `string` | Incident severity: `P1`, `P2`, `P3`, or `P4` |
+| `severity` | `string` | Canonical incident severity code: `P1`, `P2`, `P3`, or `P4` |
 | `incidentType` | `string` | Self-describing incident type from the raw event |
 | `summary` | `string` | Human-readable summary for dashboard display |
 | `reason` | `string` | Machine-oriented Kubernetes reason when available |
@@ -108,12 +108,16 @@ Detecting ──(stabilization window)──> Active ──(pod healthy/deleted)
 
 ### Severity Levels
 
-| Level | Scope | Description |
-|---|---|---|
-| P1 | Cluster-wide | Node failures, mass evictions |
-| P2 | Namespace / Workload | Correlated multi-signal incidents |
-| P3 | Single service | Single-signal incidents (CrashLoopBackOff, ImagePullBackOff) |
-| P4 | Warning | Informational, low-urgency events |
+Severity codes are the canonical API values stored in `IncidentReport`,
+labels, metrics, and selectors. UI and documentation should display the human
+label next to the code.
+
+| Code | Label | Typical Scope | Description |
+|---|---|---|---|
+| P1 | Critical | Cluster-wide | Node failures, mass evictions, urgent paging |
+| P2 | High | Namespace / Workload | Correlated multi-signal incidents |
+| P3 | Medium | Single service | Single-signal incidents such as CrashLoopBackOff or ImagePullBackOff |
+| P4 | Low | Warning / informational | Low-urgency telemetry or diagnostic events |
 
 ## Print Columns
 
@@ -121,7 +125,7 @@ Detecting ──(stabilization window)──> Active ──(pod healthy/deleted)
 
 | Column | Description |
 |---|---|
-| Severity | P1–P4 |
+| Severity | Canonical code (`P1`–`P4`) |
 | Phase | Detecting, Active, Resolved |
 | Type | Incident type |
 | Notified | Whether notifications were sent |

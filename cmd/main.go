@@ -81,6 +81,8 @@ func main() {
 	var enableHTTP2 bool
 	var enableWebhooks bool
 	var tlsOpts []func(*tls.Config)
+	var signalBufferSize int
+	var signalEmitDedupWindow time.Duration
 	flag.StringVar(&dashboardAddr, "dashboard-bind-address", ":9090", "The address the incident dashboard binds to.")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -95,6 +97,10 @@ func main() {
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
 	flag.BoolVar(&enableWebhooks, "enable-webhooks", false,
 		"Enable admission webhooks for RCAAgent and RCACorrelationRule validation.")
+	flag.IntVar(&signalBufferSize, "signal-buffer-size", 8192,
+		"Size of the shared signal channel between collectors and the incident engine.")
+	flag.DurationVar(&signalEmitDedupWindow, "signal-emit-dedup-window", 2*time.Second,
+		"Coalesce repeated signals with the same dedup key before enqueueing. Set 0 to disable.")
 	flag.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
 	flag.StringVar(&webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
 	flag.StringVar(&webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
@@ -127,6 +133,7 @@ func main() {
 	var otelIngestHTTPStatusGte int
 	var otelIngestLatencyMs int
 	var otelIngestMinLogSeverity string
+	var otelIngestMaxLogSignalsPerRequest int
 	flag.StringVar(&otelIngestBindAddr, "otel-ingest-bind-address", "",
 		"The address the OTLP/HTTP ingest server binds to (e.g. ':4319'). Empty disables the ingest server.")
 	flag.BoolVar(&otelIngestErrorStatus, "otel-ingest-filter-error-status", true,
@@ -137,6 +144,8 @@ func main() {
 		"Emit OTelSpanLatencySpike signals when span duration exceeds this threshold in milliseconds (0 disables).")
 	flag.StringVar(&otelIngestMinLogSeverity, "otel-ingest-filter-min-log-severity", "WARN",
 		"Minimum OTel log severity to ingest (TRACE|DEBUG|INFO|WARN|ERROR|FATAL).")
+	flag.IntVar(&otelIngestMaxLogSignalsPerRequest, "otel-ingest-max-log-signals-per-request", 256,
+		"Maximum OTelLogMatch signals emitted from one OTLP log request after deduplication. Set 0 to disable.")
 
 	// Jaeger Query URL (Phase 2 Milestone D). When set, the incident graph
 	// builder enriches topology with service-to-service edges resolved from
@@ -285,8 +294,11 @@ func main() {
 	engine.RegisterRuleEngineFactory(crdFactory)
 
 	// --- Signal channel + Incident Engine ---
-	signals := make(chan collectors.Signal, 1024)
-	signalEmitter := collectors.NewChannelSignalEmitter(signals, ctrl.Log)
+	if signalBufferSize < 1 {
+		signalBufferSize = 1
+	}
+	signals := make(chan collectors.Signal, signalBufferSize)
+	signalEmitter := collectors.NewChannelSignalEmitterWithOptions(signals, ctrl.Log, signalEmitDedupWindow)
 	incidentEngine, err := engine.NewIncidentEngine(
 		mgr.GetClient(),
 		signals,
@@ -299,7 +311,9 @@ func main() {
 		os.Exit(1)
 	}
 	setupLog.Info("Incident engine created", "ruleEngine", incidentEngine.RuleEngineName(),
-		"loadedRules", crdFactory.Engine.RuleCount())
+		"loadedRules", crdFactory.Engine.RuleCount(),
+		"signalBufferSize", signalBufferSize,
+		"signalEmitDedupWindow", signalEmitDedupWindow.String())
 	if err := mgr.Add(incidentEngine); err != nil {
 		setupLog.Error(err, "Failed to add incident engine")
 		os.Exit(1)
@@ -360,6 +374,7 @@ func main() {
 		ingestCfg.TraceFilters.HTTPStatusGte = otelIngestHTTPStatusGte
 		ingestCfg.TraceFilters.LatencyP99Ms = otelIngestLatencyMs
 		ingestCfg.LogFilters.MinSeverity = otelIngestMinLogSeverity
+		ingestCfg.LogFilters.MaxSignalsPerRequest = otelIngestMaxLogSignalsPerRequest
 		// Milestone A: no user-configured redaction patterns yet; Helm chart will
 		// wire values.yaml insights.defaultRedactionPatterns into this list in
 		// Milestone E when the agent-level config is plumbed.
@@ -375,6 +390,7 @@ func main() {
 			"httpStatusGte", ingestCfg.TraceFilters.HTTPStatusGte,
 			"latencyMs", ingestCfg.TraceFilters.LatencyP99Ms,
 			"minLogSeverity", ingestCfg.LogFilters.MinSeverity,
+			"maxLogSignalsPerRequest", ingestCfg.LogFilters.MaxSignalsPerRequest,
 		)
 	} else {
 		setupLog.Info("OTLP ingest server disabled (pass --otel-ingest-bind-address to enable)")

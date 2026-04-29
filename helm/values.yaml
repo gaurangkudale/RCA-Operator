@@ -107,6 +107,16 @@ autoDetect:
 webhooks:
   enabled: false
 
+# Shared signal channel protection.
+# Use case: absorb OTLP/Kubernetes signal bursts without blocking collectors or
+# starving controller-runtime leader election.
+signals:
+  # Buffered channel size between collectors and the incident engine.
+  bufferSize: 8192
+  # Coalesce repeated events with the same dedup key before enqueueing.
+  # Set to 0s to disable.
+  emitDedupWindow: 2s
+
 # Pod Disruption Budget
 # Use case: Protect operator availability during voluntary node disruptions.
 podDisruptionBudget:
@@ -257,6 +267,9 @@ otelIngest:
       # Minimum OTel severity text that enters the correlator.
       # One of: TRACE | DEBUG | INFO | WARN | ERROR | FATAL
       minSeverity: "WARN"
+      # Maximum OTelLogMatch signals emitted from one OTLP log request after
+      # per-request deduplication. Set 0 to disable the cap.
+      maxSignalsPerRequest: 256
 
 # ────────────────────────────────────────────────────────────────────────────
 # Phase 2 Milestone D — Incident Graph Builder
