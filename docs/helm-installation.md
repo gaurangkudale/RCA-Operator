@@ -1,6 +1,6 @@
 # RCA Operator — Helm Reference
 
-> **Chart version:** `0.1.0` | **Kubernetes:** ≥ 1.26
+> **Chart version:** `0.0.16` | **Kubernetes:** ≥ 1.26
 
 For a first-time install, start with [Getting Started → Installation](getting-started/installation.md).
 This page is the **reference** for installing from source, upgrading, override
@@ -12,7 +12,7 @@ flags, and troubleshooting.
 
 | Component | Kind | Version |
 |-----------|------|---------|
-| RCA Operator | Deployment | 0.1.0 |
+| RCA Operator | Deployment | 0.0.16 |
 | OpenTelemetry Operator | Deployment | 0.109.2 |
 | OTel Collector | DaemonSet (one pod / node) | 0.121.0 |
 | Jaeger | Deployment | 4.7.0 |

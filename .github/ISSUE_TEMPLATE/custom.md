@@ -13,7 +13,7 @@ A clear and concise description of the issue encountered during RCA.
 ## Environment Details
 * **Kubernetes Version:** (e.g., v1.29.0)
 * **Cloud Provider/Distro:** (e.g., GKE, EKS, Rancher, Kind)
-* **RCA-Operator Version:** (e.g., v0.1.0-alpha or commit hash)
+* **RCA-Operator Version:** (e.g., v0.0.16 or commit hash)
 * **Installation Method:** (e.g., Helm, Kustomize, or direct kubectl)
 
 ## Reproduction Steps

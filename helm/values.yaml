@@ -21,7 +21,7 @@ image:
   repository: ghcr.io/gaurangkudale/rca-operator
   pullPolicy: IfNotPresent
   # Empty string resolves to .Chart.AppVersion at render time. Pin to an
-  # explicit tag (e.g. "0.1.0") for reproducible upgrades.
+  # explicit tag (e.g. "0.0.16") for reproducible upgrades.
   tag: ""
 
 imagePullSecrets: []
