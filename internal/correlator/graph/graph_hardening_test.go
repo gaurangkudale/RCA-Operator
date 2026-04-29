@@ -10,6 +10,7 @@ import (
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 	"github.com/gaurangkudale/rca-operator/internal/jaeger"
+	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
 // TestEnrichFromJaeger_NilTrace ensures the helper is a no-op on nil input
@@ -48,6 +49,58 @@ func TestEnrichFromJaeger_MissingProcessID(t *testing.T) {
 			t.Fatalf("empty-svc node id leaked into graph")
 		}
 	}
+}
+
+func TestEnrichFromEvent_AttachesServiceNamespace(t *testing.T) {
+	nodes := newNodeSet()
+	var edges []Edge
+	b := NewBuilder(nil, nil, logr.Discard())
+
+	b.enrichFromEvent(watcher.OTelLogMatchEvent{
+		BaseEvent:   watcher.BaseEvent{Namespace: "rca-demo", PodName: "quote-abc"},
+		ServiceName: "quote",
+	}, nodes, &edges, "incident:rca-demo/i1")
+
+	for _, n := range nodes.sorted() {
+		if n.ID == "svc:quote" {
+			if n.Namespace != "rca-demo" {
+				t.Fatalf("service namespace = %q, want rca-demo", n.Namespace)
+			}
+			return
+		}
+	}
+	t.Fatalf("service node not found: %+v", nodes.sorted())
+}
+
+func TestEnrichFromJaeger_AttachesServiceNamespaceFromSpanTags(t *testing.T) {
+	trace := &jaeger.Trace{
+		Spans: []jaeger.Span{
+			{
+				SpanID:    "s1",
+				ProcessID: "p1",
+				Tags: []jaeger.KeyValue{
+					{Key: "k8s.namespace.name", Value: "rca-demo"},
+					{Key: "k8s.pod.name", Value: "quote-abc"},
+				},
+			},
+		},
+		Processes: map[string]jaeger.Process{
+			"p1": {ServiceName: "quote"},
+		},
+	}
+	nodes := newNodeSet()
+	var edges []Edge
+	enrichFromJaeger(trace, nodes, &edges)
+
+	for _, n := range nodes.sorted() {
+		if n.ID == "svc:quote" {
+			if n.Namespace != "rca-demo" {
+				t.Fatalf("service namespace = %q, want rca-demo", n.Namespace)
+			}
+			return
+		}
+	}
+	t.Fatalf("service node not found: %+v", nodes.sorted())
 }
 
 // TestTruncate_NilGraph guards against nil input.

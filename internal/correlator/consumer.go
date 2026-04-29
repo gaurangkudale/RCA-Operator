@@ -155,7 +155,7 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 					})
 				}
 			}
-			c.log.Info("Rule engine produced incident override",
+			c.log.V(1).Info("Rule engine produced incident override",
 				"rule", result.Rule,
 				"severity", input.Severity,
 			)

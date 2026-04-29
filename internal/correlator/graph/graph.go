@@ -257,10 +257,11 @@ func (b *Builder) enrichFromEvent(e watcher.CorrelatorEvent, nodes *nodeSet, edg
 	if serviceName != "" {
 		svcID := "svc:" + serviceName
 		nodes.add(Node{
-			ID:    svcID,
-			Kind:  NodeKindService,
-			Name:  serviceName,
-			Label: serviceName,
+			ID:        svcID,
+			Kind:      NodeKindService,
+			Name:      serviceName,
+			Namespace: namespace,
+			Label:     serviceName,
 		})
 		*edges = append(*edges, Edge{From: rootID, To: svcID, Kind: EdgeKindAffects})
 
@@ -303,6 +304,7 @@ func enrichFromJaeger(trace *jaeger.Trace, nodes *nodeSet, edges *[]Edge) {
 		return
 	}
 	spanService := make(map[string]string, len(trace.Spans))
+	serviceNamespace := make(map[string]string, len(trace.Processes))
 	for _, span := range trace.Spans {
 		// Processes is a map keyed by ProcessID; a span may legally reference a
 		// missing entry (collector dropped the process record, batch crossed a
@@ -331,10 +333,16 @@ func enrichFromJaeger(trace *jaeger.Trace, nodes *nodeSet, edges *[]Edge) {
 				namespace = asString(tag.Value)
 			}
 		}
+		if svc != "" && namespace != "" {
+			serviceNamespace[svc] = mergeNamespaceHint(serviceNamespace[svc], namespace)
+		}
+		if svc != "" {
+			nodes.add(Node{ID: svcID(svc), Kind: NodeKindService, Name: svc, Namespace: serviceNamespace[svc], Label: svc})
+		}
 		if podName != "" && svc != "" {
 			podID := k8sNodeID(NodeKindPod, namespace, podName)
 			nodes.add(Node{ID: podID, Kind: NodeKindPod, Name: podName, Namespace: namespace, Label: podName})
-			*edges = append(*edges, Edge{From: "svc:" + svc, To: podID, Kind: EdgeKindRunsOn})
+			*edges = append(*edges, Edge{From: svcID(svc), To: podID, Kind: EdgeKindRunsOn})
 		}
 	}
 
@@ -347,12 +355,26 @@ func enrichFromJaeger(trace *jaeger.Trace, nodes *nodeSet, edges *[]Edge) {
 				continue
 			}
 			*edges = append(*edges, Edge{
-				From: "svc:" + parentSvc,
-				To:   "svc:" + childSvc,
+				From: svcID(parentSvc),
+				To:   svcID(childSvc),
 				Kind: EdgeKindCalls,
 			})
 		}
 	}
+}
+
+func svcID(name string) string {
+	return "svc:" + name
+}
+
+func mergeNamespaceHint(current, next string) string {
+	if current == "" {
+		return next
+	}
+	if next == "" || current == next {
+		return current
+	}
+	return ""
 }
 
 // asString best-effort coerces a Jaeger KeyValue.Value (any) to a string.
@@ -381,7 +403,23 @@ func newNodeSet() *nodeSet {
 // added — callers rely on this to emit the "incident → resource" edge only
 // for first-sight resources.
 func (s *nodeSet) add(n Node) bool {
-	if _, ok := s.byID[n.ID]; ok {
+	if existing, ok := s.byID[n.ID]; ok {
+		changed := false
+		if existing.Namespace == "" && n.Namespace != "" {
+			existing.Namespace = n.Namespace
+			changed = true
+		}
+		if existing.Name == "" && n.Name != "" {
+			existing.Name = n.Name
+			changed = true
+		}
+		if existing.Label == "" && n.Label != "" {
+			existing.Label = n.Label
+			changed = true
+		}
+		if changed {
+			s.byID[n.ID] = existing
+		}
 		return false
 	}
 	s.byID[n.ID] = n

@@ -507,9 +507,9 @@ function selectedIncidentNamespace(){
   return key.slice(0, idx);
 }
 
-function incidentMatchesNode(inc, node){
+function incidentMatchesNode(inc, node, opts = {}){
   if (!inc || !node) return false;
-  if ((inc.phase || '').toLowerCase() === 'resolved') return false;
+  if (!opts.includeResolved && (inc.phase || '').toLowerCase() === 'resolved') return false;
 
   const name = String(node.name || '').trim();
   const kind = String(node.kind || '').trim();
@@ -548,8 +548,19 @@ function incidentMatchesNode(inc, node){
 }
 
 function incidentsForNode(node){
+  const out = [];
+  const seen = new Set();
+  const add = (inc, includeResolved = false) => {
+    if (!incidentMatchesNode(inc, node, { includeResolved })) return;
+    const key = incKey(inc);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(inc);
+  };
+  if (state.incidentGraph && state.incidentDetail) add(state.incidentDetail, true);
   const list = Array.isArray(state.incidents) ? state.incidents : [];
-  return list.filter(inc => incidentMatchesNode(inc, node));
+  list.forEach(inc => add(inc, false));
+  return out;
 }
 
 function traceIDsForIncidents(list){
@@ -567,6 +578,46 @@ function traceIDsForIncidents(list){
     push(inc.traceId);
   });
   return out;
+}
+
+function resourceNodeWithNamespace(node){
+  if (!node || node.kind !== 'Service' || node.namespace) return node;
+  const name = String(node.name || '').trim();
+  if (!name) return node;
+
+  const namespaces = new Set();
+  const addNS = (ns) => {
+    const v = String(ns || '').trim();
+    if (v) namespaces.add(v);
+  };
+
+  const detail = state.incidentDetail;
+  if (detail) {
+    const resources = Array.isArray(detail.affectedResources) ? detail.affectedResources : [];
+    resources.forEach(r => {
+      if (!r) return;
+      if (r.kind === 'Service' && r.name === name) addNS(r.namespace);
+      if ((r.kind === 'Deployment' || r.kind === 'StatefulSet' || r.kind === 'DaemonSet' || r.kind === 'ReplicaSet') && r.name === name) addNS(r.namespace);
+      if (r.kind === 'Pod' && typeof r.name === 'string' && r.name.startsWith(name + '-')) addNS(r.namespace);
+    });
+    if (typeof detail.podName === 'string' && detail.podName.startsWith(name + '-')) addNS(detail.namespace);
+  }
+  const selectedNS = selectedIncidentNamespace();
+  if (state.incidentGraph && selectedNS) addNS(selectedNS);
+
+  const scanGraph = (g) => {
+    if (!g || !Array.isArray(g.nodes)) return;
+    g.nodes.forEach(n => {
+      if (n && n.kind === 'Service' && n.name === name) addNS(n.namespace);
+    });
+  };
+  scanGraph(state.serviceGraph);
+  scanGraph(state.topology);
+
+  if (namespaces.size === 1) {
+    return { ...node, namespace: Array.from(namespaces)[0] };
+  }
+  return node;
 }
 
 function normalizeTraceIDs(traceIDs){
@@ -1957,24 +2008,29 @@ async function selectTopologyNode(id, e){
     lucide.createIcons();
     return;
   }
-  const nodeIncidents = incidentsForNode(node);
+  const resourceNode = resourceNodeWithNamespace(node);
+  const nodeIncidents = incidentsForNode(resourceNode);
   const traces = traceIDsForIncidents(nodeIncidents);
-  const showTraceList = node.kind === 'Service' || node.kind === 'Deployment';
+  const showTraceList = resourceNode.kind === 'Service' || resourceNode.kind === 'Deployment';
 
-  if (!node.namespace && node.kind === 'Service') {
-    renderExternalServicePanel(node, { traceIDs: traces, incidents: nodeIncidents });
+  if (!resourceNode.namespace && resourceNode.kind === 'Service') {
+    renderExternalServicePanel(resourceNode, { traceIDs: traces, incidents: nodeIncidents });
     return;
   }
-  if (!node.namespace && node.kind !== 'Node') {
+  if (!resourceNode.namespace && resourceNode.kind !== 'Node') {
     body.innerHTML = `<div class="text-xs text-slate-500">No details available for this node.</div>`;
     return;
   }
 
   try {
-    const ns = node.namespace || '_';
-    const r = await apiGet(`/api/resources/${encodeURIComponent(ns)}/${encodeURIComponent(node.kind)}/${encodeURIComponent(node.name)}`, {noCache:true});
-    renderResourcePanel(r, { traceIDs: traces, showTraceList, incidents: nodeIncidents, node });
+    const ns = resourceNode.namespace || '_';
+    const r = await apiGet(`/api/resources/${encodeURIComponent(ns)}/${encodeURIComponent(resourceNode.kind)}/${encodeURIComponent(resourceNode.name)}`, {noCache:true});
+    renderResourcePanel(r, { traceIDs: traces, showTraceList, incidents: nodeIncidents, node: resourceNode });
   } catch(e){
+    if (resourceNode.kind === 'Service' && !node.namespace) {
+      renderExternalServicePanel(resourceNode, { traceIDs: traces, incidents: nodeIncidents, error: e.message });
+      return;
+    }
     body.innerHTML = `<div class="text-xs text-amber-300">Failed to load resource: ${escapeHtml(e.message)}</div>`;
   }
 }
@@ -1983,6 +2039,7 @@ function renderExternalServicePanel(node, opts){
   const body = document.getElementById('topo-panel-body');
   const traceIDs = Array.isArray(opts && opts.traceIDs) ? opts.traceIDs : [];
   const activeIncident = (opts && Array.isArray(opts.incidents) && opts.incidents.length) ? opts.incidents[0] : null;
+  const lookupError = opts && opts.error ? String(opts.error) : '';
 
   const tracesSection = traceIDs.length
     ? renderTraceIDSection(traceIDs)
@@ -2002,7 +2059,7 @@ function renderExternalServicePanel(node, opts){
     <div>
       <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Resource Status</h3>
       <div class="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs">
-        <div class="text-slate-400">External trace service (no Kubernetes namespace metadata)</div>
+        <div class="text-slate-400">${lookupError ? `Kubernetes Service not found: ${escapeHtml(lookupError)}` : 'External trace service (no Kubernetes namespace metadata)'}</div>
       </div>
     </div>
     ${tracesSection}
@@ -2205,7 +2262,7 @@ function renderTraceModal(d){
     </div>
   </div>` : '';
 
-  body.innerHTML = summary + errorBlock + waterfall + breakdown;
+  body.innerHTML = summary + breakdown + errorBlock + waterfall;
   lucide.createIcons();
 }
 
