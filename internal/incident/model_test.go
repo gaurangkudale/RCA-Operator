@@ -6,7 +6,7 @@ import (
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 )
 
-func TestFingerprint_OTelIncidentIncludesType(t *testing.T) {
+func TestFingerprint_OTelIncidentUsesSharedTelemetryScope(t *testing.T) {
 	input := Input{
 		Namespace:    "rca-demo",
 		IncidentType: "OTelSpanError",
@@ -22,9 +22,14 @@ func TestFingerprint_OTelIncidentIncludesType(t *testing.T) {
 	}
 
 	got := input.Fingerprint()
-	want := "Workload|rca-demo|service|proxy-service|type|OTelSpanError"
+	want := "Workload|rca-demo|service|proxy-service"
 	if got != want {
 		t.Fatalf("Fingerprint() = %q, want %q", got, want)
+	}
+
+	input.IncidentType = "OTelLogMatch"
+	if got := input.Fingerprint(); got != want {
+		t.Fatalf("Fingerprint() for OTelLogMatch = %q, want shared %q", got, want)
 	}
 }
 

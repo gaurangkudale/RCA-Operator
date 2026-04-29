@@ -909,14 +909,17 @@ func trimAffectedResources(in []rcav1alpha1.AffectedResource) []rcav1alpha1.Affe
 }
 
 // reportFingerprint computes the fingerprint for an existing IncidentReport.
-// Kubernetes-native incidents remain scope-based; OTel incidents include
-// incident type to avoid collapsing service-runtime errors into unrelated
-// Kubernetes lifecycle incidents for the same workload.
+// Kubernetes-native incidents remain scope-based. OTel incidents use the same
+// scope-only identity as new telemetry signals so logs/spans/events/latency
+// evidence for one workload consolidate into a single IncidentReport.
 func reportFingerprint(report *rcav1alpha1.IncidentReport) string {
 	if report == nil {
 		return ""
 	}
 	if report.Spec.Fingerprint != "" {
+		if incident.IsOTelIncidentType(report.Spec.IncidentType) || incident.IsOTelIncidentType(report.Status.IncidentType) {
+			return stripLegacyOTelFingerprintType(report.Spec.Fingerprint)
+		}
 		return report.Spec.Fingerprint
 	}
 
@@ -955,40 +958,36 @@ func reportFingerprint(report *rcav1alpha1.IncidentReport) string {
 		for _, res := range report.Status.AffectedResources {
 			switch res.Kind {
 			case "Node":
-				parts := []string{"Cluster", "node", res.Name}
-				if incident.IsOTelIncidentType(report.Spec.IncidentType) {
-					parts = append(parts, "type", report.Spec.IncidentType)
-				}
-				return strings.Join(parts, "|")
+				return strings.Join([]string{"Cluster", "node", res.Name}, "|")
 			case "Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "ReplicaSet":
-				parts := []string{"Workload", res.Namespace, strings.ToLower(res.Kind), res.Name}
-				if incident.IsOTelIncidentType(report.Spec.IncidentType) {
-					parts = append(parts, "type", report.Spec.IncidentType)
-				}
-				return strings.Join(parts, "|")
+				return strings.Join([]string{"Workload", res.Namespace, strings.ToLower(res.Kind), res.Name}, "|")
 			case "Pod":
-				parts := []string{"Pod", res.Namespace, "pod", res.Name}
-				if incident.IsOTelIncidentType(report.Spec.IncidentType) {
-					parts = append(parts, "type", report.Spec.IncidentType)
-				}
-				return strings.Join(parts, "|")
+				return strings.Join([]string{"Pod", res.Namespace, "pod", res.Name}, "|")
 			}
 		}
 		if report.Namespace != "" {
-			parts := []string{"Namespace", report.Namespace}
-			if incident.IsOTelIncidentType(report.Spec.IncidentType) {
-				parts = append(parts, "type", report.Spec.IncidentType)
-			}
-			return strings.Join(parts, "|")
+			return strings.Join([]string{"Namespace", report.Namespace}, "|")
 		}
 		return report.Name
 	}
 
-	if incident.IsOTelIncidentType(report.Spec.IncidentType) {
-		parts = append(parts, "type", report.Spec.IncidentType)
-	}
-
 	return strings.Join(parts, "|")
+}
+
+// ReportFingerprint returns the canonical incident fingerprint used by the
+// reporter. It is exported for read-only surfaces such as the dashboard so they
+// present the same dedup identity that write paths use.
+func ReportFingerprint(report *rcav1alpha1.IncidentReport) string {
+	return reportFingerprint(report)
+}
+
+func stripLegacyOTelFingerprintType(fingerprint string) string {
+	const marker = "|type|OTel"
+	idx := strings.Index(fingerprint, marker)
+	if idx < 0 {
+		return fingerprint
+	}
+	return fingerprint[:idx]
 }
 
 func bestResolvedTime(report *rcav1alpha1.IncidentReport) *metav1.Time {

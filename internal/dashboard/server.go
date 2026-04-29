@@ -18,6 +18,8 @@ import (
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 	"github.com/gaurangkudale/rca-operator/internal/correlator"
+	"github.com/gaurangkudale/rca-operator/internal/correlator/graph"
+	"github.com/gaurangkudale/rca-operator/internal/incident"
 	"github.com/gaurangkudale/rca-operator/internal/incidentstatus"
 	"github.com/gaurangkudale/rca-operator/internal/jaeger"
 	"github.com/gaurangkudale/rca-operator/internal/reporter"
@@ -147,6 +149,7 @@ type incidentResponse struct {
 	TraceID           string                         `json:"traceId,omitempty"`
 	TraceIDs          []string                       `json:"traceIds,omitempty"`
 	FiredRule         string                         `json:"firedRule,omitempty"`
+	HasTopology       bool                           `json:"hasTopology"`
 }
 
 type timelineEntry struct {
@@ -243,6 +246,7 @@ func (s *Server) handleIncidents(w http.ResponseWriter, r *http.Request) {
 			result = append(result, toIncidentResponse(item))
 		}
 		sortIncidentResponses(result, sortBy)
+		result = collapseDuplicateOTelIncidents(result)
 		if offset > len(result) {
 			offset = len(result)
 		}
@@ -662,7 +666,7 @@ func toIncidentResponse(item *rcav1alpha1.IncidentReport) incidentResponse {
 	resp := incidentResponse{
 		Name:              item.Name,
 		Namespace:         item.Namespace,
-		Fingerprint:       item.Spec.Fingerprint,
+		Fingerprint:       reporter.ReportFingerprint(item),
 		PodName:           item.Labels[reporter.LabelPodName],
 		Severity:          item.Status.Severity,
 		Phase:             item.Status.Phase,
@@ -680,6 +684,7 @@ func toIncidentResponse(item *rcav1alpha1.IncidentReport) incidentResponse {
 		TraceID:           traceID,
 		TraceIDs:          traceIDs,
 		FiredRule:         firedRule,
+		HasTopology:       hasRenderableIncidentTopology(item),
 	}
 	if item.Status.FirstObservedAt != nil {
 		t := item.Status.FirstObservedAt.Time
@@ -714,6 +719,89 @@ func toIncidentResponse(item *rcav1alpha1.IncidentReport) incidentResponse {
 		resp.Timeline = append(resp.Timeline, timelineEntry{Time: &t, Event: e.Event})
 	}
 	return resp
+}
+
+func collapseDuplicateOTelIncidents(in []incidentResponse) []incidentResponse {
+	if len(in) <= 1 {
+		return in
+	}
+
+	out := make([]incidentResponse, 0, len(in))
+	indexByKey := make(map[string]int, len(in))
+	for _, item := range in {
+		if !incident.IsOTelIncidentType(item.IncidentType) || item.Fingerprint == "" {
+			out = append(out, item)
+			continue
+		}
+		key := item.Namespace + "/" + item.Fingerprint
+		if idx, ok := indexByKey[key]; ok {
+			if preferIncidentListItem(item, out[idx]) {
+				out[idx] = item
+			}
+			continue
+		}
+		indexByKey[key] = len(out)
+		out = append(out, item)
+	}
+	return out
+}
+
+func preferIncidentListItem(candidate, current incidentResponse) bool {
+	candidateOpen := candidate.Phase != reporter.PhaseResolved
+	currentOpen := current.Phase != reporter.PhaseResolved
+	if candidateOpen != currentOpen {
+		return candidateOpen
+	}
+	candidateSeverity := severityRank(candidate.Severity)
+	currentSeverity := severityRank(current.Severity)
+	if candidateSeverity != currentSeverity {
+		return candidateSeverity > currentSeverity
+	}
+	return incidentResponseLastTime(candidate).After(incidentResponseLastTime(current))
+}
+
+func incidentResponseLastTime(item incidentResponse) time.Time {
+	for _, t := range []*time.Time{item.LastObservedAt, item.ActiveAt, item.FirstObservedAt, item.ResolvedAt} {
+		if t != nil {
+			return *t
+		}
+	}
+	return time.Time{}
+}
+
+func hasRenderableIncidentTopology(item *rcav1alpha1.IncidentReport) bool {
+	if item == nil || item.Status.IncidentGraph == nil || len(item.Status.IncidentGraph.Raw) == 0 {
+		return false
+	}
+
+	var g graph.IncidentGraph
+	if err := json.Unmarshal(item.Status.IncidentGraph.Raw, &g); err != nil {
+		return false
+	}
+
+	services := make(map[string]struct{}, len(g.Nodes))
+	for _, n := range g.Nodes {
+		if n.Kind == graph.NodeKindService && n.ID != "" {
+			services[n.ID] = struct{}{}
+		}
+	}
+	if len(services) < 2 {
+		return false
+	}
+
+	for _, e := range g.Edges {
+		if e.Kind != graph.EdgeKindCalls || e.From == e.To {
+			continue
+		}
+		if _, ok := services[e.From]; !ok {
+			continue
+		}
+		if _, ok := services[e.To]; !ok {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

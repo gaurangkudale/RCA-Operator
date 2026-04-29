@@ -170,6 +170,68 @@ func TestEnsureSignal_DedupsIntoActiveIncident(t *testing.T) {
 	}
 }
 
+func TestEnsureSignal_DedupsOTelSignalsAcrossIncidentTypesForSameWorkload(t *testing.T) {
+	r, clk, c := newReporterFixture(t)
+	ctx := context.Background()
+	scope := rcav1alpha1.IncidentScope{
+		Level:     incident.ScopeLevelWorkload,
+		Namespace: "rca-demo",
+		WorkloadRef: &rcav1alpha1.IncidentObjectRef{
+			APIVersion: "apps/v1",
+			Kind:       "Deployment",
+			Namespace:  "rca-demo",
+			Name:       "frontend",
+		},
+	}
+	scope.ResourceRef = scope.WorkloadRef
+	resources := []rcav1alpha1.AffectedResource{
+		{APIVersion: "apps/v1", Kind: "Deployment", Namespace: "rca-demo", Name: "frontend"},
+	}
+
+	spanErr := incident.Input{
+		Namespace:         "rca-demo",
+		AgentRef:          "agent",
+		IncidentType:      "OTelSpanError",
+		Severity:          "P2",
+		Summary:           "span error",
+		Message:           "span error",
+		ObservedAt:        clk.Now(),
+		Scope:             scope,
+		AffectedResources: resources,
+		TraceID:           "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
+	if err := r.EnsureSignal(ctx, spanErr); err != nil {
+		t.Fatalf("span error EnsureSignal: %v", err)
+	}
+
+	clk.Advance(time.Second)
+	logMatch := spanErr
+	logMatch.IncidentType = "OTelLogMatch"
+	logMatch.Severity = "P3"
+	logMatch.Summary = "log match"
+	logMatch.Message = "log match"
+	logMatch.ObservedAt = clk.Now()
+	logMatch.TraceID = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	if err := r.EnsureSignal(ctx, logMatch); err != nil {
+		t.Fatalf("log match EnsureSignal: %v", err)
+	}
+
+	items := listIncidents(t, c)
+	if len(items) != 1 {
+		t.Fatalf("want 1 OTel incident, got %d", len(items))
+	}
+	got := items[0]
+	if got.Spec.Fingerprint != "Workload|rca-demo|deployment|frontend" {
+		t.Fatalf("fingerprint = %q", got.Spec.Fingerprint)
+	}
+	if got.Status.SignalCount != 2 {
+		t.Fatalf("signalCount = %d, want 2", got.Status.SignalCount)
+	}
+	if got.Status.Severity != "P2" {
+		t.Fatalf("severity = %q, want P2", got.Status.Severity)
+	}
+}
+
 // --- EnsureSignal: reopen a recently-resolved incident ----------------------
 
 func TestEnsureSignal_ReopensRecentlyResolvedIncident(t *testing.T) {

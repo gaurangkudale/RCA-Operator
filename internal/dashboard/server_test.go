@@ -40,6 +40,21 @@ func makeIncident(name, ns, severity, phase, incidentType string, firstSeen time
 	}
 }
 
+func rcaWorkloadScope(ns, name string) rcav1alpha1.IncidentScope {
+	ref := &rcav1alpha1.IncidentObjectRef{
+		APIVersion: "apps/v1",
+		Kind:       "Deployment",
+		Namespace:  ns,
+		Name:       name,
+	}
+	return rcav1alpha1.IncidentScope{
+		Level:       "Workload",
+		Namespace:   ns,
+		ResourceRef: ref,
+		WorkloadRef: ref,
+	}
+}
+
 // --- handleIncidents -------------------------------------------------------
 
 func TestHandleIncidents_RejectsNonGet(t *testing.T) {
@@ -177,6 +192,74 @@ func TestHandleIncidentDetail_ReturnsDetail(t *testing.T) {
 	}
 	if got["firedRule"] != "auto-rule" {
 		t.Errorf("firedRule = %v", got["firedRule"])
+	}
+}
+
+func TestHandleIncidents_HasTopologyOnlyForServiceCallGraph(t *testing.T) {
+	now := time.Now()
+	withCalls := makeIncident("with-calls", "prod", "P3", "Active", "OTelLogMatch", now)
+	withCalls.Status.IncidentGraph = &runtime.RawExtension{Raw: []byte(`{
+		"nodes":[
+			{"id":"svc:frontend","kind":"Service","name":"frontend"},
+			{"id":"svc:checkout","kind":"Service","name":"checkout"}
+		],
+		"edges":[{"from":"svc:frontend","to":"svc:checkout","kind":"calls"}]
+	}`)}
+
+	withoutCalls := makeIncident("without-calls", "prod", "P3", "Active", "OTelLogMatch", now)
+	withoutCalls.Status.IncidentGraph = &runtime.RawExtension{Raw: []byte(`{
+		"nodes":[{"id":"svc:frontend","kind":"Service","name":"frontend"}],
+		"edges":[]
+	}`)}
+
+	s := newTestServer(t, withCalls, withoutCalls)
+	rr := httptest.NewRecorder()
+	s.handleIncidents(rr, httptest.NewRequest(http.MethodGet, "/api/incidents", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var items []map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &items); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	got := map[string]bool{}
+	for _, item := range items {
+		got[item["name"].(string)] = item["hasTopology"].(bool)
+	}
+	if !got["with-calls"] {
+		t.Fatalf("with-calls hasTopology=false, want true")
+	}
+	if got["without-calls"] {
+		t.Fatalf("without-calls hasTopology=true, want false")
+	}
+}
+
+func TestHandleIncidents_CollapsesDuplicateOTelFingerprints(t *testing.T) {
+	now := time.Now()
+	span := makeIncident("span", "prod", "P2", "Resolved", "OTelSpanError", now.Add(-time.Minute))
+	span.Spec.Fingerprint = "Workload|prod|deployment|frontend|type|OTelSpanError"
+	span.Spec.Scope = rcaWorkloadScope("prod", "frontend")
+	logMatch := makeIncident("log", "prod", "P3", "Resolved", "OTelLogMatch", now)
+	logMatch.Spec.Fingerprint = "Workload|prod|deployment|frontend|type|OTelLogMatch"
+	logMatch.Spec.Scope = rcaWorkloadScope("prod", "frontend")
+
+	s := newTestServer(t, span, logMatch)
+	rr := httptest.NewRecorder()
+	s.handleIncidents(rr, httptest.NewRequest(http.MethodGet, "/api/incidents", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var items []map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &items); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items = %d, want 1 collapsed OTel incident: %s", len(items), rr.Body.String())
+	}
+	if got := items[0]["fingerprint"]; got != "Workload|prod|deployment|frontend" {
+		t.Fatalf("fingerprint = %v", got)
 	}
 }
 

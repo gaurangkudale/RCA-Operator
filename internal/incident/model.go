@@ -45,9 +45,10 @@ type Input struct {
 // For Kubernetes-native incident types, fingerprinting remains scope-based so
 // related controller/platform symptoms on the same resource can coalesce.
 //
-// For OTel incident types, IncidentType is included so service-runtime errors
-// (span errors, log matches, latency spikes) are not collapsed into unrelated
-// Kubernetes lifecycle incidents for the same workload.
+// OTel incident types intentionally share the same scope fingerprint. Span
+// errors, log matches, span events, and latency spikes on the same workload are
+// different evidence streams for one telemetry incident, not separate incident
+// identities.
 func (in Input) Fingerprint() string {
 	scope := in.Scope
 	var parts []string
@@ -86,10 +87,6 @@ func (in Input) Fingerprint() string {
 		if scope.ResourceRef != nil {
 			parts = append(parts, strings.ToLower(scope.ResourceRef.Kind), scope.ResourceRef.Name)
 		}
-	}
-
-	if IsOTelIncidentType(in.IncidentType) {
-		parts = append(parts, "type", in.IncidentType)
 	}
 
 	return strings.Join(parts, "|")
