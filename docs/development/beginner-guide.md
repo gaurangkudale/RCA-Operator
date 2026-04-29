@@ -484,7 +484,10 @@ Read:
 
 ## Metrics and Observability
 
-The operator currently exposes the standard **controller-runtime** metrics endpoint only — reconcile counts, durations, queue depth, client-go API request stats, leader election status, and Go runtime metrics. There is no `internal/metrics/` package yet; the bespoke `rca_*` metrics described in the Phase 1 architecture are not implemented.
+The operator exposes the standard **controller-runtime** metrics endpoint —
+reconcile counts, durations, queue depth, client-go API request stats, leader
+election status, and Go runtime metrics — plus RCA-specific `rca_*` metrics for
+signals, incident lifecycle transitions, and active incident counts.
 
 Read:
 

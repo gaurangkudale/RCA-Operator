@@ -30,7 +30,7 @@ The operator avoids AI systems, external databases, and log-scraping dependencie
 
 ![Architecture](architecture.png)
 
-More detail lives in [Architecture](docs/concepts/Architecture.md) and [Phase 1 Architecture](docs/phases/PHASE1_ARCHITECTURE.md).
+More detail lives in [Architecture](docs/concepts/Architecture.md) and [Phase 2 Release Notes](docs/phases/PHASE2_RELEASE_NOTES.md).
 
 ## Current Feature Set
 
@@ -66,6 +66,10 @@ helm upgrade --install rca-operator rca-operator/rca-operator \
 > `--wait` is required — the `OpenTelemetryCollector` and `Instrumentation` CRs are applied
 > as post-install hooks after the otel-operator webhook is confirmed Ready.
 
+The default chart values are the **full** profile. Source installs can also use
+`helm/values-minimal.yaml` or `helm/values-external-observability.yaml`; see
+[Installation](docs/getting-started/installation.md).
+
 ### kubectl
 
 ```bash
@@ -81,7 +85,9 @@ kubectl apply -f config/samples/rca_v1alpha1_rcaagent.yaml
 | [Installation](docs/getting-started/installation.md) | Helm and kubectl installation |
 | [Quick Start](docs/getting-started/quickstart.md) | Deploy your first agent in minutes |
 | [Architecture](docs/concepts/Architecture.md) | System design and data flow |
-| [Phase 1 Architecture](docs/phases/PHASE1_ARCHITECTURE.md) | Production target and cleanup baseline |
+| [Phase 2 Release Notes](docs/phases/PHASE2_RELEASE_NOTES.md) | What's new in the Phase 2 release |
+| [Production Guide](docs/production.md) | Production sizing, security, RBAC, network policy, retention, and cardinality guidance |
+| [Phase 1 Architecture](docs/phases/PHASE1_ARCHITECTURE.md) | Historical Kubernetes-native foundation design |
 | [RCAAgent CRD Reference](docs/reference/rcaagent-crd.md) | `RCAAgent` schema and examples |
 | [IncidentReport CRD Reference](docs/reference/incidentreport-crd.md) | `IncidentReport` schema and fields |
 | [RCACorrelationRule CRD Reference](docs/reference/rcacorrelationrule-crd.md) | Correlation rule schema and examples |

@@ -39,6 +39,12 @@ spec:
             - /manager
           args:
             {{- toYaml .Values.manager.args | nindent 12 }}
+            {{- if .Values.metrics.enabled }}
+            - --metrics-bind-address=:{{ .Values.metrics.service.port }}
+            - --metrics-secure={{ .Values.metrics.secure }}
+            {{- else }}
+            - --metrics-bind-address=0
+            {{- end }}
             {{- if .Values.webhooks.enabled }}
             - --enable-webhooks=true
             {{- end }}
@@ -62,10 +68,17 @@ spec:
             {{- with include "rca-operator.jaegerQueryURL" . }}
             - --jaeger-query-url={{ . }}
             {{- end }}
+            {{- $selfTelemetryEndpoint := include "rca-operator.selfTelemetryEndpoint" . }}
+            {{- if $selfTelemetryEndpoint }}
           env:
-            {{- with include "rca-operator.selfTelemetryEndpoint" . }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: {{ . | quote }}
+              value: {{ $selfTelemetryEndpoint | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.otel.serviceName | quote }}
+            - name: OTEL_SAMPLING_RATE
+              value: {{ .Values.otel.samplingRate | quote }}
+            - name: OTEL_EXPORTER_OTLP_INSECURE
+              value: {{ .Values.otel.insecure | quote }}
             {{- end }}
           {{- with .Values.securityContext }}
           securityContext:

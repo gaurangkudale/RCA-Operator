@@ -211,7 +211,9 @@ kubectl logs -n {{ $ns }} -l app.kubernetes.io/name=jaeger --tail=20
   --set opentelemetryOperator.enabled=false \
   --set jaeger.enabled=false \
   --set otelCollector.enabled=false \
-  --set instrumentation.enabled=false
+  --set instrumentation.enabled=false \
+  --set rcaIngest.enabled=false \
+  --set graphBuilder.jaegerQueryURL=""
 
   # External Jaeger (already running in cluster):
   --set jaeger.enabled=false \

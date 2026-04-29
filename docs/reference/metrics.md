@@ -1,12 +1,12 @@
 # Metrics Reference
 
-RCA Operator currently exposes the standard **controller-runtime metrics endpoint** only. No bespoke `rca_*` Prometheus metrics are registered yet — the Phase 1 metric set listed in [Phase 1 Architecture](../phases/PHASE1_ARCHITECTURE.md) is on the roadmap but not implemented.
-
-This document describes what is actually exported today and how to scrape it.
+RCA Operator exposes the standard **controller-runtime metrics endpoint** plus
+RCA-specific Prometheus metrics for the incident lifecycle.
 
 ## What's Exposed
 
-The metrics endpoint is wired via `sigs.k8s.io/controller-runtime/pkg/metrics/server`. It serves the controller-runtime defaults:
+The metrics endpoint is wired via `sigs.k8s.io/controller-runtime/pkg/metrics/server`.
+It serves the controller-runtime defaults:
 
 | Metric family | Source | Description |
 |---|---|---|
@@ -15,6 +15,18 @@ The metrics endpoint is wired via `sigs.k8s.io/controller-runtime/pkg/metrics/se
 | `rest_client_*` | client-go | API server request latency, count, response codes |
 | `go_*` / `process_*` | Prometheus Go client | Goroutines, GC, memory, file descriptors, CPU |
 | `leader_election_master_status` | controller-runtime | `1` when this pod holds the leader lease, `0` otherwise |
+
+RCA-specific metrics:
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `rca_signals_received_total` | Counter | `event_type` | Signals accepted by the correlator pipeline |
+| `rca_signals_deduplicated_total` | Counter | `event_type` | Signals suppressed by IncidentReport deduplication |
+| `rca_incidents_detecting_total` | Counter | `incident_type`, `severity` | IncidentReports created in `Detecting` phase |
+| `rca_incidents_activated_total` | Counter | `incident_type`, `severity` | Incidents promoted from `Detecting` to `Active` |
+| `rca_incidents_resolved_total` | Counter | `incident_type`, `severity` | Incidents resolved from `Detecting` or `Active` |
+| `rca_active_incidents` | Gauge | `incident_type`, `severity` | Currently non-resolved incidents |
+| `rca_incident_transition_seconds` | Histogram | `from_phase`, `to_phase` | Time spent before lifecycle transitions |
 
 Useful queries against the controller-runtime metrics:
 
@@ -35,6 +47,25 @@ controller_runtime_workqueue_depth
 sum(rate(rest_client_requests_total{code=~"4..|5.."}[5m]))
 ```
 
+Useful RCA queries:
+
+```promql
+# Active incidents by severity
+sum by (severity) (rca_active_incidents)
+
+# New active incidents by type over 15 minutes
+sum by (incident_type) (increase(rca_incidents_activated_total[15m]))
+
+# 95p detecting-to-active transition time
+histogram_quantile(
+  0.95,
+  sum by (le) (rate(rca_incident_transition_seconds_bucket{from_phase="detecting",to_phase="active"}[15m]))
+)
+
+# Signals entering the pipeline
+sum by (event_type) (rate(rca_signals_received_total[5m]))
+```
+
 ## CLI Flags
 
 `cmd/main.go` exposes these metrics-related flags:
@@ -53,16 +84,20 @@ When `--metrics-secure=true` (default), the endpoint requires a valid `Authoriza
 
 ### In-cluster (Helm)
 
-The Helm chart provisions a metrics `Service` and (optionally) a `ServiceMonitor`. See `helm/values.yaml` keys:
+The Helm chart enables the manager metrics endpoint and provisions a metrics
+`Service` when `metrics.enabled=true`:
 
 ```yaml
 metrics:
   enabled: true
-  port: 8443
   secure: true
-serviceMonitor:
-  enabled: false  # set true to register with the Prometheus Operator
+  service:
+    port: 8443
+    type: ClusterIP
 ```
+
+With `secure: true`, configure your scraper with a ServiceAccount token that
+can read the `/metrics` non-resource URL.
 
 ### Local development
 
@@ -72,7 +107,3 @@ make run ARGS="--metrics-bind-address=:8080 --metrics-secure=false"
 
 curl http://localhost:8080/metrics | head
 ```
-
-## Roadmap
-
-The Phase 1 architecture document describes a planned set of `rca_*` metrics covering the incident lifecycle (signals received, deduplicated, transitions per phase, active incident gauge, etc.). These are **not** in the codebase today; if you build dashboards or alerts, do so against the controller-runtime / client-go metrics listed above. This page will be updated when bespoke metrics are wired through `internal/metrics/`.

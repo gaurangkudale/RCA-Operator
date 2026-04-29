@@ -51,6 +51,36 @@ const (
 	EventTypeOTelSpanEvent        EventType = "OTelSpanEvent"
 )
 
+var validEventTypes = map[EventType]struct{}{
+	EventTypeCrashLoopBackOff:     {},
+	EventTypeOOMKilled:            {},
+	EventTypeImagePullBackOff:     {},
+	EventTypePodPendingTooLong:    {},
+	EventTypeGracePeriodViolation: {},
+	EventTypePodHealthy:           {},
+	EventTypePodDeleted:           {},
+	EventTypeNodeNotReady:         {},
+	EventTypePodEvicted:           {},
+	EventTypeProbeFailure:         {},
+	EventTypeStalledRollout:       {},
+	EventTypeNodePressure:         {},
+	EventTypeStalledStatefulSet:   {},
+	EventTypeStalledDaemonSet:     {},
+	EventTypeJobFailed:            {},
+	EventTypeCronJobFailed:        {},
+	EventTypeOTelSpanError:        {},
+	EventTypeOTelSpanLatencySpike: {},
+	EventTypeOTelLogMatch:         {},
+	EventTypeOTelSpanEvent:        {},
+}
+
+// IsKnownEventType reports whether name is one of the signal types emitted by
+// the watcher or OTLP ingest pipeline.
+func IsKnownEventType(name string) bool {
+	_, ok := validEventTypes[EventType(name)]
+	return ok
+}
+
 // AttributesEvent is an optional interface implemented by events that carry
 // key/value attributes (notably OTel span and log signals). The CRD rule engine
 // uses this for attribute-level condition matching without needing type-switches.

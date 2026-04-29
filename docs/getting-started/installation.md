@@ -4,11 +4,12 @@ RCA Operator ships as a Helm chart. The chart bundles the operator plus an
 optional OpenTelemetry stack (OTel Operator + Collector DaemonSet + Jaeger)
 so you get end-to-end tracing and correlation out of the box.
 
-You have three supported install paths, in order of what most users want:
+You have three supported install profiles, in order of what most users want:
 
 1. [Full stack — operator + observability](#1-full-stack-recommended) *(recommended)*
-2. [Minimal — operator only, bring your own observability](#2-minimal-operator-only)
-3. [From source — developer / contributor path](#3-from-source)
+2. [Minimal — operator only](#2-minimal-operator-only)
+3. [External observability — bring your own Collector and Jaeger](#3-external-observability)
+4. [From source — developer / contributor path](#4-from-source)
 
 ---
 
@@ -66,6 +67,21 @@ You now have four default correlation rules, an OTLP ingest endpoint at
 Use this if you already run an OTel Collector / Jaeger / other tracing backend
 and just want the RCA Operator control plane.
 
+From source:
+
+```bash
+git clone https://github.com/gaurangkudale/RCA-Operator.git
+cd RCA-Operator
+
+helm dep update ./helm
+helm upgrade --install rca-operator ./helm \
+  --namespace rca-system --create-namespace \
+  -f helm/values-minimal.yaml \
+  --wait --timeout 5m
+```
+
+From the published chart:
+
 ```bash
 helm repo add rca-operator https://gaurangkudale.github.io/rca-operator.github.io/charts
 helm repo update
@@ -76,23 +92,63 @@ helm upgrade --install rca-operator rca-operator/rca-operator \
   --set jaeger.enabled=false \
   --set otelCollector.enabled=false \
   --set instrumentation.enabled=false \
+  --set rcaIngest.enabled=false \
+  --set graphBuilder.jaegerQueryURL="" \
   --wait --timeout 5m
 ```
 
-The operator will run without OTLP ingest or topology enrichment. You can
-re-enable either piece by pointing at an existing Jaeger / Collector:
-
-```bash
-# Point the topology graph builder at an existing Jaeger Query endpoint
---set graphBuilder.jaegerQueryURL=http://jaeger-query.observability.svc:16686
-
-# Or forward spans from your existing Collector to the operator's ingest
-# endpoint (once rcaIngest.enabled=true) — see docs/features/otlp-ingest.md
-```
+The operator will run without OTLP ingest or Jaeger enrichment. Kubernetes
+watchers, CRD correlation rules, dashboard, metrics, and notifications still
+work.
 
 ---
 
-## 3. From source
+## 3. External observability
+
+Use this if you already run an OTel Collector and Jaeger. The chart installs
+only RCA Operator and its OTLP ingest Service; your existing Collector forwards
+filtered telemetry into that endpoint.
+
+From source:
+
+```bash
+git clone https://github.com/gaurangkudale/RCA-Operator.git
+cd RCA-Operator
+
+helm dep update ./helm
+helm upgrade --install rca-operator ./helm \
+  --namespace rca-system --create-namespace \
+  -f helm/values-external-observability.yaml \
+  --set graphBuilder.jaegerQueryURL=http://jaeger-query.observability.svc:16686 \
+  --wait --timeout 5m
+```
+
+From the published chart:
+
+```bash
+helm repo add rca-operator https://gaurangkudale.github.io/rca-operator.github.io/charts
+helm repo update
+
+helm upgrade --install rca-operator rca-operator/rca-operator \
+  --namespace rca-system --create-namespace \
+  --set opentelemetryOperator.enabled=false \
+  --set jaeger.enabled=false \
+  --set otelCollector.enabled=false \
+  --set instrumentation.enabled=false \
+  --set rcaIngest.enabled=true \
+  --set rcaIngest.networkPolicy.enabled=false \
+  --set graphBuilder.jaegerQueryURL=http://jaeger-query.observability.svc:16686 \
+  --wait --timeout 5m
+```
+
+Forward traces/logs from your existing Collector to
+`http://rca-operator-otel-ingest.rca-system.svc.cluster.local:4319`. See
+[OTLP Ingest](../features/otlp-ingest.md#forwarding-from-an-existing-collector)
+for the pipeline snippet.
+
+---
+
+## 4. From source
 
 For contributors and for pinning a specific `values.yaml` override locally.
 
@@ -103,9 +159,7 @@ cd RCA-Operator
 helm dep update ./helm
 helm upgrade --install rca-operator ./helm \
   --namespace rca-system --create-namespace \
-  --set jaeger.enabled=true \
-  --set otelCollector.enabled=true \
-  --set opentelemetryOperator.enabled=true \
+  -f helm/values-full.yaml \
   --wait --timeout 10m
 ```
 
@@ -125,6 +179,11 @@ kubectl delete crd \
   incidentreports.rca.rca-operator.tech \
   rcacorrelationrules.rca.rca-operator.tech
 ```
+
+Helm uninstall removes chart-managed Deployments, Services, RBAC, hooks, and
+default rules, but CRDs and existing custom resources may remain depending on
+cluster policy and `crds.keep`. Review [Helm Upgrade Guide](../HELM_UPGRADE.md)
+before deleting CRDs in shared clusters.
 
 ---
 

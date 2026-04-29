@@ -21,6 +21,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"os"
+	"strconv"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -172,11 +173,14 @@ func main() {
 
 	// --- OTel Setup ---
 	otelEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	otelServiceName := envOrDefault("OTEL_SERVICE_NAME", "rca-operator")
+	otelSamplingRate := envFloatOrDefault("OTEL_SAMPLING_RATE", 1.0)
+	otelInsecure := envBoolOrDefault("OTEL_EXPORTER_OTLP_INSECURE", true)
 	otelShutdown, err := rcaotel.Setup(context.Background(), rcaotel.Config{
 		Endpoint:     otelEndpoint,
-		ServiceName:  "rca-operator",
-		SamplingRate: 1.0,
-		Insecure:     true,
+		ServiceName:  otelServiceName,
+		SamplingRate: otelSamplingRate,
+		Insecure:     otelInsecure,
 	})
 	if err != nil {
 		setupLog.Error(err, "Failed to initialize OpenTelemetry")
@@ -431,4 +435,37 @@ func main() {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}
+}
+
+func envOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func envFloatOrDefault(key string, fallback float64) float64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		setupLog.Info("Ignoring invalid float environment value", "name", key, "value", v)
+		return fallback
+	}
+	return parsed
+}
+
+func envBoolOrDefault(key string, fallback bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(v)
+	if err != nil {
+		setupLog.Info("Ignoring invalid boolean environment value", "name", key, "value", v)
+		return fallback
+	}
+	return parsed
 }

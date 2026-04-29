@@ -154,7 +154,9 @@ _No unreleased changes yet._
 ---
 
 <!-- Version diff links — update on each release -->
-[Unreleased]: https://github.com/gaurangkudale/RCA-Operator/compare/v0.0.5...HEAD
+[Unreleased]: https://github.com/gaurangkudale/RCA-Operator/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/gaurangkudale/RCA-Operator/compare/v0.0.16...v0.1.0
+[0.0.16]: https://github.com/gaurangkudale/RCA-Operator/compare/v0.0.5...v0.0.16
 [0.0.5]: https://github.com/gaurangkudale/RCA-Operator/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/gaurangkudale/RCA-Operator/compare/v0.0.1...v0.0.4
 [0.0.1]: https://github.com/gaurangkudale/RCA-Operator/releases/tag/v0.0.1

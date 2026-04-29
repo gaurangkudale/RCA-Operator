@@ -26,6 +26,9 @@ helm version
 
 # kind (for local development cluster)
 go install sigs.k8s.io/kind@latest
+
+# kubeconform (for release/install verification)
+brew install kubeconform
 ```
 
 ## Optional Notification Secrets

@@ -1,0 +1,25 @@
+# Full profile: operator + OpenTelemetry Operator + Collector + Jaeger +
+# Instrumentation. This is the default demo/evaluation profile and matches
+# helm/values.yaml, kept as an explicit profile for release verification.
+
+opentelemetryOperator:
+  enabled: true
+
+jaeger:
+  enabled: true
+
+otelCollector:
+  enabled: true
+
+instrumentation:
+  enabled: true
+
+rcaIngest:
+  enabled: true
+
+graphBuilder:
+  jaegerQueryURL: ""
+
+otel:
+  enabled: true
+  endpoint: ""

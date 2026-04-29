@@ -1,6 +1,6 @@
 # RCA Operator — Helm Reference
 
-> **Chart version:** `0.0.16` | **Kubernetes:** ≥ 1.26
+> **Chart version:** `0.1.0` | **Kubernetes:** ≥ 1.26
 
 For a first-time install, start with [Getting Started → Installation](getting-started/installation.md).
 This page is the **reference** for installing from source, upgrading, override
@@ -12,7 +12,7 @@ flags, and troubleshooting.
 
 | Component | Kind | Version |
 |-----------|------|---------|
-| RCA Operator | Deployment | 0.0.16 |
+| RCA Operator | Deployment | 0.1.0 |
 | OpenTelemetry Operator | Deployment | 0.109.2 |
 | OTel Collector | DaemonSet (one pod / node) | 0.121.0 |
 | Jaeger | Deployment | 4.7.0 |
@@ -40,6 +40,8 @@ helm repo update
 
 ## Install
 
+### Profile: full
+
 ```bash
 # Pull sub-charts (opentelemetry-operator + jaeger) into helm/charts/
 helm dep update ./helm
@@ -48,9 +50,7 @@ helm dep update ./helm
 helm upgrade --install rca-operator ./helm \
   --namespace rca-system \
   --create-namespace \
-  --set jaeger.enabled=true \
-  --set otelCollector.enabled=true \
-  --set opentelemetryOperator.enabled=true \
+  -f helm/values-full.yaml \
   --wait \
   --timeout 10m
 ```
@@ -59,6 +59,29 @@ helm upgrade --install rca-operator ./helm \
 > The `OpenTelemetryCollector` and `Instrumentation` CRs are applied as
 > post-install hooks. Without `--wait`, the hooks fire before the
 > otel-operator webhook is ready and the CRs are rejected.
+
+### Profile: minimal
+
+```bash
+helm upgrade --install rca-operator ./helm \
+  --namespace rca-system \
+  --create-namespace \
+  -f helm/values-minimal.yaml \
+  --wait \
+  --timeout 5m
+```
+
+### Profile: external observability
+
+```bash
+helm upgrade --install rca-operator ./helm \
+  --namespace rca-system \
+  --create-namespace \
+  -f helm/values-external-observability.yaml \
+  --set graphBuilder.jaegerQueryURL=http://jaeger-query.observability.svc:16686 \
+  --wait \
+  --timeout 5m
+```
 
 ---
 
@@ -153,6 +176,9 @@ kubectl get incidentreports -A
 | File | Purpose |
 |---|---|
 | [`helm/values.yaml`](../helm/values.yaml) | Chart defaults — safe for evaluation and small clusters |
+| [`helm/values-full.yaml`](../helm/values-full.yaml) | Explicit full-stack profile: operator + OTel Operator + Collector + Jaeger + instrumentation |
+| [`helm/values-minimal.yaml`](../helm/values-minimal.yaml) | Operator-only profile: no bundled observability and no OTLP ingest surface |
+| [`helm/values-external-observability.yaml`](../helm/values-external-observability.yaml) | Operator + ingest endpoint for existing Collector/Jaeger deployments |
 | [`helm/values-dev.yaml`](../helm/values-dev.yaml) | Local kind development: `pullPolicy: Never`, single replica, PDB off, low-resource Jaeger |
 | [`helm/values-production.yaml`](../helm/values-production.yaml) | Production hardening: pinned image, `replicaCount: 2`, pod anti-affinity across zones, network policies, self-telemetry, auto-detect off by default |
 
@@ -178,11 +204,14 @@ instrumentation target namespaces).
 --set opentelemetryOperator.enabled=false \
 --set jaeger.enabled=false \
 --set otelCollector.enabled=false \
---set instrumentation.enabled=false
+--set instrumentation.enabled=false \
+--set rcaIngest.enabled=false \
+--set graphBuilder.jaegerQueryURL=""
 
 # Use an external Jaeger already running in the cluster
 --set jaeger.enabled=false \
---set otelCollector.jaegerEndpoint="jaeger.observability.svc:4317"
+--set otelCollector.jaegerEndpoint="jaeger.observability.svc:4317" \
+--set graphBuilder.jaegerQueryURL="http://jaeger-query.observability.svc:16686"
 
 # Production trace storage (Elasticsearch)
 --set jaeger.storage.type=elasticsearch \
@@ -209,6 +238,12 @@ helm upgrade rca-operator ./helm \
   --wait \
   --timeout 10m
 ```
+
+RCA CRDs are cluster-scoped and should be applied explicitly before upgrading
+an existing release when schemas change. Hook-created resources such as default
+`RCACorrelationRule`s, `OpenTelemetryCollector`, and `Instrumentation` are
+re-applied on post-upgrade after their CRDs/webhooks are available. See
+[Helm Upgrade Guide](HELM_UPGRADE.md) for the full ownership model.
 
 > **If CRDs already exist in the cluster** (installed outside Helm), adopt them first:
 >
@@ -237,6 +272,10 @@ kubectl delete crd \
   incidentreports.rca.rca-operator.tech \
   rcacorrelationrules.rca.rca-operator.tech
 ```
+
+Deleting CRDs deletes their custom resources, including historical
+`IncidentReport`s. Back up or export CRs before removing CRDs from shared
+clusters.
 
 ---
 

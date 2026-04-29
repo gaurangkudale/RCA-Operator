@@ -56,29 +56,10 @@ func NewServer(c client.Client, addr string, logger logr.Logger) *Server {
 
 // Start implements manager.Runnable. It blocks until ctx is cancelled.
 func (s *Server) Start(ctx context.Context) error {
-	mux := http.NewServeMux()
-
-	// Serve embedded static files at /
-	sub, err := fs.Sub(staticFS, "static")
+	mux, err := s.newMux()
 	if err != nil {
-		return fmt.Errorf("dashboard: embed sub failed: %w", err)
+		return err
 	}
-	mux.Handle("/", http.FileServer(http.FS(sub)))
-
-	// API endpoints
-	mux.HandleFunc("/api/incidents", s.handleIncidents)
-	mux.HandleFunc("/api/incidents/", s.handleIncidentDetail)
-	mux.HandleFunc("/api/rules", s.handleRules)
-	mux.HandleFunc("/api/stats", s.handleStats)
-	mux.HandleFunc("/api/timeline", s.handleTimeline)
-	mux.HandleFunc("/api/topology", s.handleTopology)
-	mux.HandleFunc("/api/service-graph", s.handleServiceGraph)
-	mux.HandleFunc("/api/resources/", s.handleResource)
-	mux.HandleFunc("/api/logs", s.handleLogs)
-	mux.HandleFunc("/api/agents", s.handleAgents)
-	mux.HandleFunc("/api/pods", s.handlePods)
-	mux.HandleFunc("/api/stream", s.handleStream)
-	mux.HandleFunc("/api/traces/", s.handleTrace)
 
 	srv := &http.Server{
 		Addr:              s.addr,
@@ -105,6 +86,37 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("dashboard server failed: %w", err)
 	}
 	return nil
+}
+
+func (s *Server) newMux() (*http.ServeMux, error) {
+	mux := http.NewServeMux()
+
+	// Serve embedded static files at / and /static/. The /static/ mount keeps
+	// asset URLs explicit while the root mount preserves direct index serving.
+	sub, err := fs.Sub(staticFS, "static")
+	if err != nil {
+		return nil, fmt.Errorf("dashboard: embed sub failed: %w", err)
+	}
+	staticHandler := http.FileServer(http.FS(sub))
+	mux.Handle("/static/", http.StripPrefix("/static/", staticHandler))
+	mux.Handle("/", staticHandler)
+
+	// API endpoints
+	mux.HandleFunc("/api/incidents", s.handleIncidents)
+	mux.HandleFunc("/api/incidents/", s.handleIncidentDetail)
+	mux.HandleFunc("/api/rules", s.handleRules)
+	mux.HandleFunc("/api/stats", s.handleStats)
+	mux.HandleFunc("/api/timeline", s.handleTimeline)
+	mux.HandleFunc("/api/topology", s.handleTopology)
+	mux.HandleFunc("/api/service-graph", s.handleServiceGraph)
+	mux.HandleFunc("/api/resources/", s.handleResource)
+	mux.HandleFunc("/api/logs", s.handleLogs)
+	mux.HandleFunc("/api/agents", s.handleAgents)
+	mux.HandleFunc("/api/pods", s.handlePods)
+	mux.HandleFunc("/api/stream", s.handleStream)
+	mux.HandleFunc("/api/traces/", s.handleTrace)
+
+	return mux, nil
 }
 
 // ── API types ─────────────────────────────────────────────────────────────────

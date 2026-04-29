@@ -1,19 +1,71 @@
 # Architecture
 
-This document summarizes the target Phase 1 production architecture for RCA Operator.
+This document summarizes the current Phase 2 architecture for RCA Operator.
 
 ## Goal
 
-Phase 1 should answer one question reliably:
+RCA Operator should answer one question reliably:
 
 > What is broken right now, what resources are affected, and is this the same incident or a new one?
 
-Phase 1 intentionally excludes:
+The operator intentionally excludes:
 
 - AI or LLM-based RCA
 - autonomous remediation
 - external incident databases
-- direct dashboard reads from raw cluster resources
+
+## Phase 2 Data Flow
+
+```mermaid
+flowchart LR
+  subgraph "Kubernetes API"
+    Pods["Pods, Events, Nodes"]
+    Workloads["Deployments, StatefulSets, DaemonSets, Jobs, CronJobs"]
+  end
+
+  subgraph "Application Telemetry"
+    Apps["Instrumented apps"]
+    Collector["OTel Collector DaemonSet"]
+    Jaeger["Jaeger Query / Storage"]
+  end
+
+  subgraph "RCA Operator"
+    Watchers["K8s signal collectors"]
+    Ingest["OTLP ingest (:4319)"]
+    Buffer["Correlation buffer"]
+    Rules["CRD rule engine"]
+    Engine["Incident engine"]
+    Dashboard["Dashboard API/UI"]
+  end
+
+  RuleCRs["RCACorrelationRule CRs"]
+  Reports["IncidentReport CRs"]
+
+  Pods --> Watchers
+  Workloads --> Watchers
+  Apps --> Collector
+  Collector -->|"all traces"| Jaeger
+  Collector -->|"filtered errors/logs"| Ingest
+  Watchers --> Buffer
+  Ingest --> Buffer
+  RuleCRs --> Rules
+  Buffer --> Rules
+  Rules --> Engine
+  Engine --> Reports
+  Reports --> Dashboard
+  Jaeger -->|"trace/service enrichment"| Dashboard
+```
+
+## Incident Lifecycle
+
+```mermaid
+stateDiagram-v2
+  [*] --> Detecting: first signal for fingerprint
+  Detecting --> Active: signal remains through stabilization window
+  Detecting --> Resolved: signal clears before activation
+  Active --> Resolved: resource healthy or quiet window expires
+  Resolved --> Detecting: matching signal reappears within reopen window
+```
 
 ## Runtime Topology
 
@@ -77,7 +129,7 @@ Kubernetes API Server
 
 ## Core Principles
 
-- `IncidentReport` is the durable incident record for Phase 1.
+- `IncidentReport` is the durable incident record.
 - Signal collection is read-only and Kubernetes-native.
 - Correlation rules are defined as `RCACorrelationRule` CRDs, not hardcoded in Go.
 - Only one active incident should exist per fingerprint.
@@ -88,7 +140,7 @@ Kubernetes API Server
 
 ### Signal Collectors
 
-Collectors observe Kubernetes resources and convert them into normalized failure signals. Phase 1 covers:
+Collectors observe Kubernetes resources and convert them into normalized failure signals. The Kubernetes-native collectors cover:
 
 - **Pod collector**: CrashLoopBackOff, OOMKilled, ImagePullBackOff, pending, grace period, probe failures
 - **Node collector**: NodeNotReady, NodePressure (Disk/Memory/PID)
@@ -98,6 +150,7 @@ Collectors observe Kubernetes resources and convert them into normalized failure
 - **Job collector**: JobFailed (BackoffLimitExceeded, DeadlineExceeded)
 - **CronJob collector**: CronJobFailed (child Job in Failed condition)
 - **Event collector**: Node events, evictions, probe failures from Kubernetes Event stream
+- **OTLP ingest**: OTel span errors, latency spikes, log matches, and span events
 
 ### CRD-Driven Rule Engine
 
@@ -106,6 +159,7 @@ Multi-signal correlation rules are defined as `RCACorrelationRule` cluster-scope
 - loads rules dynamically at startup and on CRD changes
 - evaluates rules by priority (highest first, first match wins)
 - correlates signals within a sliding time window using scope constraints (`samePod`, `sameNode`, `sameNamespace`, `sameTrace`, `any`)
+- evaluates OTel attribute predicates against span/log resource attributes
 
 See [RCACorrelationRule Reference](../reference/rcacorrelationrule-crd.md) for the full CRD spec.
 
@@ -124,6 +178,7 @@ The incident engine is the single writer for incident lifecycle state. It owns:
 - stabilization windows
 - activation and resolution
 - persistence into `IncidentReport`
+- trace annotations and topology graph attachment
 
 ### Notifications
 
@@ -140,12 +195,14 @@ API endpoints:
 - `GET /api/stats` — aggregate statistics
 - `GET /api/rules` — correlation rules (with auto-generated indicator)
 - `GET /api/timeline?fingerprint=...` — unified chronological timeline across all lifecycle phases for a fingerprint
+- `GET /api/service-graph` — service dependency graph
+- `GET /api/traces/{traceID}` — inline trace detail payload
 
 See [Dashboard](../features/DASHBOARD.md) for full details.
 
 ### Observability
 
-Phase 1 exposes Prometheus metrics that track the full incident pipeline:
+RCA Operator exposes Prometheus metrics that track the full incident pipeline:
 
 - Signal ingestion and deduplication rates
 - Incident lifecycle transitions (detecting, activated, resolved)
@@ -157,13 +214,14 @@ See [Metrics Reference](../reference/metrics.md) for the complete list.
 
 ## Production Properties
 
-Phase 1 is production-ready when these properties hold:
+The operator is production-ready when these properties hold:
 
 - one active incident per fingerprint
 - deterministic lifecycle transitions
 - safe restart behavior using CR-backed state
 - dashboard rendered entirely from CR data
 - least-privilege RBAC
+- bounded telemetry ingest and metric label cardinality
 
 ## Related
 
@@ -172,3 +230,5 @@ Phase 1 is production-ready when these properties hold:
 - [RCAAgent Reference](../reference/rcaagent-crd.md)
 - [RCACorrelationRule Reference](../reference/rcacorrelationrule-crd.md)
 - [IncidentReport Reference](../reference/incidentreport-crd.md)
+- [Phase 2 Release Notes](../phases/PHASE2_RELEASE_NOTES.md)
+- [Production Guide](../production.md)

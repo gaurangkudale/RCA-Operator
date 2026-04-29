@@ -41,6 +41,20 @@ make test-e2e
 
 E2E test source is in `test/e2e/`.
 
+## Pre-Release Install Verification
+
+Before cutting a release, run the install verification script. It performs
+Helm lint, renders the full/minimal/external-observability profiles, validates
+them with kubeconform, installs the full profile into Kind, applies the
+quickstart fixture, verifies an `IncidentReport`, and uninstalls everything.
+
+```bash
+scripts/verify-prerelease-install.sh
+
+# Lint/template/kubeconform only
+RUN_KIND_INSTALL=false scripts/verify-prerelease-install.sh
+```
+
 ## Manual Scenario Testing
 
 Use the fixtures in `test/fixtures/pods/` to trigger specific collector signals against a live operator. Most fixtures deploy into the `rca-demo` namespace — make sure your `RCAAgent` includes it in `watchNamespaces`.

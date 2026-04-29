@@ -546,12 +546,12 @@ kind delete cluster --name rca-dev
 
 ### Topology canvas is blank or nodes have no labels
 - Check browser console (`F12 → Console`) for JavaScript errors.
-- The dashboard loads Tailwind, Lucide, and Inter from `cdn.tailwindcss.com` /
-  `unpkg.com` / `fonts.googleapis.com`. If your environment blocks those CDNs,
-  the layout will render with bare HTML — verify network access:
-  `curl -I https://unpkg.com/lucide@latest`.
-- If only labels are missing, `lucide.createIcons()` is failing — usually a
-  follow-on of the above CDN check.
+- Dashboard CSS and icons are served from the operator pod. If the layout or
+  icons are missing, verify the static assets load:
+  `curl -I http://localhost:9090/static/dashboard.css` and
+  `curl -I http://localhost:9090/static/lucide-local.js`.
+- If only labels are missing, check whether `lucide.createIcons()` is failing
+  in the browser console.
 
 ### OTel span sends 200 but no incident created
 - Check operator logs for ingest errors

@@ -17,6 +17,19 @@ If a chart version ships CRD schema changes (new fields, validation rules, enum 
 
 The chart ships CRD manifests as templates at `helm/templates/crd-*.yaml`. They are rendered on first install but **not** updated by Helm on subsequent upgrades.
 
+## Ownership Model
+
+The chart has three different resource classes:
+
+| Resource class | Examples | Install behavior | Upgrade behavior | Uninstall behavior |
+|---|---|---|---|---|
+| Core Helm resources | Deployment, Services, RBAC, ServiceAccount, NetworkPolicy | Created by Helm | Updated by Helm | Removed by Helm |
+| RCA CRDs | `rcaagents`, `incidentreports`, `rcacorrelationrules` | Rendered by the chart when `crds.install=true` | Apply explicitly before upgrade | Delete manually only when safe |
+| Hook-created CRs | default `RCACorrelationRule`s, `OpenTelemetryCollector`, `Instrumentation` | Applied as `post-install` hooks | Re-applied as `post-upgrade` hooks | Hook resources may remain if CRDs remain |
+
+Do not delete CRDs casually. Deleting a CRD deletes all custom resources of
+that type, including historical `IncidentReport`s.
+
 ---
 
 ## Upgrade Workflow
@@ -72,6 +85,16 @@ helm upgrade rca-operator rca-operator/rca-operator \
 
 `--wait` is required — the OpenTelemetry post-install hooks expect the operator webhooks to be Ready before they apply.
 
+If you use one of the explicit profiles, include the same profile file or
+equivalent `--set` overrides during upgrade:
+
+```bash
+helm upgrade rca-operator ./helm \
+  --namespace rca-system \
+  -f helm/values-minimal.yaml \
+  --wait --timeout 5m
+```
+
 ### 5. Verify
 
 ```bash
@@ -118,7 +141,9 @@ helm uninstall rca-operator -n rca-system
 helm install rca-operator rca-operator/rca-operator -n rca-system --create-namespace
 ```
 
-(`helm uninstall` does **not** delete CRDs or your existing IncidentReport / RCAAgent CRs by default — they survive the reinstall.)
+(`helm uninstall` removes chart-managed workloads, Services, RBAC, and hook
+metadata. It does not safely migrate or back up CRDs. Treat CRD deletion as a
+separate cluster-admin action.)
 
 ### Existing CRs fail validation after upgrade
 

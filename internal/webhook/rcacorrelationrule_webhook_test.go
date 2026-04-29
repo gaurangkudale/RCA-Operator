@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
+	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
 // validRule builds a minimally-valid RCACorrelationRule that callers can
@@ -156,8 +157,8 @@ func TestValidEventTypes_AllowsExpectedSet(t *testing.T) {
 		"OTelSpanError", "OTelSpanLatencySpike", "OTelLogMatch", "OTelSpanEvent",
 	}
 	for _, et := range must {
-		if !validEventTypes[et] {
-			t.Errorf("validEventTypes missing %q — webhook will reject otherwise-valid CRs", et)
+		if !watcher.IsKnownEventType(et) {
+			t.Errorf("watcher known event types missing %q — webhook will reject otherwise-valid CRs", et)
 		}
 	}
 }

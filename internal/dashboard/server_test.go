@@ -51,6 +51,25 @@ func TestHandleIncidents_RejectsNonGet(t *testing.T) {
 	}
 }
 
+func TestDashboardStaticAssetsServedUnderStaticPrefix(t *testing.T) {
+	s := newTestServer(t)
+	mux, err := s.newMux()
+	if err != nil {
+		t.Fatalf("newMux: %v", err)
+	}
+
+	for _, path := range []string{"/static/dashboard.css", "/static/lucide-local.js"} {
+		rr := httptest.NewRecorder()
+		mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, path, nil))
+		if rr.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, body=%s", path, rr.Code, rr.Body.String())
+		}
+		if rr.Body.Len() == 0 {
+			t.Fatalf("%s returned empty body", path)
+		}
+	}
+}
+
 func TestHandleIncidents_FiltersByPhaseSeverityAndQuery(t *testing.T) {
 	now := time.Now()
 	objs := []runtime.Object{

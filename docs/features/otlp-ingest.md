@@ -81,9 +81,10 @@ as the hard gate before signals enter the correlator buffer.
 | OTel input | Correlator signal |
 |---|---|
 | Span with `Status.Code == ERROR` | `OTelSpanError` |
-| Span with `http.status_code >= 500` | `OTelSpanHTTPServerError` |
+| Span with `http.status_code >= 500` | `OTelSpanError` |
 | Span with duration >= `latencyP99Ms` | `OTelSpanLatencySpike` |
-| Log record at/above `minSeverity` | `OTelLogRecord` |
+| Log record at/above `minSeverity` | `OTelLogMatch` |
+| Span event such as an exception event | `OTelSpanEvent` |
 
 Write `RCACorrelationRule`s against these signal types exactly as you would
 for native Kubernetes signals.

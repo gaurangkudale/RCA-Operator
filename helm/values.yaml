@@ -21,7 +21,7 @@ image:
   repository: ghcr.io/gaurangkudale/rca-operator
   pullPolicy: IfNotPresent
   # Empty string resolves to .Chart.AppVersion at render time. Pin to an
-  # explicit tag (e.g. "0.0.16") for reproducible upgrades.
+  # explicit tag (e.g. "0.1.0") for reproducible upgrades.
   tag: ""
 
 imagePullSecrets: []
@@ -177,6 +177,7 @@ leaderElection:
 # Use case: Expose Prometheus-style metrics for monitoring and alerting.
 metrics:
   enabled: true
+  secure: true
   service:
     port: 8443
     type: ClusterIP
@@ -270,7 +271,7 @@ graphBuilder:
   #   http://<release-name>-jaeger:16686
   # Set explicitly when using an external Jaeger instance, e.g.:
   #   jaegerQueryURL: "http://jaeger-query.observability.svc.cluster.local:16686"
-  jaegerQueryURL: "http://rca-operator-jaeger:16686"
+  jaegerQueryURL: ""
 
 # ────────────────────────────────────────────────────────────────────────────
 # OpenTelemetry Operator sub-chart (alias: opentelemetryOperator)
@@ -404,7 +405,7 @@ otelCollector:
   # Jaeger OTLP gRPC endpoint that the collector exports traces to.
   # Leave empty to use the auto-computed value: <release-name>-jaeger:4317
   # Override if Jaeger is installed separately or in a different namespace.
-  jaegerEndpoint: "rca-operator-jaeger.rca-system.svc.cluster.local:4317"
+  jaegerEndpoint: ""
 
   # OTLP exporter retry and queue settings (traces → Jaeger).
   # Use case: Tolerate transient Jaeger unavailability without dropping spans.
