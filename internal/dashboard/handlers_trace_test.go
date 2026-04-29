@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -46,6 +47,55 @@ func TestHandleTrace_RejectsMalformedID(t *testing.T) {
 				t.Fatalf("id=%q: status = %d, want 400", id, rr.Code)
 			}
 		})
+	}
+}
+
+func TestHandleTrace_DoesNotCacheJaegerMiss(t *testing.T) {
+	const traceID = "633b1163d26fe2db31308b87903a5397"
+	requests := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		if requests == 1 {
+			_, _ = fmt.Fprint(w, `{"data":[]}`)
+			return
+		}
+		_, _ = fmt.Fprintf(w, `{"data":[{"traceID":%q,"processes":{"p1":{"serviceName":"frontend"}},"spans":[{"traceID":%q,"spanID":"s1","operationName":"POST /checkout","startTime":1000,"duration":2000,"processID":"p1"}]}]}`, traceID, traceID)
+	}))
+	defer upstream.Close()
+
+	s := &Server{cache: newJSONCache(defaultCacheTTL), jc: jaeger.New(upstream.URL)}
+
+	rr := httptest.NewRecorder()
+	s.handleTrace(rr, httptest.NewRequest(http.MethodGet, "/api/traces/"+traceID, nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("first status = %d, body=%s", rr.Code, rr.Body.String())
+	}
+	var miss traceResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &miss); err != nil {
+		t.Fatalf("unmarshal first response: %v", err)
+	}
+	if miss.SpanCount != 0 {
+		t.Fatalf("first response SpanCount = %d, want miss", miss.SpanCount)
+	}
+	if got := rr.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("miss Cache-Control = %q, want no-store", got)
+	}
+
+	rr = httptest.NewRecorder()
+	s.handleTrace(rr, httptest.NewRequest(http.MethodGet, "/api/traces/"+traceID, nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("second status = %d, body=%s", rr.Code, rr.Body.String())
+	}
+	var hit traceResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &hit); err != nil {
+		t.Fatalf("unmarshal second response: %v", err)
+	}
+	if hit.SpanCount != 1 || len(hit.Spans) != 1 {
+		t.Fatalf("second response did not refetch populated trace: %+v", hit)
+	}
+	if requests != 2 {
+		t.Fatalf("upstream requests = %d, want 2", requests)
 	}
 }
 

@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"errors"
 	"net/http"
 	"sort"
 	"strconv"
@@ -30,6 +31,8 @@ const boolTrue = "true"
 // statusError is the literal value assigned to traceResponse.Status when any
 // span in the trace is flagged as an error. Centralised so goconst stays happy.
 const statusError = "error"
+
+var errTraceNotFound = errors.New("trace not found")
 
 type traceResponse struct {
 	TraceID          string             `json:"traceId"`
@@ -102,13 +105,21 @@ func (s *Server) handleTrace(w http.ResponseWriter, r *http.Request) {
 	const traceCacheTTL = 5 * time.Minute
 	key := "trace|" + id
 	body, etag, err := s.cache.FetchWithTTL(key, traceCacheTTL, func() (any, error) {
-		t, err := s.jc.GetTrace(r.Context(), id)
+		t, err := s.jc.GetTraceForDashboard(r.Context(), id)
 		if err != nil {
 			return nil, err
+		}
+		if t == nil || len(t.Spans) == 0 {
+			return nil, errTraceNotFound
 		}
 		return buildTraceResponse(id, t), nil
 	})
 	if err != nil {
+		if errors.Is(err, errTraceNotFound) {
+			w.Header().Set("Cache-Control", "no-store")
+			writeJSON(w, buildTraceResponse(id, nil))
+			return
+		}
 		s.log.Error(err, "fetch trace", "id", id)
 		http.Error(w, "failed to fetch trace", http.StatusBadGateway)
 		return

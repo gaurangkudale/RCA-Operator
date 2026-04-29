@@ -24,6 +24,10 @@ import (
 // loop if Jaeger is slow or unavailable.
 const DefaultTimeout = 3 * time.Second
 
+// DashboardTraceTimeout is used for user-driven trace lookups. Large Jaeger
+// traces can take longer than the graph-builder budget to fetch and decode.
+const DashboardTraceTimeout = 15 * time.Second
+
 // Span is the subset of a Jaeger span the graph builder consumes.
 type Span struct {
 	TraceID       string            `json:"traceID"`
@@ -119,6 +123,18 @@ func (c *Client) WithHTTPClient(hc *http.Client) *Client {
 // gracefully. An unexpected non-2xx status or a malformed body returns an
 // error.
 func (c *Client) GetTrace(ctx context.Context, traceID string) (*Trace, error) {
+	return c.getTrace(ctx, traceID, DefaultTimeout, true)
+}
+
+// GetTraceForDashboard fetches a trace for the interactive dashboard. Unlike
+// GetTrace, it does not collapse network errors or timeouts into a miss:
+// callers need to distinguish "not found" from "Jaeger was too slow" so the UI
+// does not render a false empty trace.
+func (c *Client) GetTraceForDashboard(ctx context.Context, traceID string) (*Trace, error) {
+	return c.getTrace(ctx, traceID, DashboardTraceTimeout, false)
+}
+
+func (c *Client) getTrace(ctx context.Context, traceID string, timeout time.Duration, tolerateNetworkMiss bool) (*Trace, error) {
 	if c == nil || c.baseURL == "" || traceID == "" {
 		return nil, nil
 	}
@@ -134,12 +150,22 @@ func (c *Client) GetTrace(ctx context.Context, traceID string) (*Trace, error) {
 	}
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := c.http.Do(req)
+	hc := c.http
+	if hc == nil {
+		hc = &http.Client{Timeout: DefaultTimeout}
+	}
+	if timeout > 0 && hc != nil && hc.Timeout != timeout {
+		copy := *hc
+		copy.Timeout = timeout
+		hc = &copy
+	}
+	resp, err := hc.Do(req)
 	if err != nil {
-		// Network errors, context deadlines, and client timeouts are all
-		// treated as misses — the graph builder falls back to signal-only.
 		if errors.Is(err, context.Canceled) {
 			return nil, err
+		}
+		if !tolerateNetworkMiss {
+			return nil, fmt.Errorf("jaeger: fetch trace: %w", err)
 		}
 		return nil, nil
 	}
