@@ -28,6 +28,11 @@ const DefaultTimeout = 3 * time.Second
 // traces can take longer than the graph-builder budget to fetch and decode.
 const DashboardTraceTimeout = 15 * time.Second
 
+// DashboardDependencyTimeout is used for the dashboard service graph. Jaeger's
+// dependency query is aggregated and can be slower than single trace lookups,
+// especially after demo load tests.
+const DashboardDependencyTimeout = 30 * time.Second
+
 // Span is the subset of a Jaeger span the graph builder consumes.
 type Span struct {
 	TraceID       string            `json:"traceID"`
@@ -196,8 +201,9 @@ func (c *Client) getTrace(ctx context.Context, traceID string, timeout time.Dura
 
 // GetDependencies queries the Jaeger /api/dependencies endpoint for the
 // service-to-service call graph observed in the given lookback window ending
-// at endTs (zero = now). A nil Client, unconfigured baseURL, network timeout,
-// or 404 returns (nil, nil) so callers can fall back to a k8s-only topology.
+// at endTs (zero = now). The dashboard depends on this endpoint for the
+// service topology, so network errors are returned to the caller instead of
+// being collapsed into an empty graph.
 func (c *Client) GetDependencies(ctx context.Context, lookback time.Duration, endTs time.Time) ([]Dependency, error) {
 	if c == nil || c.baseURL == "" {
 		return nil, nil
@@ -225,12 +231,22 @@ func (c *Client) GetDependencies(ctx context.Context, lookback time.Duration, en
 	}
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := c.http.Do(req)
+	hc := c.http
+	if hc == nil {
+		hc = &http.Client{Timeout: DashboardDependencyTimeout}
+	}
+	if hc.Timeout == 0 || hc.Timeout == DefaultTimeout {
+		copy := *hc
+		copy.Timeout = DashboardDependencyTimeout
+		hc = &copy
+	}
+
+	resp, err := hc.Do(req)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return nil, err
 		}
-		return nil, nil
+		return nil, fmt.Errorf("jaeger: fetch dependencies: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -245,9 +261,22 @@ func (c *Client) GetDependencies(ctx context.Context, lookback time.Duration, en
 	if err != nil {
 		return nil, fmt.Errorf("jaeger: read body: %w", err)
 	}
-	var envelope dependenciesResponse
-	if err := json.Unmarshal(body, &envelope); err != nil {
+	deps, err := decodeDependencies(body)
+	if err != nil {
 		return nil, fmt.Errorf("jaeger: decode body: %w", err)
 	}
-	return envelope.Data, nil
+	return deps, nil
+}
+
+func decodeDependencies(body []byte) ([]Dependency, error) {
+	var envelope dependenciesResponse
+	if err := json.Unmarshal(body, &envelope); err == nil && envelope.Data != nil {
+		return envelope.Data, nil
+	}
+
+	var raw []Dependency
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
 }

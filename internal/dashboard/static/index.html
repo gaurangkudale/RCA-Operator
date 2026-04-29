@@ -316,6 +316,7 @@ const state = {
 
 const cache = {}; // endpoint -> { t, data, etag }
 const CACHE_TTL = 10_000;
+const SERVICE_GRAPH_LOOKBACK = '24h';
 
 // --- Utilities
 function escapeHtml(s){
@@ -704,8 +705,9 @@ async function loadTopology(force){
 }
 async function loadServiceGraph(force){
   try {
-    if (force) invalidateCache('/api/service-graph?lookback=1h');
-    const data = await apiGet('/api/service-graph?lookback=1h');
+    const path = `/api/service-graph?lookback=${encodeURIComponent(SERVICE_GRAPH_LOOKBACK)}`;
+    if (force) invalidateCache(path);
+    const data = await apiGet(path);
     const first = !state.serviceGraph;
     state.serviceGraph = data || { nodes: [], edges: [] };
     renderTopology();

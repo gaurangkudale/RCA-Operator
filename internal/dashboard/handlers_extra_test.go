@@ -19,6 +19,7 @@ import (
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 	"github.com/gaurangkudale/rca-operator/internal/correlator"
 	"github.com/gaurangkudale/rca-operator/internal/correlator/graph"
+	"github.com/gaurangkudale/rca-operator/internal/jaeger"
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
@@ -93,6 +94,40 @@ func TestHandleTopology_WithDeploymentAndPod(t *testing.T) {
 	}
 }
 
+func TestHandleServiceGraph_DefaultLookbackUsesJaegerDependencies(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/dependencies" {
+			t.Fatalf("path = %q, want /api/dependencies", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("lookback"); got != "86400000" {
+			t.Fatalf("lookback = %q, want 86400000", got)
+		}
+		_, _ = w.Write([]byte(`{"data":[{"parent":"frontend","child":"checkout","callCount":12}]}`))
+	}))
+	defer upstream.Close()
+
+	s := newTestServer(t).WithOptions(WithJaegerClient(jaeger.New(upstream.URL)))
+	rr := httptest.NewRecorder()
+	s.handleServiceGraph(rr, httptest.NewRequest(http.MethodGet, "/api/service-graph", nil))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var got graph.ClusterGraph
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Meta["source"] != "jaeger" {
+		t.Fatalf("source = %q, want jaeger", got.Meta["source"])
+	}
+	if len(got.Nodes) != 2 {
+		t.Fatalf("nodes = %d, want 2: %+v", len(got.Nodes), got.Nodes)
+	}
+	if !hasDashboardCallEdge(got, "service:frontend", "service:checkout", 12) {
+		t.Fatalf("expected frontend->checkout call edge, got %+v", got.Edges)
+	}
+}
+
 func TestHandleAgents(t *testing.T) {
 	ag := &rcav1alpha1.RCAAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "agent-1"},
@@ -112,6 +147,15 @@ func TestHandleAgents(t *testing.T) {
 	if len(out) != 1 || out[0].Name != "agent-1" {
 		t.Fatalf("unexpected agents: %+v", out)
 	}
+}
+
+func hasDashboardCallEdge(g graph.ClusterGraph, from, to string, count int64) bool {
+	for _, e := range g.Edges {
+		if e.From == from && e.To == to && e.Kind == graph.EdgeKindCalls && e.Count == count {
+			return true
+		}
+	}
+	return false
 }
 
 func TestHandleResource_Deployment(t *testing.T) {

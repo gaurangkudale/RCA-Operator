@@ -31,6 +31,9 @@ const (
 	kindPod     = "Pod"
 	kindNode    = "Node"
 	kindService = "Service"
+
+	defaultServiceGraphLookback = 24 * time.Hour
+	maxServiceGraphLookback     = 7 * 24 * time.Hour
 )
 
 type Option func(*Server)
@@ -91,9 +94,9 @@ func (s *Server) handleServiceGraph(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	lookback := time.Hour
+	lookback := defaultServiceGraphLookback
 	if v := r.URL.Query().Get("lookback"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil && d > 0 && d <= 24*time.Hour {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 && d <= maxServiceGraphLookback {
 			lookback = d
 		}
 	}
