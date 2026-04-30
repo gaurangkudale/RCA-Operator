@@ -44,79 +44,103 @@ func bufFor(events ...watcher.CorrelatorEvent) []correlator.Entry {
 	return out
 }
 
+func mustCompileAttribute(t *testing.T, match rcav1alpha1.AttributeMatch) compiledAttributeMatch {
+	t.Helper()
+	compiled, err := compileAttributeMatches([]rcav1alpha1.AttributeMatch{match})
+	if err != nil {
+		t.Fatalf("compileAttributeMatches(%+v): %v", match, err)
+	}
+	return compiled[0]
+}
+
+func mustCompileConditions(t *testing.T, conditions []rcav1alpha1.RuleCondition) []loadedCondition {
+	t.Helper()
+	compiled, err := compileConditions(conditions)
+	if err != nil {
+		t.Fatalf("compileConditions(%+v): %v", conditions, err)
+	}
+	return compiled
+}
+
+func evalAttribute(t *testing.T, attrs map[string]string, match rcav1alpha1.AttributeMatch) bool {
+	t.Helper()
+	return evaluateAttribute(attrs, true, mustCompileAttribute(t, match))
+}
+
 // ---- attribute predicate tests ---------------------------------------------
 
 func TestEvaluateAttribute_EqualsAndDefaultOp(t *testing.T) {
 	attrs := map[string]string{"http.status_code": "503"}
-	if !evaluateAttribute(attrs, rcav1alpha1.AttributeMatch{Key: "http.status_code", Op: "Equals", Value: "503"}) {
+	if !evalAttribute(t, attrs, rcav1alpha1.AttributeMatch{Key: "http.status_code", Op: "Equals", Value: "503"}) {
 		t.Error("Equals 503 should match")
 	}
 	// Empty Op defaults to Equals.
-	if !evaluateAttribute(attrs, rcav1alpha1.AttributeMatch{Key: "http.status_code", Value: "503"}) {
+	if !evalAttribute(t, attrs, rcav1alpha1.AttributeMatch{Key: "http.status_code", Value: "503"}) {
 		t.Error("default (empty) Op should behave as Equals")
 	}
-	if evaluateAttribute(attrs, rcav1alpha1.AttributeMatch{Key: "http.status_code", Op: "Equals", Value: "200"}) {
+	if evalAttribute(t, attrs, rcav1alpha1.AttributeMatch{Key: "http.status_code", Op: "Equals", Value: "200"}) {
 		t.Error("Equals 200 should not match")
 	}
 }
 
 func TestEvaluateAttribute_NotEquals(t *testing.T) {
 	attrs := map[string]string{"service.name": "checkout"}
-	if !evaluateAttribute(attrs, rcav1alpha1.AttributeMatch{Key: "service.name", Op: "NotEquals", Value: "auth"}) {
+	if !evalAttribute(t, attrs, rcav1alpha1.AttributeMatch{Key: "service.name", Op: "NotEquals", Value: "auth"}) {
 		t.Error("NotEquals auth should match")
 	}
-	if evaluateAttribute(attrs, rcav1alpha1.AttributeMatch{Key: "service.name", Op: "NotEquals", Value: "checkout"}) {
+	if evalAttribute(t, attrs, rcav1alpha1.AttributeMatch{Key: "service.name", Op: "NotEquals", Value: "checkout"}) {
 		t.Error("NotEquals checkout should not match")
 	}
-	// Absent key: NotEquals is satisfied vacuously (value is not equal to anything).
-	if !evaluateAttribute(attrs, rcav1alpha1.AttributeMatch{Key: "missing", Op: "NotEquals", Value: "x"}) {
-		t.Error("NotEquals on absent key should match")
+	if evalAttribute(t, attrs, rcav1alpha1.AttributeMatch{Key: "missing", Op: "NotEquals", Value: "x"}) {
+		t.Error("NotEquals on absent key should not match; use NotExists for absence semantics")
 	}
 }
 
 func TestEvaluateAttribute_ContainsAndNotContains(t *testing.T) {
 	attrs := map[string]string{"log.body": "payment failed for order 42"}
-	if !evaluateAttribute(attrs, rcav1alpha1.AttributeMatch{Key: "log.body", Op: "Contains", Value: "payment"}) {
+	if !evalAttribute(t, attrs, rcav1alpha1.AttributeMatch{Key: "log.body", Op: "Contains", Value: "payment"}) {
 		t.Error("Contains payment should match")
 	}
-	if evaluateAttribute(attrs, rcav1alpha1.AttributeMatch{Key: "log.body", Op: "Contains", Value: "shipment"}) {
+	if evalAttribute(t, attrs, rcav1alpha1.AttributeMatch{Key: "log.body", Op: "Contains", Value: "shipment"}) {
 		t.Error("Contains shipment should not match")
 	}
-	if !evaluateAttribute(attrs, rcav1alpha1.AttributeMatch{Key: "log.body", Op: "NotContains", Value: "shipment"}) {
+	if !evalAttribute(t, attrs, rcav1alpha1.AttributeMatch{Key: "log.body", Op: "NotContains", Value: "shipment"}) {
 		t.Error("NotContains shipment should match")
+	}
+	if evalAttribute(t, attrs, rcav1alpha1.AttributeMatch{Key: "missing", Op: "NotContains", Value: "shipment"}) {
+		t.Error("NotContains on absent key should not match; use NotExists for absence semantics")
 	}
 }
 
 func TestEvaluateAttribute_Regex(t *testing.T) {
 	attrs := map[string]string{"span.name": "GET /api/v1/orders"}
-	if !evaluateAttribute(attrs, rcav1alpha1.AttributeMatch{Key: "span.name", Op: "Regex", Value: `^GET /api/v\d+/.+$`}) {
+	if !evalAttribute(t, attrs, rcav1alpha1.AttributeMatch{Key: "span.name", Op: "Regex", Value: `^GET /api/v\d+/.+$`}) {
 		t.Error("Regex should match versioned API path")
 	}
-	if evaluateAttribute(attrs, rcav1alpha1.AttributeMatch{Key: "span.name", Op: "Regex", Value: `^POST`}) {
+	if evalAttribute(t, attrs, rcav1alpha1.AttributeMatch{Key: "span.name", Op: "Regex", Value: `^POST`}) {
 		t.Error("Regex ^POST should not match GET span")
 	}
-	// Invalid regex returns false, does not panic.
-	if evaluateAttribute(attrs, rcav1alpha1.AttributeMatch{Key: "span.name", Op: "Regex", Value: `[invalid(`}) {
-		t.Error("invalid regex should evaluate to false")
+	if _, err := compileAttributeMatches([]rcav1alpha1.AttributeMatch{{Key: "span.name", Op: "Regex", Value: `[invalid(`}}); err == nil {
+		t.Error("invalid regex should fail during predicate compilation")
 	}
 }
 
 func TestEvaluateAttribute_ExistsAndNotExists(t *testing.T) {
 	attrs := map[string]string{"trace.id": "abc123", "empty.attr": ""}
-	if !evaluateAttribute(attrs, rcav1alpha1.AttributeMatch{Key: "trace.id", Op: "Exists"}) {
+	if !evalAttribute(t, attrs, rcav1alpha1.AttributeMatch{Key: "trace.id", Op: "Exists"}) {
 		t.Error("Exists trace.id should match")
 	}
-	if evaluateAttribute(attrs, rcav1alpha1.AttributeMatch{Key: "missing", Op: "Exists"}) {
+	if evalAttribute(t, attrs, rcav1alpha1.AttributeMatch{Key: "missing", Op: "Exists"}) {
 		t.Error("Exists on missing key should not match")
 	}
 	// Empty string is not "present" for Exists semantics.
-	if evaluateAttribute(attrs, rcav1alpha1.AttributeMatch{Key: "empty.attr", Op: "Exists"}) {
+	if evalAttribute(t, attrs, rcav1alpha1.AttributeMatch{Key: "empty.attr", Op: "Exists"}) {
 		t.Error("Exists on empty-string attribute should not match")
 	}
-	if !evaluateAttribute(attrs, rcav1alpha1.AttributeMatch{Key: "missing", Op: "NotExists"}) {
+	if !evalAttribute(t, attrs, rcav1alpha1.AttributeMatch{Key: "missing", Op: "NotExists"}) {
 		t.Error("NotExists on missing key should match")
 	}
-	if !evaluateAttribute(attrs, rcav1alpha1.AttributeMatch{Key: "empty.attr", Op: "NotExists"}) {
+	if !evalAttribute(t, attrs, rcav1alpha1.AttributeMatch{Key: "empty.attr", Op: "NotExists"}) {
 		t.Error("NotExists on empty attribute should match")
 	}
 }
@@ -138,19 +162,22 @@ func TestEvaluateAttribute_NumericComparisons(t *testing.T) {
 		{"Lt", "duration.ms", "1251", true},
 	}
 	for _, c := range cases {
-		got := evaluateAttribute(attrs, rcav1alpha1.AttributeMatch{Key: c.key, Op: c.op, Value: c.value})
+		got := evalAttribute(t, attrs, rcav1alpha1.AttributeMatch{Key: c.key, Op: c.op, Value: c.value})
 		if got != c.expected {
 			t.Errorf("%s %s %s: got %v want %v", c.key, c.op, c.value, got, c.expected)
 		}
 	}
 	// Non-numeric values short-circuit to false rather than panic.
-	if evaluateAttribute(map[string]string{"foo": "bar"}, rcav1alpha1.AttributeMatch{Key: "foo", Op: "Gte", Value: "1"}) {
+	if evalAttribute(t, map[string]string{"foo": "bar"}, rcav1alpha1.AttributeMatch{Key: "foo", Op: "Gte", Value: "1"}) {
 		t.Error("non-numeric lhs should fail numeric comparison")
+	}
+	if _, err := compileAttributeMatches([]rcav1alpha1.AttributeMatch{{Key: "foo", Op: "Gte", Value: "not-a-number"}}); err == nil {
+		t.Error("non-numeric comparison target should fail during predicate compilation")
 	}
 }
 
 func TestEvaluateAttribute_UnknownOpReturnsFalse(t *testing.T) {
-	if evaluateAttribute(map[string]string{"k": "v"}, rcav1alpha1.AttributeMatch{Key: "k", Op: "BogusOp", Value: "v"}) {
+	if evaluateAttribute(map[string]string{"k": "v"}, true, compiledAttributeMatch{key: "k", op: "BogusOp", value: "v"}) {
 		t.Error("unknown op should yield false, not panic")
 	}
 }
@@ -167,12 +194,20 @@ func TestAttributesMatch_EmptyMatchesAlwaysTrue(t *testing.T) {
 func TestAttributesMatch_NonAttributesEventFailsUnlessNotExists(t *testing.T) {
 	crash := watcher.CrashLoopBackOffEvent{BaseEvent: watcher.BaseEvent{Namespace: "demo", PodName: "api-0"}, ContainerName: "api"}
 	// A K8s-event rule that tries to match an OTel attribute should fail hard.
-	matches := []rcav1alpha1.AttributeMatch{{Key: "http.status_code", Op: "Equals", Value: "500"}}
+	matches := []compiledAttributeMatch{mustCompileAttribute(t, rcav1alpha1.AttributeMatch{Key: "http.status_code", Op: "Equals", Value: "500"})}
 	if attributesMatch(crash, matches) {
 		t.Error("CrashLoopBackOffEvent has no Attributes() — Equals should fail")
 	}
+	notEquals := []compiledAttributeMatch{mustCompileAttribute(t, rcav1alpha1.AttributeMatch{Key: "http.status_code", Op: "NotEquals", Value: "500"})}
+	if attributesMatch(crash, notEquals) {
+		t.Error("CrashLoopBackOffEvent has no Attributes() — NotEquals should fail")
+	}
+	notContains := []compiledAttributeMatch{mustCompileAttribute(t, rcav1alpha1.AttributeMatch{Key: "http.status_code", Op: "NotContains", Value: "500"})}
+	if attributesMatch(crash, notContains) {
+		t.Error("CrashLoopBackOffEvent has no Attributes() — NotContains should fail")
+	}
 	// NotExists is the one predicate that succeeds on an event without attributes.
-	notExists := []rcav1alpha1.AttributeMatch{{Key: "http.status_code", Op: "NotExists"}}
+	notExists := []compiledAttributeMatch{mustCompileAttribute(t, rcav1alpha1.AttributeMatch{Key: "http.status_code", Op: "NotExists"})}
 	if !attributesMatch(crash, notExists) {
 		t.Error("NotExists should succeed when event has no Attributes()")
 	}
@@ -183,17 +218,17 @@ func TestAttributesMatch_AllPredicatesMustMatchAND(t *testing.T) {
 		"http.status_code": "503",
 	})
 	// Two predicates both satisfied.
-	ok := []rcav1alpha1.AttributeMatch{
-		{Key: "http.status_code", Op: "Gte", Value: "500"},
-		{Key: "service.name", Op: "Equals", Value: "checkout"}, // promoted field
+	ok := []compiledAttributeMatch{
+		mustCompileAttribute(t, rcav1alpha1.AttributeMatch{Key: "http.status_code", Op: "Gte", Value: "500"}),
+		mustCompileAttribute(t, rcav1alpha1.AttributeMatch{Key: "service.name", Op: "Equals", Value: "checkout"}), // promoted field
 	}
 	if !attributesMatch(ev, ok) {
 		t.Error("both predicates satisfied should return true")
 	}
 	// Second predicate fails → overall false.
-	bad := []rcav1alpha1.AttributeMatch{
-		{Key: "http.status_code", Op: "Gte", Value: "500"},
-		{Key: "service.name", Op: "Equals", Value: "auth"},
+	bad := []compiledAttributeMatch{
+		mustCompileAttribute(t, rcav1alpha1.AttributeMatch{Key: "http.status_code", Op: "Gte", Value: "500"}),
+		mustCompileAttribute(t, rcav1alpha1.AttributeMatch{Key: "service.name", Op: "Equals", Value: "auth"}),
 	}
 	if attributesMatch(ev, bad) {
 		t.Error("AND logic: one failing predicate should flip result")
@@ -221,12 +256,12 @@ func TestConditionsMet_SameTraceAndAttributeFilter(t *testing.T) {
 			{Key: "log.severity", Op: "Equals", Value: "ERROR"},
 		},
 	}}
-	if !eng.conditionsMet(trigger, conditions, entries) {
+	if !eng.conditionsMet(trigger, mustCompileConditions(t, conditions), entries) {
 		t.Fatal("sameTrace + log.severity=ERROR should match sameTraceLog")
 	}
 
 	// Remove the same-trace log — rule should no longer fire.
-	if eng.conditionsMet(trigger, conditions, bufFor(otherTraceLog)) {
+	if eng.conditionsMet(trigger, mustCompileConditions(t, conditions), bufFor(otherTraceLog)) {
 		t.Fatal("only different-trace log present: rule must not fire")
 	}
 }
@@ -246,13 +281,13 @@ func TestConditionsMet_NegateRespectsAttributes(t *testing.T) {
 			{Key: "log.severity", Op: "Equals", Value: "ERROR"},
 		},
 	}}
-	if eng.conditionsMet(trigger, neg, entries) {
+	if eng.conditionsMet(trigger, mustCompileConditions(t, neg), entries) {
 		t.Error("negated condition should fail when matching entry exists")
 	}
 
 	// Only a FATAL severity log exists → ERROR predicate fails → negated succeeds.
 	entries2 := bufFor(logMatch(traceA, "boom", 21, "FATAL"))
-	if !eng.conditionsMet(trigger, neg, entries2) {
+	if !eng.conditionsMet(trigger, mustCompileConditions(t, neg), entries2) {
 		t.Error("negated ERROR predicate should succeed when no ERROR log present")
 	}
 }

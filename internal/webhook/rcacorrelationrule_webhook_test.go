@@ -105,6 +105,44 @@ func TestRCACorrelationRuleWebhook_ValidateCreate(t *testing.T) {
 			},
 			wantErr: "spec.conditions[1].scope",
 		},
+		{
+			name: "attribute empty key is rejected",
+			mutate: func(r *rcav1alpha1.RCACorrelationRule) {
+				r.Spec.Conditions[0].Attributes = []rcav1alpha1.AttributeMatch{{Op: "Equals", Value: "500"}}
+			},
+			wantErr: "spec.conditions[0].attributes[0].key",
+		},
+		{
+			name: "attribute unknown op is rejected",
+			mutate: func(r *rcav1alpha1.RCACorrelationRule) {
+				r.Spec.Conditions[0].Attributes = []rcav1alpha1.AttributeMatch{{Key: "http.status_code", Op: "Between", Value: "500"}}
+			},
+			wantErr: "spec.conditions[0].attributes[0].op",
+		},
+		{
+			name: "attribute invalid regex is rejected",
+			mutate: func(r *rcav1alpha1.RCACorrelationRule) {
+				r.Spec.Conditions[0].Attributes = []rcav1alpha1.AttributeMatch{{Key: "span.name", Op: "Regex", Value: "[invalid("}}
+			},
+			wantErr: "must be a valid RE2 regex",
+		},
+		{
+			name: "attribute numeric op rejects non-numeric value",
+			mutate: func(r *rcav1alpha1.RCACorrelationRule) {
+				r.Spec.Conditions[0].Attributes = []rcav1alpha1.AttributeMatch{{Key: "http.status_code", Op: "Gte", Value: "five-hundred"}}
+			},
+			wantErr: "must be numeric",
+		},
+		{
+			name: "valid attributes are accepted",
+			mutate: func(r *rcav1alpha1.RCACorrelationRule) {
+				r.Spec.Conditions[0].Attributes = []rcav1alpha1.AttributeMatch{
+					{Key: "span.name", Op: "Regex", Value: `^GET /api/.*$`},
+					{Key: "http.status_code", Op: "Gte", Value: "500"},
+					{Key: "trace.id", Op: "Exists"},
+				}
+			},
+		},
 	}
 
 	for _, tc := range cases {
