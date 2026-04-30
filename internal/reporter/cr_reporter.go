@@ -983,11 +983,10 @@ func ReportFingerprint(report *rcav1alpha1.IncidentReport) string {
 
 func stripLegacyOTelFingerprintType(fingerprint string) string {
 	const marker = "|type|OTel"
-	idx := strings.Index(fingerprint, marker)
-	if idx < 0 {
-		return fingerprint
+	if head, _, ok := strings.Cut(fingerprint, marker); ok {
+		return head
 	}
-	return fingerprint[:idx]
+	return fingerprint
 }
 
 func bestResolvedTime(report *rcav1alpha1.IncidentReport) *metav1.Time {
