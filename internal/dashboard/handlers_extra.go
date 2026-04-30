@@ -28,9 +28,11 @@ import (
 // Option configures optional Server dependencies. Keeps NewServer backward
 // compatible while adding the cluster-topology, logs, and SSE features.
 const (
-	kindPod     = "Pod"
-	kindNode    = "Node"
-	kindService = "Service"
+	kindPod        = "Pod"
+	kindNode       = "Node"
+	kindService    = "Service"
+	kindDeployment = "Deployment"
+	kindReplicaSet = "ReplicaSet"
 
 	defaultServiceGraphLookback = 24 * time.Hour
 	maxServiceGraphLookback     = 7 * 24 * time.Hour
@@ -170,7 +172,7 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 		for _, cs := range p.Status.ContainerStatuses {
 			resp.RestartCount += cs.RestartCount
 		}
-	case "Deployment":
+	case kindDeployment:
 		var d appsv1.Deployment
 		if err := s.client.Get(r.Context(), client.ObjectKey{Namespace: ns, Name: name}, &d); err != nil {
 			writeResourceNotFound(w, err)
@@ -253,6 +255,7 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 	if resp.OpenIncidents == nil {
 		resp.OpenIncidents = []incidentResponse{}
 	}
+	resp.OpenIncidents = collapseDuplicateOTelIncidents(resp.OpenIncidents)
 	if resp.RecentEvents == nil {
 		resp.RecentEvents = []eventEntry{}
 	}
@@ -272,7 +275,7 @@ func incidentReferences(inc *rcav1alpha1.IncidentReport, kind, ns, name string) 
 				continue
 			}
 			switch r.Kind {
-			case "Service", "Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "Pod":
+			case kindService, kindDeployment, "StatefulSet", "DaemonSet", kindReplicaSet, kindPod:
 				if r.Namespace == "" && inc.Namespace != ns {
 					continue
 				}
@@ -415,7 +418,7 @@ func (s *Server) handlePods(w http.ResponseWriter, r *http.Request) {
 		p := &list.Items[i]
 		ps := podSummary{Name: p.Name, Phase: string(p.Status.Phase)}
 		for _, o := range p.OwnerReferences {
-			if o.Kind != "ReplicaSet" {
+			if o.Kind != kindReplicaSet {
 				continue
 			}
 			for _, d := range deps.Items {

@@ -729,11 +729,11 @@ func collapseDuplicateOTelIncidents(in []incidentResponse) []incidentResponse {
 	out := make([]incidentResponse, 0, len(in))
 	indexByKey := make(map[string]int, len(in))
 	for _, item := range in {
-		if !incident.IsOTelIncidentType(item.IncidentType) || item.Fingerprint == "" {
+		key := duplicateOTelIncidentKey(item)
+		if key == "" {
 			out = append(out, item)
 			continue
 		}
-		key := item.Namespace + "/" + item.Fingerprint
 		if idx, ok := indexByKey[key]; ok {
 			if preferIncidentListItem(item, out[idx]) {
 				out[idx] = item
@@ -744,6 +744,85 @@ func collapseDuplicateOTelIncidents(in []incidentResponse) []incidentResponse {
 		out = append(out, item)
 	}
 	return out
+}
+
+func duplicateOTelIncidentKey(item incidentResponse) string {
+	if !incident.IsOTelIncidentType(item.IncidentType) {
+		return ""
+	}
+	if key := incidentScopeKey(item); key != "" {
+		return key
+	}
+	if item.Fingerprint != "" {
+		return item.Namespace + "/fingerprint/" + item.Fingerprint
+	}
+	return ""
+}
+
+func incidentScopeKey(item incidentResponse) string {
+	ref := item.Scope.WorkloadRef
+	if ref == nil || ref.Name == "" {
+		ref = item.Scope.ResourceRef
+	}
+	if ref != nil && ref.Name != "" {
+		ns := ref.Namespace
+		if ns == "" {
+			ns = item.Scope.Namespace
+		}
+		if ns == "" {
+			ns = item.Namespace
+		}
+		return strings.Join([]string{ns, "otel-target", normalizeOTelTargetName(ref.Kind, ref.Name)}, "/")
+	}
+
+	for _, res := range item.AffectedResources {
+		if res.Name == "" {
+			continue
+		}
+		switch res.Kind {
+		case kindDeployment, "StatefulSet", "DaemonSet", kindReplicaSet, "Job", "CronJob", kindService, kindPod:
+			ns := res.Namespace
+			if ns == "" {
+				ns = item.Namespace
+			}
+			return strings.Join([]string{ns, "otel-target", normalizeOTelTargetName(res.Kind, res.Name)}, "/")
+		}
+	}
+	return ""
+}
+
+func normalizeOTelTargetName(kind, name string) string {
+	if kind != kindPod {
+		return name
+	}
+	parts := strings.Split(name, "-")
+	if len(parts) < 3 {
+		return name
+	}
+	replicaSetHash := parts[len(parts)-2]
+	podSuffix := parts[len(parts)-1]
+	if !looksLikeKubernetesPodSuffix(podSuffix) || !looksLikeReplicaSetHash(replicaSetHash) {
+		return name
+	}
+	return strings.Join(parts[:len(parts)-2], "-")
+}
+
+func looksLikeKubernetesPodSuffix(value string) bool {
+	return len(value) == 5 && isLowerAlnum(value)
+}
+
+func looksLikeReplicaSetHash(value string) bool {
+	return len(value) >= 8 && len(value) <= 10 && isLowerAlnum(value)
+}
+
+func isLowerAlnum(value string) bool {
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return value != ""
 }
 
 func preferIncidentListItem(candidate, current incidentResponse) bool {

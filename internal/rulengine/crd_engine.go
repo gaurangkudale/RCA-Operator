@@ -22,14 +22,43 @@ import (
 	"github.com/gaurangkudale/rca-operator/internal/watcher"
 )
 
+const (
+	attributeOpEquals      = "Equals"
+	attributeOpNotEquals   = "NotEquals"
+	attributeOpContains    = "Contains"
+	attributeOpNotContains = "NotContains"
+	attributeOpRegex       = "Regex"
+	attributeOpExists      = "Exists"
+	attributeOpNotExists   = "NotExists"
+	attributeOpGte         = "Gte"
+	attributeOpLte         = "Lte"
+	attributeOpGt          = "Gt"
+	attributeOpLt          = "Lt"
+)
+
 // loadedRule is a compiled, ready-to-evaluate version of an RCACorrelationRule.
 type loadedRule struct {
 	name       string
 	priority   int
 	trigger    string
-	conditions []rcav1alpha1.RuleCondition
+	conditions []loadedCondition
 	fires      rcav1alpha1.RuleFires
 	tmpl       *template.Template
+}
+
+type loadedCondition struct {
+	eventType  string
+	scope      string
+	negate     bool
+	attributes []compiledAttributeMatch
+}
+
+type compiledAttributeMatch struct {
+	key    string
+	op     string
+	value  string
+	regex  *regexp.Regexp
+	number float64
 }
 
 // CRDRuleEngine loads RCACorrelationRule CRDs from the cluster and evaluates
@@ -77,11 +106,16 @@ func (e *CRDRuleEngine) LoadRules(ctx context.Context) error {
 			e.log.Error(err, "Failed to parse rule summary template", "rule", rule.Name)
 			continue
 		}
+		conditions, err := compileConditions(rule.Spec.Conditions)
+		if err != nil {
+			e.log.Error(err, "Failed to compile correlation rule", "rule", rule.Name)
+			continue
+		}
 		loaded = append(loaded, loadedRule{
 			name:       rule.Name,
 			priority:   rule.Spec.Priority,
 			trigger:    rule.Spec.Trigger.EventType,
-			conditions: rule.Spec.Conditions,
+			conditions: conditions,
 			fires:      rule.Spec.Fires,
 			tmpl:       tmpl,
 		})
@@ -148,23 +182,23 @@ func (e *CRDRuleEngine) RuleCount() int {
 	return len(e.rules)
 }
 
-func (e *CRDRuleEngine) conditionsMet(trigger watcher.CorrelatorEvent, conditions []rcav1alpha1.RuleCondition, entries []correlator.Entry) bool {
+func (e *CRDRuleEngine) conditionsMet(trigger watcher.CorrelatorEvent, conditions []loadedCondition, entries []correlator.Entry) bool {
 	for _, cond := range conditions {
 		found := false
 		for _, en := range entries {
-			if string(en.Event.Type()) != cond.EventType {
+			if string(en.Event.Type()) != cond.eventType {
 				continue
 			}
-			if !e.scopeMatches(trigger, en.Event, cond.Scope) {
+			if !e.scopeMatches(trigger, en.Event, cond.scope) {
 				continue
 			}
-			if !attributesMatch(en.Event, cond.Attributes) {
+			if !attributesMatch(en.Event, cond.attributes) {
 				continue
 			}
 			found = true
 			break
 		}
-		if cond.Negate {
+		if cond.negate {
 			if found {
 				return false
 			}
@@ -225,47 +259,48 @@ func traceIDOf(ev watcher.CorrelatorEvent) string {
 // that do not implement watcher.AttributesEvent are treated as having no
 // attributes — every predicate except NotExists fails for them, preserving
 // backward compatibility with K8s-event-only rules that never set Attributes.
-func attributesMatch(ev watcher.CorrelatorEvent, matches []rcav1alpha1.AttributeMatch) bool {
+func attributesMatch(ev watcher.CorrelatorEvent, matches []compiledAttributeMatch) bool {
 	if len(matches) == 0 {
 		return true
 	}
 	var attrs map[string]string
+	hasAttrs := false
 	if ae, ok := ev.(watcher.AttributesEvent); ok {
 		attrs = ae.Attributes()
+		hasAttrs = true
 	}
 	for _, m := range matches {
-		if !evaluateAttribute(attrs, m) {
+		if !evaluateAttribute(attrs, hasAttrs, m) {
 			return false
 		}
 	}
 	return true
 }
 
-func evaluateAttribute(attrs map[string]string, m rcav1alpha1.AttributeMatch) bool {
-	val, present := attrs[m.Key]
-	switch m.Op {
-	case "", "Equals":
-		return present && val == m.Value
-	case "NotEquals":
-		return !present || val != m.Value
-	case "Contains":
-		return present && strings.Contains(val, m.Value)
-	case "NotContains":
-		return !present || !strings.Contains(val, m.Value)
-	case "Regex":
-		if !present {
+func evaluateAttribute(attrs map[string]string, hasAttrs bool, m compiledAttributeMatch) bool {
+	if !hasAttrs {
+		return m.op == attributeOpNotExists
+	}
+	val, present := attrs[m.key]
+	switch m.op {
+	case attributeOpEquals:
+		return present && val == m.value
+	case attributeOpNotEquals:
+		return present && val != m.value
+	case attributeOpContains:
+		return present && strings.Contains(val, m.value)
+	case attributeOpNotContains:
+		return present && !strings.Contains(val, m.value)
+	case attributeOpRegex:
+		if !present || m.regex == nil {
 			return false
 		}
-		re, err := regexp.Compile(m.Value)
-		if err != nil {
-			return false
-		}
-		return re.MatchString(val)
-	case "Exists":
+		return m.regex.MatchString(val)
+	case attributeOpExists:
 		return present && val != ""
-	case "NotExists":
+	case attributeOpNotExists:
 		return !present || val == ""
-	case "Gte", "Lte", "Gt", "Lt":
+	case attributeOpGte, attributeOpLte, attributeOpGt, attributeOpLt:
 		if !present {
 			return false
 		}
@@ -273,22 +308,69 @@ func evaluateAttribute(attrs map[string]string, m rcav1alpha1.AttributeMatch) bo
 		if err != nil {
 			return false
 		}
-		rhs, err := strconv.ParseFloat(m.Value, 64)
-		if err != nil {
-			return false
-		}
-		switch m.Op {
-		case "Gte":
-			return lhs >= rhs
-		case "Lte":
-			return lhs <= rhs
-		case "Gt":
-			return lhs > rhs
-		case "Lt":
-			return lhs < rhs
+		switch m.op {
+		case attributeOpGte:
+			return lhs >= m.number
+		case attributeOpLte:
+			return lhs <= m.number
+		case attributeOpGt:
+			return lhs > m.number
+		case attributeOpLt:
+			return lhs < m.number
 		}
 	}
 	return false
+}
+
+func compileConditions(conditions []rcav1alpha1.RuleCondition) ([]loadedCondition, error) {
+	out := make([]loadedCondition, 0, len(conditions))
+	for _, cond := range conditions {
+		attributes, err := compileAttributeMatches(cond.Attributes)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, loadedCondition{
+			eventType:  cond.EventType,
+			scope:      cond.Scope,
+			negate:     cond.Negate,
+			attributes: attributes,
+		})
+	}
+	return out, nil
+}
+
+func compileAttributeMatches(matches []rcav1alpha1.AttributeMatch) ([]compiledAttributeMatch, error) {
+	out := make([]compiledAttributeMatch, 0, len(matches))
+	for _, m := range matches {
+		compiled := compiledAttributeMatch{
+			key:   m.Key,
+			op:    normalizeAttributeOp(m.Op),
+			value: m.Value,
+		}
+		switch compiled.op {
+		case attributeOpRegex:
+			re, err := regexp.Compile(m.Value)
+			if err != nil {
+				return nil, err
+			}
+			compiled.regex = re
+		case attributeOpGte, attributeOpLte, attributeOpGt, attributeOpLt:
+			number, err := strconv.ParseFloat(m.Value, 64)
+			if err != nil {
+				return nil, err
+			}
+			compiled.number = number
+		}
+		out = append(out, compiled)
+	}
+	return out, nil
+}
+
+func normalizeAttributeOp(op string) string {
+	if op == "" {
+		return attributeOpEquals
+	}
+	return op
 }
 
 // ExtractBase extracts the BaseEvent fields from any CorrelatorEvent.

@@ -40,18 +40,31 @@ func makeIncident(name, ns, severity, phase, incidentType string, firstSeen time
 	}
 }
 
-func rcaWorkloadScope(ns, name string) rcav1alpha1.IncidentScope {
+func rcaProdWorkloadScope(name string) rcav1alpha1.IncidentScope {
 	ref := &rcav1alpha1.IncidentObjectRef{
 		APIVersion: "apps/v1",
 		Kind:       "Deployment",
-		Namespace:  ns,
+		Namespace:  "prod",
 		Name:       name,
 	}
 	return rcav1alpha1.IncidentScope{
 		Level:       "Workload",
-		Namespace:   ns,
+		Namespace:   "prod",
 		ResourceRef: ref,
 		WorkloadRef: ref,
+	}
+}
+
+func rcaProdPodScope(name string) rcav1alpha1.IncidentScope {
+	return rcav1alpha1.IncidentScope{
+		Level:     "Pod",
+		Namespace: "prod",
+		ResourceRef: &rcav1alpha1.IncidentObjectRef{
+			APIVersion: "v1",
+			Kind:       "Pod",
+			Namespace:  "prod",
+			Name:       name,
+		},
 	}
 }
 
@@ -239,10 +252,10 @@ func TestHandleIncidents_CollapsesDuplicateOTelFingerprints(t *testing.T) {
 	now := time.Now()
 	span := makeIncident("span", "prod", "P2", "Resolved", "OTelSpanError", now.Add(-time.Minute))
 	span.Spec.Fingerprint = "Workload|prod|deployment|frontend|type|OTelSpanError"
-	span.Spec.Scope = rcaWorkloadScope("prod", "frontend")
+	span.Spec.Scope = rcaProdWorkloadScope("frontend")
 	logMatch := makeIncident("log", "prod", "P3", "Resolved", "OTelLogMatch", now)
 	logMatch.Spec.Fingerprint = "Workload|prod|deployment|frontend|type|OTelLogMatch"
-	logMatch.Spec.Scope = rcaWorkloadScope("prod", "frontend")
+	logMatch.Spec.Scope = rcaProdWorkloadScope("frontend")
 
 	s := newTestServer(t, span, logMatch)
 	rr := httptest.NewRecorder()
@@ -260,6 +273,102 @@ func TestHandleIncidents_CollapsesDuplicateOTelFingerprints(t *testing.T) {
 	}
 	if got := items[0]["fingerprint"]; got != "Workload|prod|deployment|frontend" {
 		t.Fatalf("fingerprint = %v", got)
+	}
+}
+
+func TestHandleIncidents_CollapsesDuplicateOTelWorkloadsWithDifferentFingerprints(t *testing.T) {
+	now := time.Now()
+	olderHigh := makeIncident("checkout-old", "prod", "P2", "Resolved", "OTelSpanError", now.Add(-25*time.Hour))
+	olderHigh.Spec.Fingerprint = "legacy-checkout-span"
+	olderHigh.Spec.Scope = rcaProdWorkloadScope("checkout")
+	olderHigh.Status.AffectedResources = []rcav1alpha1.AffectedResource{
+		{APIVersion: "apps/v1", Kind: "Deployment", Namespace: "prod", Name: "checkout"},
+	}
+
+	newerMedium := makeIncident("checkout-new", "prod", "P3", "Resolved", "OTelLogMatch", now.Add(-8*time.Minute))
+	newerMedium.Spec.Fingerprint = "Workload|prod|deployment|checkout|type|OTelLogMatch"
+	newerMedium.Spec.Scope = rcaProdWorkloadScope("checkout")
+	newerMedium.Status.AffectedResources = []rcav1alpha1.AffectedResource{
+		{APIVersion: "apps/v1", Kind: "Deployment", Namespace: "prod", Name: "checkout"},
+	}
+
+	otherService := makeIncident("cart", "prod", "P3", "Resolved", "OTelLogMatch", now)
+	otherService.Spec.Fingerprint = "cart"
+	otherService.Spec.Scope = rcaProdWorkloadScope("cart")
+
+	s := newTestServer(t, olderHigh, newerMedium, otherService)
+	rr := httptest.NewRecorder()
+	s.handleIncidents(rr, httptest.NewRequest(http.MethodGet, "/api/incidents", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var items []map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &items); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("items = %d, want checkout collapsed plus cart: %s", len(items), rr.Body.String())
+	}
+	checkoutCount := 0
+	for _, item := range items {
+		if item["name"] == "checkout-old" || item["name"] == "checkout-new" {
+			checkoutCount++
+		}
+	}
+	if checkoutCount != 1 {
+		t.Fatalf("checkout incidents in list = %d, want 1: %s", checkoutCount, rr.Body.String())
+	}
+}
+
+func TestHandleIncidents_CollapsesDuplicateOTelPodAndServiceNames(t *testing.T) {
+	now := time.Now()
+	podSpan := makeIncident("checkout-pod", "prod", "P2", "Resolved", "OTelSpanError", now.Add(-26*time.Minute))
+	podSpan.Spec.Fingerprint = "Pod|prod|pod|checkout-6fb79787b6-rwfkz"
+	podSpan.Spec.Scope = rcaProdPodScope("checkout-6fb79787b6-rwfkz")
+	podSpan.Status.AffectedResources = []rcav1alpha1.AffectedResource{
+		{APIVersion: "v1", Kind: "Pod", Namespace: "prod", Name: "checkout-6fb79787b6-rwfkz"},
+	}
+
+	serviceLog := makeIncident("checkout-service", "prod", "P3", "Resolved", "OTelLogMatch", now.Add(-8*time.Minute))
+	serviceLog.Spec.Fingerprint = "legacy-checkout-service"
+	serviceLog.Spec.Scope = rcav1alpha1.IncidentScope{
+		Level:     "Workload",
+		Namespace: "prod",
+		ResourceRef: &rcav1alpha1.IncidentObjectRef{
+			APIVersion: "v1",
+			Kind:       "Service",
+			Namespace:  "prod",
+			Name:       "checkout",
+		},
+	}
+
+	productCatalog := makeIncident("product-catalog-pod", "prod", "P3", "Resolved", "OTelSpanError", now)
+	productCatalog.Spec.Fingerprint = "Pod|prod|pod|product-catalog-57579c597d-g9x96"
+	productCatalog.Spec.Scope = rcaProdPodScope("product-catalog-57579c597d-g9x96")
+
+	s := newTestServer(t, podSpan, serviceLog, productCatalog)
+	rr := httptest.NewRecorder()
+	s.handleIncidents(rr, httptest.NewRequest(http.MethodGet, "/api/incidents", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var items []map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &items); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("items = %d, want checkout collapsed plus product-catalog: %s", len(items), rr.Body.String())
+	}
+	checkoutCount := 0
+	for _, item := range items {
+		if item["name"] == "checkout-pod" || item["name"] == "checkout-service" {
+			checkoutCount++
+		}
+	}
+	if checkoutCount != 1 {
+		t.Fatalf("checkout incidents in list = %d, want 1: %s", checkoutCount, rr.Body.String())
 	}
 }
 
