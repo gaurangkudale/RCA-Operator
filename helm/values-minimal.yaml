@@ -1,0 +1,27 @@
+# Minimal profile: RCA Operator control plane only.
+#
+# No bundled OpenTelemetry Operator, Collector, Jaeger, Instrumentation, or
+# in-operator OTLP ingest surface is installed. Kubernetes-native incident
+# detection, CRD rules, dashboard, metrics, and notifications remain available.
+
+opentelemetryOperator:
+  enabled: false
+
+jaeger:
+  enabled: false
+
+otelCollector:
+  enabled: false
+
+instrumentation:
+  enabled: false
+
+rcaIngest:
+  enabled: false
+
+graphBuilder:
+  jaegerQueryURL: ""
+
+otel:
+  enabled: false
+  endpoint: ""

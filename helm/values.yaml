@@ -1,15 +1,27 @@
 # RCA Operator Helm Chart Values
 
-# Number of replicas for the controller manager
+# Number of replicas for the controller manager.
 # Use case: Scale operator control-plane availability and throughput.
+# Sizing guidance:
+#   - 1  (default): small clusters, dev, single-AZ. Leader election keeps
+#                   reconciliation safe; a restart incurs ~10s of downtime.
+#   - 2+ (prod HA): pair with the podAntiAffinity block below to spread
+#                   replicas across nodes/zones. See values-production.yaml.
 replicaCount: 1
 
 # Controller manager image configuration
 # Use case: Select which RCA Operator image/version is deployed.
+#
+# Defaults pin to the published GHCR image at the chart's appVersion so that
+# `helm install rca-operator rca-operator/rca-operator` works out of the box
+# from a remote repo. Leave `tag` empty to follow the chart's appVersion;
+# override both fields for air-gapped or locally-loaded (kind) workflows
+# (see values-dev.yaml).
 image:
   repository: ghcr.io/gaurangkudale/rca-operator
   pullPolicy: IfNotPresent
-  # Overrides the image tag whose default is the chart appVersion
+  # Empty string resolves to .Chart.AppVersion at render time. Pin to an
+  # explicit tag (e.g. "0.0.16") for reproducible upgrades.
   tag: ""
 
 imagePullSecrets: []
@@ -62,20 +74,24 @@ manager:
     - --health-probe-bind-address=:8081
     - --dashboard-bind-address=:9090
 
-# OpenTelemetry configuration
-# Use case: Export operator traces/telemetry to an OTLP backend for observability.
+# Operator self-telemetry — exports the operator's OWN reconcile/signal/rule spans via OTLP.
+# This is SEPARATE from the opentelemetryOperator/otelCollector/jaeger stack below,
+# which instruments your application workloads.
+# Set enabled: true and provide an endpoint to trace the operator itself.
 otel:
-  enabled: false
-  # OTLP gRPC collector address (e.g. "signoz-otel-collector.platform:4317")
+  enabled: true
+  # Any OTLP gRPC endpoint, e.g. the bundled collector:
+  # "rca-operator-otel-collector.rca-system.svc.cluster.local:4317"
   endpoint: ""
   serviceName: "rca-operator"
   samplingRate: "1.0"
   insecure: true
 
 # Default RCACorrelationRule CRDs
-# Use case: Seed built-in correlation knowledge so RCA works immediately after installation.
+# Four production-ready rules that cover the most common failure patterns.
+# Enabled by default so the operator detects incidents out of the box.
 defaultRules:
-  enabled: false
+  enabled: true
 
 # Automatic correlation rule detection
 # Use case: Learn new recurring incident patterns and create rules automatically.
@@ -91,14 +107,35 @@ autoDetect:
 webhooks:
   enabled: false
 
+# Shared signal channel protection.
+# Use case: absorb OTLP/Kubernetes signal bursts without blocking collectors or
+# starving controller-runtime leader election.
+signals:
+  # Buffered channel size between collectors and the incident engine.
+  bufferSize: 8192
+  # Coalesce repeated events with the same dedup key before enqueueing.
+  # Set to 0s to disable.
+  emitDedupWindow: 2s
+
 # Pod Disruption Budget
 # Use case: Protect operator availability during voluntary node disruptions.
 podDisruptionBudget:
   enabled: true
   minAvailable: 1
 
-# Resources for the controller manager
+# Resources for the controller manager.
 # Use case: Reserve and cap CPU/memory for stable reconciliation performance.
+#
+# Sizing guidance (measured on a 3-node cluster with ~50 watched namespaces):
+#   Cluster size          | requests          | limits
+#   ---------------------- ------------------- ---------------------
+#   dev / kind             | 50m  / 64Mi       | 200m / 256Mi
+#   small (<=20 ns)        | 100m / 128Mi      | 500m / 512Mi   (default)
+#   medium (20-100 ns)     | 200m / 256Mi      | 1000m / 1Gi
+#   large (100+ ns, OTLP   | 500m / 512Mi      | 2000m / 2Gi
+#     ingest on)           |                   |
+# Scale up memory first if you see OOMKills under trace ingest load;
+# CPU only matters under bursty reconcile storms.
 resources:
   limits:
     cpu: 500m
@@ -150,6 +187,7 @@ leaderElection:
 # Use case: Expose Prometheus-style metrics for monitoring and alerting.
 metrics:
   enabled: true
+  secure: true
   service:
     port: 8443
     type: ClusterIP
@@ -178,3 +216,418 @@ dashboard:
     #  - secretName: rca-operator-tls
     #    hosts:
     #      - rca-operator.local
+
+# ────────────────────────────────────────────────────────────────────────────
+# Phase 2 — RCA OTLP ingest server
+# The controller-manager exposes an OTLP/HTTP endpoint that the cluster-wide
+# OTel Collector DaemonSet forwards a filtered subset of traces/logs to.
+# This feeds the correlation engine with OTel-native signals alongside the
+# existing Kubernetes-event-driven signals.
+# ────────────────────────────────────────────────────────────────────────────
+rcaIngest:
+  # When true, the controller-manager starts an OTLP/HTTP server on bindPort
+  # and the Helm chart renders the matching Service + NetworkPolicy + collector
+  # pipeline branch that forwards error spans / warn logs to this endpoint.
+  enabled: true
+
+  # TCP port the operator binds its OTLP/HTTP ingest on.
+  # The corresponding Service targets the container port named "otel-ingest".
+  bindPort: 4319
+
+  # Explicit endpoint override used by the DaemonSet collector's
+  # otlphttp/rca-operator exporter. Leave empty to auto-compute:
+  #   http://<ingestServiceName>.<releaseNamespace>.svc.cluster.local:<bindPort>
+  endpoint: ""
+
+  # NetworkPolicy restricting ingress on bindPort to the OTel Collector
+  # DaemonSet's ServiceAccount only. Prevents arbitrary workloads from pushing
+  # OTLP traffic into the correlation pipeline.
+  networkPolicy:
+    enabled: true
+
+# ────────────────────────────────────────────────────────────────────────────
+# Phase 2 — OTLP ingest filter settings
+# These thresholds are applied both in the DaemonSet collector (via
+# filter/errors + filter/severity OTTL processors) AND inside the operator's
+# ingest server (as a second pass). The collector filter keeps the RCA
+# pipeline small; the operator filter is the hard gate on what enters the
+# correlator buffer.
+# ────────────────────────────────────────────────────────────────────────────
+otelIngest:
+  filters:
+    traces:
+      # Keep spans where Status.Code == STATUS_CODE_ERROR.
+      statusCodeERROR: true
+      # Keep spans whose http.status_code / http.response.status_code is
+      # greater than or equal to this value. 0 disables the filter.
+      httpStatusGte: 500
+      # Keep spans whose duration is >= this value (milliseconds). 0 disables.
+      latencyP99Ms: 5000
+    logs:
+      # Minimum OTel severity text that enters the correlator.
+      # One of: TRACE | DEBUG | INFO | WARN | ERROR | FATAL
+      minSeverity: "WARN"
+      # Maximum OTelLogMatch signals emitted from one OTLP log request after
+      # per-request deduplication. Set 0 to disable the cap.
+      maxSignalsPerRequest: 256
+
+# ────────────────────────────────────────────────────────────────────────────
+# Phase 2 Milestone D — Incident Graph Builder
+# The operator queries Jaeger's Query API (port 16686) to enrich topology
+# graphs with service-to-service call edges resolved from OTel trace-ids.
+# Requires jaeger.enabled=true (or an external Jaeger URL via jaegerQueryURL).
+# When jaeger.enabled=false and jaegerQueryURL is empty, the graph builder
+# falls back to K8s-only topology (no Jaeger enrichment) — never errors.
+# ────────────────────────────────────────────────────────────────────────────
+graphBuilder:
+  # Override Jaeger Query HTTP URL. Leave empty to auto-compute:
+  #   http://<release-name>-jaeger:16686
+  # Set explicitly when using an external Jaeger instance, e.g.:
+  #   jaegerQueryURL: "http://jaeger-query.observability.svc.cluster.local:16686"
+  jaegerQueryURL: ""
+
+# ────────────────────────────────────────────────────────────────────────────
+# OpenTelemetry Operator sub-chart (alias: opentelemetryOperator)
+# Manages the OpenTelemetryCollector and Instrumentation CRDs/resources.
+# Chart: open-telemetry/opentelemetry-operator v0.148.0
+# Docs: https://github.com/open-telemetry/opentelemetry-helm-charts
+# ────────────────────────────────────────────────────────────────────────────
+opentelemetryOperator:
+  # Set to false to skip installing the operator (use if already installed cluster-wide).
+  enabled: true
+
+  # Force a lowercase RFC-1123-compliant name for all sub-chart resources.
+  # Without this, Helm uses the alias "opentelemetryOperator" as Chart.Name
+  # which produces invalid Secret/Service names containing uppercase letters.
+  nameOverride: "opentelemetry-operator"
+
+  # Admission webhooks — auto-generate TLS certs without cert-manager.
+  # Use case: Validate/mutate OpenTelemetryCollector and Instrumentation resources.
+  admissionWebhooks:
+    certManager:
+      # Set to true if cert-manager is already installed in the cluster.
+      enabled: false
+    autoGenerateCert:
+      # Auto-generate a self-signed cert for the webhook server.
+      enabled: true
+      # Recreate the cert on every upgrade (useful if the cert expires).
+      recreate: false
+
+  # Operator manager pod resources.
+  manager:
+    resources:
+      limits:
+        cpu: 200m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    # Default collector image used when OpenTelemetryCollector CRs omit an image.
+    collectorImage:
+      repository: otel/opentelemetry-collector-contrib
+    # Leader election so only one operator replica is active.
+    leaderElection:
+      enabled: true
+
+  # Operator pod security — run as non-root with minimal privileges.
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+# ────────────────────────────────────────────────────────────────────────────
+# OpenTelemetryCollector CR
+# Created by RCA-Operator helm chart, reconciled by the OpenTelemetry Operator.
+# Runs as a DaemonSet so every node ships logs and traces to Jaeger.
+# ────────────────────────────────────────────────────────────────────────────
+otelCollector:
+  # Set to false to skip creating the OpenTelemetryCollector resource.
+  # Requires opentelemetryOperator.enabled=true.
+  enabled: true
+
+  # Collector deployment mode.
+  # Options: daemonset | deployment | statefulset | sidecar
+  # Use case: daemonset collects host-level logs; deployment for gateway mode.
+  mode: daemonset
+
+  # Collector image (contrib bundle includes k8sattributes, filelog, etc.).
+  # Pin to a specific version for reproducible production deployments.
+  # Find releases: https://github.com/open-telemetry/opentelemetry-collector-releases/releases
+  image: otel/opentelemetry-collector-contrib:0.121.0
+
+  # Resources for each collector pod (daemonset: per node).
+  # Use case: Reserve and cap CPU/memory to prevent noisy-neighbour issues.
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+  # Filelog receiver — tails pod/container log files from the node.
+  # Use case: Collect structured application logs for the logs pipeline.
+  # Set to false if you only need trace forwarding.
+  filelog:
+    enabled: true
+
+  # Batch processor settings.
+  # Use case: Buffer telemetry before export to reduce network overhead.
+  batch:
+    sendBatchSize: 512
+    sendBatchMaxSize: 1024
+    timeout: 5s
+
+  # Memory limiter processor — prevents OOM in the collector pod.
+  # Use case: Shed load gracefully when memory pressure is high.
+  memoryLimiter:
+    limitPercentage: 75
+    spikeLimitPercentage: 15
+
+  # Debug exporter verbosity: basic | normal | detailed
+  # Use case: Tune log verbosity for the collector's own debug output.
+  debugVerbosity: normal
+
+  # Metrics pipeline settings.
+  # Use case: Accept OTLP metrics from instrumented workloads to avoid
+  # /v1/metrics 404 responses and optionally forward to a metrics backend.
+  metrics:
+    # Enable collector metrics pipeline:
+    # receivers: [otlp]
+    # processors: [memory_limiter, k8sattributes, batch]
+    # exporters: [debug, (optional) otlp/metrics]
+    enabled: true
+
+    # Optional OTLP exporter for metrics pipeline.
+    # Set enabled=true and endpoint to forward metrics to a backend.
+    otlp:
+      enabled: false
+      # Example: "prometheus-agent.observability.svc.cluster.local:4317"
+      endpoint: ""
+      insecure: true
+      retry:
+        enabled: true
+        initialInterval: 5s
+        maxInterval: 30s
+        maxElapsedTime: 300s
+      queue:
+        enabled: true
+        numConsumers: 4
+        queueSize: 2000
+
+  # Jaeger OTLP gRPC endpoint that the collector exports traces to.
+  # Leave empty to use the auto-computed value: <release-name>-jaeger:4317
+  # Override if Jaeger is installed separately or in a different namespace.
+  jaegerEndpoint: ""
+
+  # OTLP exporter retry and queue settings (traces → Jaeger).
+  # Use case: Tolerate transient Jaeger unavailability without dropping spans.
+  exporterRetry:
+    enabled: true
+    initialInterval: 5s
+    maxInterval: 30s
+    maxElapsedTime: 300s
+  exporterQueue:
+    enabled: true
+    numConsumers: 10
+    queueSize: 5000
+
+# ────────────────────────────────────────────────────────────────────────────
+# Instrumentation CR
+# Tells the OpenTelemetry Operator how to auto-instrument workloads.
+# Workloads opt-in via annotations, e.g.:
+#   instrumentation.opentelemetry.io/inject-python: "true"
+# ────────────────────────────────────────────────────────────────────────────
+instrumentation:
+  # Set to false to skip creating the Instrumentation resource.
+  # Requires opentelemetryOperator.enabled=true.
+  enabled: true
+
+  # OTLP endpoint that instrumented pods send spans to (the collector).
+  # Leave empty to auto-compute: http://<collector-daemonset-svc>:4318
+  # Use case: Override when collector runs in a different namespace.
+  otlpEndpoint: ""
+
+  # Propagators injected into instrumented workloads.
+  # Use case: Ensure trace context flows across service boundaries.
+  propagators:
+    - tracecontext
+    - baggage
+    - b3
+
+  # Sampling configuration.
+  # Use case: Control the fraction of traces that are recorded.
+  sampler:
+    # Options: always_on | always_off | traceidratio | parentbased_always_on | parentbased_always_off | parentbased_traceidratio
+    type: parentbased_traceidratio
+    # Effective when type is traceidratio or parentbased_traceidratio.
+    argument: "1.0"
+
+  # Per-language SDK resource overrides (leave empty to use operator defaults).
+  # Default python env focuses on traces path:
+  # app auto-instrumentation traces -> otel-collector (OTLP/HTTP 4318) -> Jaeger.
+  python:
+    env:
+      - name: OTEL_TRACES_EXPORTER
+        value: otlp
+      - name: OTEL_METRICS_EXPORTER
+        value: none
+      - name: OTEL_LOGS_EXPORTER
+        value: none
+      - name: OTEL_EXPORTER_OTLP_PROTOCOL
+        value: http/protobuf
+  java: {}
+  nodejs: {}
+  dotnet: {}
+  go: {}
+
+  # Additional namespaces to receive a copy of the Instrumentation CR.
+  # Workloads in these namespaces with inject-python/java/nodejs: "true"
+  # will find a local Instrumentation CR pointing to the collector FQDN.
+  # The primary CR is always created in the release namespace.
+  # Use case: auto-instrument apps in rca-demo, production, staging, etc.
+  targetNamespaces:
+    - rca-demo
+  # - production
+  # - staging
+
+# ────────────────────────────────────────────────────────────────────────────
+# Jaeger sub-chart
+# Jaeger v2 all-in-one — trace storage and query UI.
+# Chart: jaegertracing/jaeger v2.17.0
+# Docs: https://github.com/jaegertracing/helm-charts
+# ────────────────────────────────────────────────────────────────────────────
+jaeger:
+  # Set to false to skip installing Jaeger (use if already installed cluster-wide).
+  enabled: true
+
+  # Jaeger container image.
+  image:
+    repository: jaegertracing/jaeger
+    tag: "2.17.0"
+    pullPolicy: IfNotPresent
+
+  # Number of Jaeger replicas.
+  # Use case: Set >1 with a persistent storage backend for HA.
+  replicaCount: 1
+
+  # Resources for the Jaeger pod.
+  # Use case: Reserve and cap CPU/memory for stable query/ingest performance.
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+  # Service ports exposed by Jaeger.
+  service:
+    type: ClusterIP
+    ports:
+      - name: query-ui
+        port: 16686
+        targetPort: 16686
+        protocol: TCP
+      - name: otlp-grpc
+        port: 4317
+        targetPort: 4317
+        protocol: TCP
+      - name: otlp-http
+        port: 4318
+        targetPort: 4318
+        protocol: TCP
+      - name: jaeger-grpc
+        port: 14250
+        targetPort: 14250
+        protocol: TCP
+      - name: jaeger-http
+        port: 14268
+        targetPort: 14268
+        protocol: TCP
+      - name: zipkin
+        port: 9411
+        targetPort: 9411
+        protocol: TCP
+
+  # Jaeger ingress for the Query UI.
+  # Use case: Expose the Jaeger UI outside the cluster via an ingress controller.
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+      # kubernetes.io/ingress.class: nginx
+      # kubernetes.io/tls-acme: "true"
+    hosts:
+      - host: jaeger.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+    #  - secretName: jaeger-tls
+    #    hosts:
+    #      - jaeger.local
+
+  # Storage backend.
+  # Use case: Store traces in memory (ephemeral) or persistent storage backends.
+  storage:
+    # Options: memory | badger | cassandra
+    type: memory
+
+  # Jaeger v2 OTEL-style pipeline config (accepted by the all-in-one binary).
+  # Use case: Configure which protocols Jaeger listens on and how it processes spans.
+  config:
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp, jaeger, zipkin]
+          processors: [batch]
+          exporters: [jaeger_storage_exporter]
+
+    processors:
+      batch:
+        send_batch_size: 100
+        timeout: 10s
+
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: "0.0.0.0:4317"
+          http:
+            endpoint: "0.0.0.0:4318"
+      jaeger:
+        protocols:
+          grpc:
+            endpoint: "0.0.0.0:14250"
+          http:
+            endpoint: "0.0.0.0:14268"
+      zipkin:
+        endpoint: "0.0.0.0:9411"
+
+    extensions:
+      jaeger_storage:
+        backends:
+          memory:
+            max_traces: 100000
+      jaeger_query:
+        storage:
+          traces: memory
+
+  # Jaeger Query UI.
+  uiconfig:
+    enabled: true
+
+  # Pod security context for Jaeger.
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+  # Container security context for Jaeger.
+  securityContext:
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL

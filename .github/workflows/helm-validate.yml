@@ -6,6 +6,11 @@ on:
       - "helm/**"
       - ".github/workflows/helm-validate.yml"
 
+env:
+  HELM_VERSION: "v3.17.3"
+  KUBECONFORM_VERSION: "v0.6.7"
+  K8S_VERSION: "1.29.0"
+
 jobs:
   lint:
     name: Helm Lint
@@ -17,10 +22,46 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v4
         with:
-          version: latest
+          version: ${{ env.HELM_VERSION }}
 
-      - name: Lint Helm chart
-        run: helm lint ./helm
+      - name: Cache Helm dependencies
+        uses: actions/cache@v4
+        with:
+          path: helm/charts
+          key: helm-deps-${{ hashFiles('helm/Chart.yaml', 'helm/Chart.lock') }}
+          restore-keys: helm-deps-
+
+      - name: Add Helm repositories
+        run: |
+          helm repo add opentelemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+          helm repo add jaegertracing https://jaegertracing.github.io/helm-charts
+          helm repo update
+          echo "✓ Helm repositories added and updated"
+
+      - name: Update Helm dependencies
+        run: |
+          helm dep update helm/
+          echo "✓ Helm dependencies resolved"
+          helm dep list helm/
+
+      - name: Lint Helm chart (strict)
+        run: |
+          helm lint helm/ --strict
+          echo "✓ Helm lint passed"
+
+      - name: Lint with custom values overrides
+        run: |
+          # Lint with sub-charts disabled to validate minimal footprint
+          helm lint helm/ --strict \
+            --set opentelemetryOperator.enabled=false \
+            --set jaeger.enabled=false
+          echo "✓ Lint with sub-charts disabled passed"
+
+          # Lint with otelCollector and instrumentation disabled
+          helm lint helm/ --strict \
+            --set otelCollector.enabled=false \
+            --set instrumentation.enabled=false
+          echo "✓ Lint with observability stack disabled passed"
 
   template:
     name: Helm Template Validation
@@ -32,18 +73,92 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v4
         with:
-          version: latest
+          version: ${{ env.HELM_VERSION }}
 
-      - name: Template validation
+      - name: Cache Helm dependencies
+        uses: actions/cache@v4
+        with:
+          path: helm/charts
+          key: helm-deps-${{ hashFiles('helm/Chart.yaml', 'helm/Chart.lock') }}
+          restore-keys: helm-deps-
+
+      - name: Add Helm repositories
         run: |
-          helm template rca-operator ./helm > /tmp/helm-release.yaml
-          if [ ! -s /tmp/helm-release.yaml ]; then
+          helm repo add opentelemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+          helm repo add jaegertracing https://jaegertracing.github.io/helm-charts
+          helm repo update
+
+      - name: Update Helm dependencies
+        run: helm dep update helm/
+
+      - name: Render full template (all features enabled)
+        run: |
+          helm template rca-operator ./helm \
+            --namespace rca-system \
+            --create-namespace \
+            > /tmp/helm-full.yaml
+
+          if [ ! -s /tmp/helm-full.yaml ]; then
             echo "Error: Helm template generated empty manifest"
             exit 1
           fi
-          echo "✓ Helm template validation passed"
-          echo "Generated manifest preview:"
-          head -30 /tmp/helm-release.yaml
+          echo "✓ Full template render passed"
+          echo "--- Manifest summary ---"
+          grep "^kind:" /tmp/helm-full.yaml | sort | uniq -c | sort -rn
+
+      - name: Render minimal template (sub-charts disabled)
+        run: |
+          helm template rca-operator ./helm \
+            --namespace rca-system \
+            --set opentelemetryOperator.enabled=false \
+            --set jaeger.enabled=false \
+            --set otelCollector.enabled=false \
+            --set instrumentation.enabled=false \
+            > /tmp/helm-minimal.yaml
+
+          if [ ! -s /tmp/helm-minimal.yaml ]; then
+            echo "Error: Minimal Helm template generated empty manifest"
+            exit 1
+          fi
+          echo "✓ Minimal template render passed"
+
+      - name: Install kubeconform
+        run: |
+          tmpdir="$(mktemp -d)"
+          archive="${tmpdir}/kubeconform-linux-amd64.tar.gz"
+
+          curl --fail --silent --show-error --location \
+            --retry 5 --retry-delay 2 --retry-all-errors \
+            "https://github.com/yannh/kubeconform/releases/download/${{ env.KUBECONFORM_VERSION }}/kubeconform-linux-amd64.tar.gz" \
+            -o "${archive}"
+
+          tar -xzf "${archive}" -C /usr/local/bin kubeconform
+          chmod +x /usr/local/bin/kubeconform
+          kubeconform -v
+          echo "✓ kubeconform installed"
+
+      - name: Validate manifests with kubeconform
+        run: |
+          # Validate full manifest; -ignore-missing-schemas skips unknown CRDs
+          # (OpenTelemetryCollector, Instrumentation, RCAAgent, IncidentReport)
+          kubeconform \
+            -strict \
+            -ignore-missing-schemas \
+            -kubernetes-version "${{ env.K8S_VERSION }}" \
+            -summary \
+            /tmp/helm-full.yaml
+
+          echo "✓ Kubernetes manifest schema validation passed (full)"
+
+          kubeconform \
+            -strict \
+            -ignore-missing-schemas \
+            -kubernetes-version "${{ env.K8S_VERSION }}" \
+            -summary \
+            /tmp/helm-minimal.yaml
+
+          echo "✓ Kubernetes manifest schema validation passed (minimal)"
+
 
   chart-version:
     name: Chart Version Check
@@ -71,14 +186,40 @@ jobs:
         run: |
           BASE_VERSION="${{ steps.base_version.outputs.base_version }}"
           PR_VERSION="${{ steps.pr_version.outputs.pr_version }}"
-          
+
           if [ "$BASE_VERSION" = "$PR_VERSION" ]; then
-            echo "⚠️  Warning: Chart version was not bumped"
+            echo "⚠️  Chart version was not bumped"
             echo "   Base: $BASE_VERSION"
             echo "   PR:   $PR_VERSION"
             echo ""
             echo "Please update helm/Chart.yaml version when making changes to the Helm chart."
             exit 1
           fi
-          
+
           echo "✓ Chart version updated from $BASE_VERSION to $PR_VERSION"
+
+      - name: Validate Chart.yaml dependencies are pinned
+        run: |
+          python3 - <<'EOF'
+          import yaml, sys
+
+          with open("helm/Chart.yaml") as f:
+              chart = yaml.safe_load(f)
+
+          deps = chart.get("dependencies", [])
+          errors = []
+          for dep in deps:
+              ver = dep.get("version", "")
+              name = dep.get("name", "?")
+              # Reject wildcard or range versions (e.g. *, ^1.0, >=1.0)
+              if any(c in ver for c in ["*", "^", ">=", "<=", ">", "<", "x", "X"]):
+                  errors.append(f"  Dependency '{name}' has unpinned version: {ver}")
+
+          if errors:
+              print("❌ Unpinned dependency versions found:")
+              for e in errors:
+                  print(e)
+              sys.exit(1)
+
+          print(f"✓ All {len(deps)} dependency version(s) are pinned")
+          EOF

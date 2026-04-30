@@ -31,7 +31,7 @@ spec:
       scope: sameNode
   fires:
     incidentType: NodeNotReady
-    severity: P1
+    severity: P1 # Critical
     summary: "NodeNotReady with pod evictions on node {{.NodeName}}"
     resource: node
     scope: Cluster
@@ -53,7 +53,7 @@ spec:
       scope: samePod
   fires:
     incidentType: OOMKilled
-    severity: P2
+    severity: P2 # High
     summary: "OOMKilled: CrashLoopBackOff with OOMKilled on pod {{.PodName}} in {{.Namespace}}"
 ```
 
@@ -74,7 +74,7 @@ spec:
       negate: true   # fires only if PodHealthy is NOT in the buffer
   fires:
     incidentType: ImagePullBackOff
-    severity: P2
+    severity: P2 # High
     summary: "ImagePullBackOff: no prior healthy state for pod {{.PodName}} in {{.Namespace}}"
 ```
 
@@ -98,7 +98,7 @@ spec:
 |---|---|---|---|
 | `trigger.eventType` | `string` | Yes | Watcher event type that starts evaluation |
 
-Available event types: `CrashLoopBackOff`, `OOMKilled`, `ImagePullBackOff`, `PodPendingTooLong`, `GracePeriodViolation`, `NodeNotReady`, `PodEvicted`, `ProbeFailure`, `StalledRollout`, `NodePressure`, `PodHealthy`, `PodDeleted`.
+Available event types include the K8s-derived signals (`CrashLoopBackOff`, `OOMKilled`, `ImagePullBackOff`, `PodPendingTooLong`, `GracePeriodViolation`, `NodeNotReady`, `PodEvicted`, `ProbeFailure`, `StalledRollout`, `NodePressure`, `PodHealthy`, `PodDeleted`) and the OTel-derived signals (`OTelSpanError`, `OTelLogMatch`, plus other types your collectors produce). The trigger string is matched verbatim against signals in the correlation buffer.
 
 ### spec.conditions
 
@@ -107,15 +107,50 @@ All conditions must match for the rule to fire (AND logic).
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `eventType` | `string` | Yes | — | Signal type that must be present in the buffer |
-| `scope` | `string` | Yes | `samePod` | Relationship to trigger: `samePod`, `sameNode`, `sameNamespace`, `any` |
+| `scope` | `string` | Yes | `samePod` | Relationship to trigger: `samePod`, `sameNode`, `sameNamespace`, `sameTrace`, `any` |
 | `negate` | `bool` | No | `false` | When true, fires only if this signal is NOT present |
+| `attributes` | `[]AttributeMatch` | No | _none_ | OTel attribute predicates (AND-combined). Only applied to events that expose attributes — see below |
+
+#### scope semantics
+
+| Value | Meaning |
+|---|---|
+| `samePod` | Condition must match an event on the same `(namespace, pod)` as the trigger |
+| `sameNode` | Same `nodeName` |
+| `sameNamespace` | Same `namespace` |
+| `sameTrace` | Same OTel `trace_id` (used to correlate cross-service span/log signals belonging to one trace) |
+| `any` | Anywhere in the buffer |
+
+#### spec.conditions[].attributes
+
+`AttributeMatch` evaluates a single key/value predicate against the event's attribute map. It only applies to events that expose attributes (currently OTel span and log signals). Events without attributes fail every predicate except `NotExists`.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `key` | `string` | Yes | — | Attribute name (OTel semantic-convention dotted keys are supported as-is, e.g. `http.status_code`) |
+| `op`  | `string` | Yes | `Equals` | Predicate operator (see below) |
+| `value` | `string` | No | _empty_ | Comparison target; ignored for `Exists` / `NotExists` |
+
+`op` enum: `Equals`, `NotEquals`, `Contains`, `NotContains`, `Regex` (RE2), `Exists`, `NotExists`, `Gte`, `Lte`, `Gt`, `Lt` (numeric ops parse both sides as `float64`).
+
+Example — fire only when an OTel span error has a 5xx HTTP status:
+
+```yaml
+conditions:
+  - eventType: OTelSpanError
+    scope: samePod
+    attributes:
+      - key: http.status_code
+        op: Gte
+        value: "500"
+```
 
 ### spec.fires
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `incidentType` | `string` | Yes | Canonical incident category |
-| `severity` | `string` | Yes | `P1`, `P2`, `P3`, or `P4` |
+| `severity` | `string` | Yes | Canonical severity code: `P1` Critical, `P2` High, `P3` Medium, or `P4` Low |
 | `summary` | `string` | Yes | Go `text/template` rendered with event context |
 | `resource` | `string` | No | Override dedup resource: `node` for node-scoped, `deployment` for deployment-scoped |
 | `scope` | `string` | No | Override incident scope: `Pod`, `Workload`, `Namespace`, `Cluster` |
@@ -137,10 +172,10 @@ The Helm chart ships 4 default rules (enabled via `defaultRules.enabled: true`):
 
 | Name | Priority | Trigger | Condition | Fires | Severity |
 |---|---|---|---|---|---|
-| `node-plus-eviction` | 500 | NodeNotReady | PodEvicted (sameNode) | NodeNotReady | P1 |
-| `crashloop-plus-oom` | 400 | CrashLoopBackOff | OOMKilled (samePod) | OOMKilled | P2 |
-| `crashloop-plus-deploy` | 300 | CrashLoopBackOff | StalledRollout (sameNamespace) | StalledRollout | P2 |
-| `imagepull-no-history` | 200 | ImagePullBackOff | !PodHealthy (samePod) | ImagePullBackOff | P2 |
+| `node-plus-eviction` | 500 | NodeNotReady | PodEvicted (sameNode) | NodeNotReady | P1 Critical |
+| `crashloop-plus-oom` | 400 | CrashLoopBackOff | OOMKilled (samePod) | OOMKilled | P2 High |
+| `crashloop-plus-deploy` | 300 | CrashLoopBackOff | StalledRollout (sameNamespace) | StalledRollout | P2 High |
+| `imagepull-no-history` | 200 | ImagePullBackOff | !PodHealthy (samePod) | ImagePullBackOff | P2 High |
 
 ## Print Columns
 
@@ -151,7 +186,7 @@ The Helm chart ships 4 default rules (enabled via `defaultRules.enabled: true`):
 | Priority | Evaluation priority |
 | Trigger | Trigger event type |
 | Fires | Incident type produced |
-| Severity | Incident severity |
+| Severity | Canonical incident severity code (`P1`–`P4`) |
 | Age | Resource age |
 
 ## kubectl Cheatsheet

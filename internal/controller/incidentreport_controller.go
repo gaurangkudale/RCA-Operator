@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -34,10 +35,18 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
+	"github.com/gaurangkudale/rca-operator/internal/correlator/graph"
 	"github.com/gaurangkudale/rca-operator/internal/incidentstatus"
-	"github.com/gaurangkudale/rca-operator/internal/metrics"
 	"github.com/gaurangkudale/rca-operator/internal/notify"
 )
+
+// IncidentGraphBuilder is the minimum interface the reconciler needs to build
+// the incident topology graph. It is satisfied by *graph.Builder; declared as
+// an interface so tests can inject fakes and so the dependency is optional (a
+// nil builder skips graph construction).
+type IncidentGraphBuilder interface {
+	Build(ctx context.Context, incident *rcav1alpha1.IncidentReport) (*graph.IncidentGraph, error)
+}
 
 const (
 	stabilizationDelay          = 5 * time.Minute
@@ -51,12 +60,20 @@ const (
 	resourceKindPod = "Pod"
 )
 
+// graphBuildTimeout caps a single GraphBuilder.Build call so a slow Jaeger
+// (or other enrichment dependency) cannot stall the reconcile loop. The
+// graph is best-effort: a timeout drops the graph for this transition only,
+// and a future reconcile (ensureIncidentGraph) will retry. Declared as a var
+// so tests can shorten it.
+var graphBuildTimeout = 5 * time.Second
+
 type IncidentReportReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	Recorder events.EventRecorder
-	Notifier *notify.Dispatcher
-	nowFn    func() time.Time
+	Scheme       *runtime.Scheme
+	Recorder     events.EventRecorder
+	Notifier     *notify.Dispatcher
+	GraphBuilder IncidentGraphBuilder
+	nowFn        func() time.Time
 }
 
 func (r *IncidentReportReconciler) now() time.Time {
@@ -73,8 +90,11 @@ func (r *IncidentReportReconciler) now() time.Time {
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="apps",resources=deployments,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=get;list;watch;create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=get;list;watch;create;patch
 // +kubebuilder:rbac:groups=rca.rca-operator.tech,resources=rcaagents,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=pods/log,verbs=get
 
 func (r *IncidentReportReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
@@ -99,7 +119,15 @@ func (r *IncidentReportReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 }
 
-func (r *IncidentReportReconciler) reconcileDetecting(ctx context.Context, _ logr.Logger, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+func (r *IncidentReportReconciler) reconcileDetecting(ctx context.Context, log logr.Logger, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+	if changed, err := r.ensureIncidentGraph(ctx, log, report); err != nil {
+		return ctrl.Result{}, err
+	} else if changed {
+		if err := r.Get(ctx, types.NamespacedName{Namespace: report.Namespace, Name: report.Name}, report); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+	}
+
 	firstObserved := incidentstatus.EffectiveStartTime(report.Status)
 	if firstObserved == nil {
 		return r.transitionToActive(ctx, report)
@@ -130,7 +158,15 @@ func (r *IncidentReportReconciler) reconcileDetecting(ctx context.Context, _ log
 	return r.transitionToResolved(ctx, report, "Incident cleared before activation")
 }
 
-func (r *IncidentReportReconciler) reconcileActive(ctx context.Context, _ logr.Logger, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+func (r *IncidentReportReconciler) reconcileActive(ctx context.Context, log logr.Logger, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+	if changed, err := r.ensureIncidentGraph(ctx, log, report); err != nil {
+		return ctrl.Result{}, err
+	} else if changed {
+		if err := r.Get(ctx, types.NamespacedName{Namespace: report.Namespace, Name: report.Name}, report); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+	}
+
 	if !report.Status.Notified {
 		if err := r.sendOpenNotifications(ctx, report); err != nil {
 			return ctrl.Result{}, err
@@ -170,7 +206,15 @@ func (r *IncidentReportReconciler) reconcileActive(ctx context.Context, _ logr.L
 		fmt.Sprintf("No confirming signals for %.0f minutes and issue state cleared", healthyResolveWindow.Minutes()))
 }
 
-func (r *IncidentReportReconciler) reconcileResolved(ctx context.Context, _ logr.Logger, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+func (r *IncidentReportReconciler) reconcileResolved(ctx context.Context, log logr.Logger, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+	if changed, err := r.ensureIncidentGraph(ctx, log, report); err != nil {
+		return ctrl.Result{}, err
+	} else if changed {
+		if err := r.Get(ctx, types.NamespacedName{Namespace: report.Namespace, Name: report.Name}, report); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+	}
+
 	if err := r.recordResolvedMetric(ctx, report); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -187,18 +231,15 @@ func (r *IncidentReportReconciler) reconcileResolved(ctx context.Context, _ logr
 }
 
 func (r *IncidentReportReconciler) transitionToActive(ctx context.Context, report *rcav1alpha1.IncidentReport) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
 	now := metav1.NewTime(r.now())
 	base := report.DeepCopy()
 	incidentstatus.MarkActive(report, now, "Incident confirmed active after stabilisation period")
+	if raw := r.buildIncidentGraph(ctx, log, report); raw != nil {
+		report.Status.IncidentGraph = raw
+	}
 	if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to transition IncidentReport %s/%s to Active: %w", report.Namespace, report.Name, err)
-	}
-
-	// Phase 1 metrics: record activation, gauge increment, and detecting→active transition duration.
-	metrics.RecordIncidentActivated(report.Spec.AgentRef, report.Status.IncidentType, report.Status.Severity)
-	metrics.IncActiveIncidents(report.Spec.AgentRef, report.Status.IncidentType, report.Status.Severity)
-	if start := incidentstatus.EffectiveStartTime(base.Status); start != nil {
-		metrics.ObserveIncidentTransition("detecting", "active", now.Sub(start.Time).Seconds())
 	}
 
 	if r.Recorder != nil {
@@ -208,25 +249,63 @@ func (r *IncidentReportReconciler) transitionToActive(ctx context.Context, repor
 	return ctrl.Result{RequeueAfter: healthyResolveWindow}, nil
 }
 
+// buildIncidentGraph invokes the graph builder (if configured) and returns a
+// runtime.RawExtension ready to embed in status.incidentGraph. Returns nil —
+// not an error — when the builder is unset, when building fails, or when the
+// graph serializes to an empty object. The graph is best-effort: a build
+// failure must not block the Active transition.
+func (r *IncidentReportReconciler) buildIncidentGraph(ctx context.Context, log logr.Logger, report *rcav1alpha1.IncidentReport) *runtime.RawExtension {
+	if r.GraphBuilder == nil {
+		return nil
+	}
+	buildCtx, cancel := context.WithTimeout(ctx, graphBuildTimeout)
+	defer cancel()
+	g, err := r.GraphBuilder.Build(buildCtx, report)
+	if err != nil {
+		log.V(1).Info("Incident graph build failed; skipping graph persistence",
+			"namespace", report.Namespace, "name", report.Name, "err", err.Error())
+		return nil
+	}
+	if g == nil || len(g.Nodes) == 0 {
+		return nil
+	}
+	encoded, err := json.Marshal(g)
+	if err != nil {
+		log.V(1).Info("Incident graph marshal failed; skipping graph persistence",
+			"namespace", report.Namespace, "name", report.Name, "err", err.Error())
+		return nil
+	}
+	return &runtime.RawExtension{Raw: encoded}
+}
+
+// ensureIncidentGraph backfills status.incidentGraph when it is currently
+// empty. This allows the dashboard to render topology during Detecting/Resolved
+// phases as well, rather than only after Detecting -> Active transition.
+// Returns changed=true when a status patch was applied.
+func (r *IncidentReportReconciler) ensureIncidentGraph(ctx context.Context, log logr.Logger, report *rcav1alpha1.IncidentReport) (bool, error) {
+	if report.Status.IncidentGraph != nil && len(report.Status.IncidentGraph.Raw) > 0 {
+		return false, nil
+	}
+
+	raw := r.buildIncidentGraph(ctx, log, report)
+	if raw == nil {
+		return false, nil
+	}
+
+	base := report.DeepCopy()
+	report.Status.IncidentGraph = raw
+	if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
+		return false, fmt.Errorf("failed to patch IncidentReport %s/%s topology graph: %w", report.Namespace, report.Name, err)
+	}
+	return true, nil
+}
+
 func (r *IncidentReportReconciler) transitionToResolved(ctx context.Context, report *rcav1alpha1.IncidentReport, reason string) (ctrl.Result, error) {
 	now := metav1.NewTime(r.now())
 	base := report.DeepCopy()
 	incidentstatus.MarkResolved(report, now, reason)
 	if err := r.Status().Patch(ctx, report, client.MergeFrom(base)); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to resolve IncidentReport %s/%s: %w", report.Namespace, report.Name, err)
-	}
-
-	// Phase 1 metrics: record the phase transition duration and update the active gauge.
-	switch base.Status.Phase {
-	case phaseDetecting:
-		if start := incidentstatus.EffectiveStartTime(base.Status); start != nil {
-			metrics.ObserveIncidentTransition("detecting", "resolved", now.Sub(start.Time).Seconds())
-		}
-	case phaseActive:
-		metrics.DecActiveIncidents(report.Spec.AgentRef, report.Status.IncidentType, report.Status.Severity)
-		if base.Status.ActiveAt != nil {
-			metrics.ObserveIncidentTransition("active", "resolved", now.Sub(base.Status.ActiveAt.Time).Seconds())
-		}
 	}
 
 	if r.Recorder != nil {
@@ -465,8 +544,6 @@ func (r *IncidentReportReconciler) recordResolvedMetric(ctx context.Context, rep
 	if report.Annotations != nil && report.Annotations[resolvedMetricRecordedKey] == annotationTrue {
 		return nil
 	}
-
-	metrics.RecordIncidentResolved(report.Spec.AgentRef, report.Status.IncidentType, report.Status.Severity)
 
 	base := report.DeepCopy()
 	if report.Annotations == nil {

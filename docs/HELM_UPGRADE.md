@@ -1,278 +1,185 @@
 # Helm Chart Upgrade Guide
 
-This guide explains how to upgrade the RCA Operator Helm chart, with special attention to CRD upgrades.
+How to upgrade an installed RCA Operator Helm release safely, with attention to the parts Helm doesn't handle automatically.
 
-## Important: CRD Upgrade Limitation
+> **Current chart version:** see `helm/Chart.yaml`. Releases are published at <https://github.com/gaurangkudale/RCA-Operator/releases>.
 
-**⚠️ Helm does not automatically upgrade CRDs.**
+---
 
-When you run `helm upgrade`, Helm will:
-- ✅ Update deployments, services, configmaps
-- ❌ **NOT** update or replace CRDs
+## Important: CRDs Need Special Handling
 
-This means if you have old CRDs (e.g., from a previous version with `.io` API group), they will remain until manually replaced.
+**`helm upgrade` does not update existing CRDs.** It will:
 
-## Quick Upgrade (Automated)
+- ✅ Update Deployments, Services, ConfigMaps, RBAC, etc.
+- ❌ **NOT** update or replace existing `CustomResourceDefinition` objects
 
-For users upgrading from versions with old `.io` API group CRDs:
+If a chart version ships CRD schema changes (new fields, validation rules, enum values), you have to update the CRDs out-of-band before or alongside the `helm upgrade`. Otherwise the operator may try to write fields the cluster's CRD doesn't yet validate.
+
+The chart ships CRD manifests as templates at `helm/templates/crd-*.yaml`. They are rendered on first install but **not** updated by Helm on subsequent upgrades.
+
+## Ownership Model
+
+The chart has three different resource classes:
+
+| Resource class | Examples | Install behavior | Upgrade behavior | Uninstall behavior |
+|---|---|---|---|---|
+| Core Helm resources | Deployment, Services, RBAC, ServiceAccount, NetworkPolicy | Created by Helm | Updated by Helm | Removed by Helm |
+| RCA CRDs | `rcaagents`, `incidentreports`, `rcacorrelationrules` | Rendered by the chart when `crds.install=true` | Apply explicitly before upgrade | Delete manually only when safe |
+| Hook-created CRs | default `RCACorrelationRule`s, `OpenTelemetryCollector`, `Instrumentation` | Applied as `post-install` hooks | Re-applied as `post-upgrade` hooks | Hook resources may remain if CRDs remain |
+
+Do not delete CRDs casually. Deleting a CRD deletes all custom resources of
+that type, including historical `IncidentReport`s.
+
+---
+
+## Upgrade Workflow
+
+### 1. Backup current state
 
 ```bash
-# Download and run the upgrade script
-curl -sSL https://raw.githubusercontent.com/gaurangkudale/RCA-Operator/main-gk/scripts/helm-upgrade-crds.sh | bash -s <release-name> <namespace>
-
-# Example:
-curl -sSL https://raw.githubusercontent.com/gaurangkudale/RCA-Operator/main-gk/scripts/helm-upgrade-crds.sh | bash -s rca-operator rca-system
+kubectl get rcaagents -A -o yaml > backup-rcaagents.yaml
+kubectl get incidentreports -A -o yaml > backup-incidents.yaml
+kubectl get rcacorrelationrules -o yaml > backup-rules.yaml
 ```
 
-The script will:
-1. Backup existing resources
-2. Delete old `.io` CRDs3. Install new `.tech` CRDs
-4. Upgrade the Helm release
-5. Restart the operator
-
-## Manual Upgrade
-
-### Step 1: Check Your Current Installation
+### 2. Inspect what's installed
 
 ```bash
-# Check Helm release version
 helm list -n rca-system
-
-# Check installed CRDs
 kubectl get crd | grep rca-operator
 ```
 
-### Step 2: Identify CRD API Group
+Record the current chart version — you'll need it for rollback.
 
-**If you see `.io` CRDs (old):**
-```
-rcaagents.rca.rca-operator.io
-incidentreports.rca.rca-operator.io
-```
-
-**You need to upgrade to `.tech` CRDs (new):**
-```
-rcaagents.rca.rca-operator.tech
-incidentreports.rca.rca-operator.tech
-```
-
-### Step 3: Backup Existing Resources (Optional but Recommended)
+### 3. Pull the new chart and update CRDs first
 
 ```bash
-# Backup RCAAgents
-kubectl get rcaagents.rca.rca-operator.io -A -o yaml > rcaagents-backup.yaml
-
-# Backup IncidentReports
-kubectl get incidentreports.rca.rca-operator.io -A -o yaml > incidentreports-backup.yaml
-```
-
-### Step 4: Delete Old CRDs
-
-```bash
-# Delete old .io CRDs
-kubectl delete crd rcaagents.rca.rca-operator.io
-kubectl delete crd incidentreports.rca.rca-operator.io
-```
-
-**Note**: Deleting CRDs will delete all custom resources of that type! That's why we backed them up in Step 3.
-
-### Step 5: Install New CRDs
-
-**Option A: From source repository (if you have it cloned):**
-```bash
-kubectl apply -f helm/crds/
-```
-
-**Option B: From GitHub directly:**
-```bash
-kubectl apply -f https://raw.githubusercontent.com/gaurangkudale/RCA-Operator/main-gk/helm/crds/rca.rca-operator.tech_rcaagents.yaml
-kubectl apply -f https://raw.githubusercontent.com/gaurangkudale/RCA-Operator/main-gk/helm/crds/rca.rca-operator.tech_incidentreports.yaml
-kubectl apply -f https://raw.githubusercontent.com/gaurangkudale/RCA-Operator/main-gk/helm/crds/rca.rca-operator.tech_rcacorrelationrules.yaml
-```
-
-**Option C: From Helm chart package:**
-```bash
-# Download the chart
-helm pull https://github.com/gaurangkudale/RCA-Operator/releases/download/helm-v0.1.3/rca-operator-0.1.3.tgz
-
-# Extract CRDs
-tar -xzf rca-operator-0.1.3.tgz
-kubectl apply -f rca-operator/crds/
-```
-
-### Step 6: Upgrade Helm Release
-
-```bash
-# Method A: From Helm repository
 helm repo update
-helm upgrade rca-operator rca-operator/rca-operator -n rca-system
 
-# Method B: From GitHub release
-helm upgrade rca-operator \
-  https://github.com/gaurangkudale/RCA-Operator/releases/download/helm-v0.1.3/rca-operator-0.1.3.tgz \
-  -n rca-system
-
-# Method C: From local chart (if you have the repo cloned)
-helm upgrade rca-operator ./helm -n rca-system
+# Render only the CRD templates from the new chart and apply them
+helm template rca-operator rca-operator/rca-operator \
+  --show-only templates/crd-rcaagents.yaml \
+  --show-only templates/crd-incidentreports.yaml \
+  --show-only templates/crd-rcacorrelationrules.yaml \
+  | kubectl apply -f -
 ```
 
-### Step 7: Verify the Upgrade
+`kubectl apply` performs a structural diff so existing data is preserved; the schema is merged in. If you prefer to pin to a specific version:
 
 ```bash
-# Check CRDs are correct (.tech API group)
-kubectl get crd | grep rca-operator.tech
+helm template rca-operator rca-operator/rca-operator --version <X.Y.Z> \
+  --show-only templates/crd-rcaagents.yaml \
+  --show-only templates/crd-incidentreports.yaml \
+  --show-only templates/crd-rcacorrelationrules.yaml \
+  | kubectl apply -f -
+```
 
-# Expected output:
-# incidentreports.rca.rca-operator.tech
-# rcaagents.rca.rca-operator.tech
+### 4. Run the Helm upgrade
 
-# Check operator is running
+```bash
+helm upgrade rca-operator rca-operator/rca-operator \
+  --namespace rca-system \
+  --reuse-values \
+  --wait --timeout 10m
+```
+
+`--wait` is required — the OpenTelemetry post-install hooks expect the operator webhooks to be Ready before they apply.
+
+If you use one of the explicit profiles, include the same profile file or
+equivalent `--set` overrides during upgrade:
+
+```bash
+helm upgrade rca-operator ./helm \
+  --namespace rca-system \
+  -f helm/values-minimal.yaml \
+  --wait --timeout 5m
+```
+
+### 5. Verify
+
+```bash
+# Operator pod is healthy
 kubectl get pods -n rca-system
 
-# Check operator logs for errors
-kubectl logs -n rca-system deployment/rca-operator-controller-manager -c manager
+# Existing custom resources still validate against the new schema
+kubectl get rcaagents -A
+kubectl get incidentreports -A
+kubectl get rcacorrelationrules
+
+# Watch the operator logs for schema or reconcile errors
+kubectl logs -n rca-system deployment/rca-operator-controller-manager -c manager -f
 ```
+
+---
+
+## Rollback
+
+```bash
+# Show release history
+helm history rca-operator -n rca-system
+
+# Roll back to a previous revision
+helm rollback rca-operator <revision> -n rca-system
+```
+
+**Caveat:** `helm rollback` does **not** roll back CRDs. If the new version added CRD fields and you must roll back, restore the older CRDs explicitly from backup (e.g. `kubectl apply -f backup-crds.yaml`).
+
+---
 
 ## Troubleshooting
 
-### Error: "could not find the requested resource"
+### `helm upgrade` fails with `field is immutable`
 
-**Symptom:**
-```
-Failed to watch: the server could not find the requested resource (get rcaagents.rca.rca-operator.tech)
-```
+You changed a Helm value that maps to an immutable Kubernetes field (most often Deployment selectors or Service spec). Resolution:
 
-**Cause**: Old `.io` CRDs are still installed, but operator expects `.tech` CRDs.
-
-**Fix**: Follow the manual upgrade steps to replace CRDs.
-
-### Error: "CRD already exists"
-
-**Symptom:**
-```
-Error: customresourcedefinitions.apiextensions.k8s.io "rcaagents.rca.rca-operator.io" already exists
-```
-
-**Cause**: You have both old and new CRDs installed.
-
-**Fix**:
 ```bash
-# Delete old CRDs
-kubectl delete crd rcaagents.rca.rca-operator.io incidentreports.rca.rca-operator.io
+# Inspect the offending object
+kubectl describe deployment -n rca-system rca-operator-controller-manager
 
-# Verify only .tech CRDs remain
-kubectl get crd | grep rca-operator
-```
-
-### Operator Pod CrashLooping After Upgrade
-
-**Symptom**: Operator pod keeps restarting after upgrade.
-
-**Diagnosis**:
-```bash
-# Check pod status
-kubectl get pods -n rca-system
-
-# Check logs
-kubectl logs -n rca-system deployment/rca-operator-controller-manager -c manager
-```
-
-**Common causes**:
-1. Wrong CRDs installed (check API group is `.tech`)
-2. RBAC permissions outdated (shouldn't happen with Helm upgrade)
-3. Configuration errors in values.yaml
-
-**Fix**:
-```bash
-# Restart the deployment
-kubectl rollout restart deployment -n rca-system rca-operator-controller-manager
-
-# If still failing, delete and reinstall
+# If the change is genuinely needed, uninstall and reinstall
 helm uninstall rca-operator -n rca-system
 helm install rca-operator rca-operator/rca-operator -n rca-system --create-namespace
 ```
 
-## Version-Specific Upgrade Notes
+(`helm uninstall` removes chart-managed workloads, Services, RBAC, and hook
+metadata. It does not safely migrate or back up CRDs. Treat CRD deletion as a
+separate cluster-admin action.)
 
-### Upgrading to v0.1.3
+### Existing CRs fail validation after upgrade
 
-- **CRD Change**: API group changed from `.io` to `.tech`
-- **Action Required**: Must manually replace CRDs (Helm limitation)
-- **Breaking Change**: Old RCAAgent and IncidentReport resources with `.io` API group will be deleted
-
-### Upgrading from v0.1.2 to v0.1.3
+A new chart version may add `Required` fields or stricter enums. If `kubectl get` complains about an existing CR:
 
 ```bash
-# Use the automated script
-./scripts/helm-upgrade-crds.sh rca-operator rca-system
-
-# Or follow manual upgrade steps above
+kubectl get rcaagent <name> -n <ns> -o yaml > broken.yaml
+# Edit broken.yaml to satisfy the new schema
+kubectl apply -f broken.yaml
 ```
+
+### Operator logs show "no matches for kind"
+
+The operator pod started before the new CRDs were applied, or the CRDs were not updated. Update CRDs (step 3 above) and restart the deployment:
+
+```bash
+kubectl rollout restart deployment/rca-operator-controller-manager -n rca-system
+```
+
+---
 
 ## Best Practices
 
-1. **Always backup before upgrading**:
-   ```bash
-   kubectl get rcaagents -A -o yaml > backup-rcaagents.yaml
-   kubectl get incidentreports -A -o yaml > backup-incidents.yaml
-   ```
+1. **Test in non-production first.** Upgrade a dev/staging cluster, run a representative workload, then upgrade production.
+2. **Read the changelog** before upgrading: [CHANGELOG.md](../CHANGELOG.md). Look for entries under `### Changed` and `### Removed`.
+3. **Pin chart versions in CI.** Use `helm upgrade --version <X.Y.Z>` rather than tracking the latest tag.
+4. **Update CRDs first**, then upgrade the chart. Operators that talk to fields not yet validated by the CRD can produce confusing errors.
+5. **Watch the operator logs** for the first few minutes after upgrade — reconcile errors, missing RBAC, or schema mismatches surface there first.
 
-2. **Test in non-production first**:
-   - Upgrade dev/staging environments first
-   - Verify operator functionality
-   - Then upgrade production
+---
 
-3. **Check release notes**:
-   - Read [CHANGELOG](../CHANGELOG.md) before upgrading
-   - Check for breaking changes
-   - Review new features and bug fixes
+## Related
 
-4. **Monitor after upgrade**:
-   ```bash
-   # Watch operator logs
-   kubectl logs -n rca-system deployment/rca-operator-controller-manager -c manager -f
+- [Installation Guide](getting-started/installation.md)
+- [Helm Reference](helm-installation.md) — values, flags, troubleshooting
+- [RCAAgent CRD Reference](reference/rcaagent-crd.md)
+- [Changelog](../CHANGELOG.md)
 
-   # Check for incident reports
-   kubectl get incidentreports -A
-   ```
-
-5. **Keep charts in sync**:
-   ```bash
-   # Update Helm repo regularly
-   helm repo update
-
-   # Check for new versions
-   helm search repo rca-operator --versions
-   ```
-
-## Rollback
-
-If something goes wrong, you can rollback:
-
-```bash
-# List release history
-helm history rca-operator -n rca-system
-
-# Rollback to previous version
-helm rollback rca-operator <revision> -n rca-system
-
-# Example: rollback to revision 1
-helm rollback rca-operator 1 -n rca-system
-```
-
-**Note**: Rollback **does not** rollback CRDs. If you upgraded CRDs, you may need to manually restore old CRDs from backup.
-
-## Additional Resources
-
-- [Installation Guide](docs/getting-started/installation.md)
-- [Helm Chart Values](helm/values.yaml)
-- [CRD Reference](docs/reference/rcaagent-crd.md)
-- [Troubleshooting Guide](docs/troubleshooting.md)
-
-## Support
-
-If you encounter issues during upgrade:
-
-1. Check operator logs: `kubectl logs -n rca-system deployment/rca-operator-controller-manager -c manager`
-2. Verify CRDs: `kubectl get crd | grep rca-operator`
-3. Open an issue: https://github.com/gaurangkudale/RCA-Operator/issues
+If you get stuck, open an issue: <https://github.com/gaurangkudale/RCA-Operator/issues>.

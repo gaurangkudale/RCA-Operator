@@ -18,7 +18,6 @@ import (
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
 	"github.com/gaurangkudale/rca-operator/internal/incidentstatus"
-	"github.com/gaurangkudale/rca-operator/internal/metrics"
 )
 
 const (
@@ -63,17 +62,13 @@ func (d *Dispatcher) NotifyIncident(ctx context.Context, report *rcav1alpha1.Inc
 
 	if cfg := agent.Spec.Notifications.Slack; cfg != nil {
 		if err := d.sendSlack(ctx, agent, report, cfg, action); err != nil {
-			metrics.RecordNotification(slackChannelName, action, "error", report.Status.Severity)
 			return err
 		}
-		metrics.RecordNotification(slackChannelName, action, "success", report.Status.Severity)
 	}
 	if cfg := agent.Spec.Notifications.PagerDuty; cfg != nil && shouldPage(cfg, report.Status.Severity) {
 		if err := d.sendPagerDuty(ctx, agent, report, cfg, action); err != nil {
-			metrics.RecordNotification(pagerDutyChannelName, action, "error", report.Status.Severity)
 			return err
 		}
-		metrics.RecordNotification(pagerDutyChannelName, action, "success", report.Status.Severity)
 	}
 
 	return nil

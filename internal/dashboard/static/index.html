@@ -1,1144 +1,2713 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" class="bg-slate-950 text-slate-200">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RCA Operator — Incident Management</title>
-<link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
-<link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
-<link rel="apple-touch-icon" sizes="192x192" href="/images/favicon-192x192.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RCA Operator - Unified Command Center</title>
+<link rel="stylesheet" href="/static/dashboard.css">
+<script src="/static/lucide-local.js"></script>
 <style>
-/* ── Theme Variables ─────────────────────────────── */
-:root {
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
-  --transition: 0.15s ease;
-}
-
-[data-theme="dark"] {
-  --bg: #0f1117;
-  --bg-raised: #161822;
-  --bg-card: #1c1f2e;
-  --bg-hover: #242738;
-  --bg-selected: #2a2d42;
-  --bg-input: #1c1f2e;
-  --border: rgba(255,255,255,0.08);
-  --border-strong: rgba(255,255,255,0.14);
-  --text-primary: #e8eaed;
-  --text-secondary: #9aa0b0;
-  --text-tertiary: #5c6175;
-  --accent: #6c8cff;
-  --accent-soft: rgba(108,140,255,0.12);
-  --red: #ff6b6b;
-  --red-soft: rgba(255,107,107,0.12);
-  --amber: #fbbf24;
-  --amber-soft: rgba(251,191,36,0.12);
-  --green: #34d399;
-  --green-soft: rgba(52,211,153,0.12);
-  --purple: #a78bfa;
-  --purple-soft: rgba(167,139,250,0.12);
-  --blue: #60a5fa;
-  --blue-soft: rgba(96,165,250,0.12);
-  --scrollbar: #2a2d42;
-}
-
-[data-theme="light"] {
-  --bg: #f5f6f8;
-  --bg-raised: #ffffff;
-  --bg-card: #ffffff;
-  --bg-hover: #f0f1f4;
-  --bg-selected: #e8eaff;
-  --bg-input: #f0f1f4;
-  --border: rgba(0,0,0,0.08);
-  --border-strong: rgba(0,0,0,0.14);
-  --text-primary: #1a1c24;
-  --text-secondary: #5c6175;
-  --text-tertiary: #9aa0b0;
-  --accent: #4f6ef7;
-  --accent-soft: rgba(79,110,247,0.08);
-  --red: #ef4444;
-  --red-soft: rgba(239,68,68,0.08);
-  --amber: #d97706;
-  --amber-soft: rgba(217,119,6,0.08);
-  --green: #059669;
-  --green-soft: rgba(5,150,105,0.08);
-  --purple: #7c3aed;
-  --purple-soft: rgba(124,58,237,0.08);
-  --blue: #2563eb;
-  --blue-soft: rgba(37,99,235,0.08);
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
-  --shadow-md: 0 4px 16px rgba(0,0,0,0.1);
-  --scrollbar: #d1d5db;
-}
-
-/* ── Base Reset ──────────────────────────────────── */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body {
-  font-family: var(--font-sans);
-  color: var(--text-primary);
-  background: var(--bg);
-  overflow-x: hidden;
-  -webkit-font-smoothing: antialiased;
-}
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 3px; }
-button {
-  cursor: pointer; font-family: inherit; border: none; background: none;
-  color: inherit; outline: none; -webkit-appearance: none; appearance: none;
-}
-button:focus, button:focus-visible { outline: none; }
-select { font-family: inherit; }
-
-@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes pulse { 0% { transform: scale(1); opacity: 0.6; } 100% { transform: scale(2.4); opacity: 0; } }
-@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-@keyframes slideIn { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: translateX(0); } }
-
-/* ── Layout ──────────────────────────────────────── */
-.app { display: flex; flex-direction: column; min-height: 100vh; }
-
-/* ── Header ──────────────────────────────────────── */
-.header {
-  height: 56px; display: flex; align-items: center; justify-content: space-between;
-  padding: 0 20px; background: var(--bg-raised); border-bottom: 1px solid var(--border);
-  flex-shrink: 0; gap: 16px;
-}
-.header-left { display: flex; align-items: center; gap: 14px; }
-.logo {
-  display: flex; align-items: center; gap: 8px;
-  font-size: 15px; font-weight: 700; letter-spacing: -0.3px; color: var(--text-primary);
-}
-.logo-img { height: 32px; width: auto; display: block; }
-.version { font-family: var(--font-mono); font-size: 10px; color: var(--text-tertiary); }
-
-.nav { display: flex; gap: 4px; }
-.nav-item {
-  padding: 7px 16px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500;
-  color: var(--text-secondary); cursor: pointer; transition: all var(--transition);
-  user-select: none;
-}
-.nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
-.nav-item.active { background: var(--accent-soft); color: var(--accent); }
-.nav-item.active:hover { background: var(--accent-soft); }
-
-.header-right { display: flex; align-items: center; gap: 10px; }
-.header-pill {
-  display: flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 20px;
-  font-family: var(--font-mono); font-size: 11px; font-weight: 500;
-}
-.pill-active { background: var(--red-soft); color: var(--red); }
-.pill-p1 { background: var(--red-soft); color: var(--red); }
-
-.theme-toggle {
-  width: 34px; height: 34px; border-radius: var(--radius-sm); border: 1px solid var(--border) !important;
-  background: var(--bg-input) !important; color: var(--text-secondary); display: flex; align-items: center;
-  justify-content: center; font-size: 16px; transition: all var(--transition);
-}
-.theme-toggle:hover { background: var(--bg-hover) !important; color: var(--text-primary); border-color: var(--border-strong) !important; }
-.theme-toggle:focus, .theme-toggle:focus-visible { outline: none; }
-
-.tz-select {
-  font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary);
-  background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm);
-  padding: 5px 24px 5px 8px; outline: none; appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%239aa0b0'/%3E%3C/svg%3E");
-  background-repeat: no-repeat; background-position: right 6px center;
-  max-width: 180px;
-}
-.tz-select option { background: var(--bg-card); color: var(--text-primary); }
-
-.clock {
-  font-family: var(--font-mono); font-size: 11px; color: var(--text-tertiary);
-  min-width: 90px; text-align: right; font-variant-numeric: tabular-nums;
-}
-
-/* ── Main Body ───────────────────────────────────── */
-.main { display: flex; flex: 1; overflow: hidden; }
-
-/* ── Sidebar ─────────────────────────────────────── */
-.sidebar {
-  width: 220px; flex-shrink: 0; background: var(--bg-raised); border-right: 1px solid var(--border);
-  overflow-y: auto; padding: 16px 0; display: flex; flex-direction: column; gap: 24px;
-}
-.sidebar-section { padding: 0 12px; }
-.sidebar-title {
-  font-size: 10px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase;
-  color: var(--text-tertiary); margin-bottom: 8px; padding: 0 8px;
-}
-
-/* Metric cards */
-.metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.metric-card {
-  padding: 10px 10px; border-radius: var(--radius-md); background: var(--bg-card);
-  border: 1px solid var(--border); text-align: center;
-}
-.metric-card-value { font-family: var(--font-mono); font-size: 22px; font-weight: 600; line-height: 1.2; }
-.metric-card-label { font-size: 9px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-tertiary); margin-top: 2px; }
-
-/* Sidebar items */
-.sb-item {
-  display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-sm);
-  cursor: pointer; transition: all var(--transition); font-size: 12px; color: var(--text-secondary);
-}
-.sb-item:hover { background: var(--bg-hover); color: var(--text-primary); }
-.sb-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
-.sb-badge {
-  margin-left: auto; font-family: var(--font-mono); font-size: 10px; font-weight: 600;
-  padding: 1px 6px; border-radius: 10px; background: var(--red-soft); color: var(--red);
-}
-.sb-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-
-/* Agent items */
-.agent-item {
-  display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-sm);
-  font-size: 12px;
-}
-.agent-item .status-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-.agent-item .name { color: var(--text-primary); font-weight: 500; }
-.agent-item .label { font-size: 10px; color: var(--text-tertiary); margin-left: auto; font-family: var(--font-mono); }
-.agent-sub { font-size: 10px; color: var(--text-tertiary); padding: 0 8px 0 22px; }
-
-/* ── Content Area ────────────────────────────────── */
-.content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-
-/* Toolbar */
-.toolbar {
-  display: flex; align-items: center; gap: 10px; padding: 10px 16px;
-  background: var(--bg-raised); border-bottom: 1px solid var(--border); flex-shrink: 0;
-}
-.filter-group { display: flex; align-items: center; gap: 6px; }
-.filter-label { font-size: 11px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; }
-.filter-select {
-  font-family: var(--font-mono); font-size: 11px; color: var(--text-primary);
-  background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm);
-  padding: 5px 24px 5px 8px; outline: none; appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%239aa0b0'/%3E%3C/svg%3E");
-  background-repeat: no-repeat; background-position: right 6px center;
-}
-.filter-select option { background: var(--bg-card); color: var(--text-primary); }
-.toolbar-spacer { flex: 1; }
-.toolbar-meta { font-size: 11px; color: var(--text-tertiary); }
-.toolbar-kbd { font-family: var(--font-mono); font-size: 10px; color: var(--text-tertiary); }
-
-/* Split view */
-.split { flex: 1; display: flex; overflow: hidden; }
-.list-pane { overflow-y: auto; }
-.list-pane.full { width: 100%; }
-.list-pane.compact { width: 320px; flex-shrink: 0; border-right: 1px solid var(--border); }
-
-/* ── Table Headers ───────────────────────────────── */
-.list-header {
-  display: flex; align-items: center; gap: 12px; padding: 8px 16px;
-  background: var(--bg-raised); border-bottom: 1px solid var(--border);
-  position: sticky; top: 0; z-index: 2;
-}
-.list-header span {
-  font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;
-  color: var(--text-tertiary);
-}
-
-/* ── Incident Row ────────────────────────────────── */
-.inc-row {
-  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
-  border-bottom: 1px solid var(--border); cursor: pointer; transition: background var(--transition);
-}
-.inc-row:hover { background: var(--bg-hover); }
-.inc-row.selected { background: var(--bg-selected); }
-.inc-row.compact { padding: 10px 12px; gap: 10px; }
-.inc-row.resolved { opacity: 0.6; }
-
-.inc-num { font-family: var(--font-mono); font-size: 11px; color: var(--text-tertiary); min-width: 22px; text-align: right; }
-
-/* Severity badge */
-.sev {
-  display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-sm);
-  font-family: var(--font-mono); font-weight: 700; letter-spacing: 0.3px; flex-shrink: 0;
-}
-.sev.md { width: 36px; height: 24px; font-size: 11px; }
-.sev.sm { width: 30px; height: 20px; font-size: 10px; }
-.sev-P1 { background: var(--red-soft); color: var(--red); }
-.sev-P2 { background: var(--amber-soft); color: var(--amber); }
-.sev-P3 { background: var(--blue-soft); color: var(--blue); }
-.sev-P4 { background: var(--bg-hover); color: var(--text-tertiary); }
-
-/* Phase badge */
-.phase {
-  display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px;
-  font-size: 11px; font-weight: 600; white-space: nowrap;
-}
-.phase-Active { background: var(--red-soft); color: var(--red); }
-.phase-Detecting { background: var(--purple-soft); color: var(--purple); }
-.phase-Resolved { background: var(--green-soft); color: var(--green); }
-
-.inc-info { flex: 1; min-width: 0; }
-.inc-name { font-size: 13px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inc-name.compact { font-size: 12px; }
-.inc-meta { font-size: 11px; color: var(--text-tertiary); margin-top: 1px; }
-.inc-ns { font-size: 11px; color: var(--text-secondary); background: var(--bg-hover); padding: 2px 8px; border-radius: var(--radius-sm); flex-shrink: 0; }
-.inc-time { text-align: right; flex-shrink: 0; }
-.inc-time-rel { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
-.inc-time-abs { font-family: var(--font-mono); font-size: 10px; color: var(--text-tertiary); }
-
-/* ── Detail Panel ────────────────────────────────── */
-.detail {
-  flex: 1; overflow-y: auto; background: var(--bg); animation: slideIn 0.15s ease-out;
-}
-.detail-head {
-  padding: 16px 20px; background: var(--bg-raised); border-bottom: 1px solid var(--border);
-  position: sticky; top: 0; z-index: 2;
-}
-.detail-badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
-.detail-title { font-size: 20px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.3px; }
-.detail-subtitle { font-size: 12px; color: var(--text-tertiary); margin-top: 4px; }
-.detail-subtitle .sep { margin: 0 6px; }
-.detail-subtitle .val { color: var(--text-secondary); }
-.detail-dur { margin-top: 8px; display: flex; align-items: baseline; gap: 8px; }
-.detail-dur-label { font-size: 10px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-tertiary); }
-.detail-dur-val { font-family: var(--font-mono); font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.detail-id { font-family: var(--font-mono); font-size: 10px; color: var(--text-tertiary); margin-top: 8px; }
-.detail-close {
-  position: absolute; top: 16px; right: 16px; width: 32px; height: 32px; border-radius: var(--radius-sm);
-  border: 1px solid var(--border) !important; background: var(--bg-input) !important; color: var(--text-secondary);
-  font-size: 18px; display: flex; align-items: center; justify-content: center; transition: all var(--transition);
-}
-.detail-close:hover { background: var(--bg-hover) !important; color: var(--text-primary); }
-
-.detail-body { padding: 20px; display: flex; flex-direction: column; gap: 24px; }
-
-/* Tag */
-.tag {
-  display: inline-flex; align-items: center; padding: 3px 8px; border-radius: var(--radius-sm);
-  font-size: 11px; font-weight: 500;
-}
-.tag-default { background: var(--bg-hover); color: var(--text-secondary); }
-.tag-green { background: var(--green-soft); color: var(--green); }
-.tag-purple { background: var(--purple-soft); color: var(--purple); }
-
-/* Section */
-.section-title {
-  font-size: 11px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase;
-  color: var(--text-tertiary); margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border);
-}
-.section-title-toggle {
-  font-size: 11px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase;
-  color: var(--text-tertiary); margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none;
-}
-.section-title-toggle:hover { color: var(--text-secondary); }
-.toggle-icon { font-size: 12px; transition: transform var(--transition); }
-.toggle-icon.collapsed { transform: rotate(-90deg); }
-
-/* Timeline */
-.timeline { position: relative; overflow-x: auto; padding: 20px 0 8px; }
-.tl-track { display: flex; gap: 0; position: relative; padding-top: 16px; min-width: min-content; }
-.tl-line { position: absolute; top: 20px; left: 16px; right: 16px; height: 2px; background: var(--border-strong); border-radius: 1px; }
-.tl-entry { position: relative; flex: 0 0 auto; min-width: 200px; max-width: 260px; padding: 0 14px 8px; }
-.tl-dot {
-  position: absolute; top: -12px; left: 14px; width: 10px; height: 10px; border-radius: 50%;
-  background: var(--bg-hover); border: 2px solid var(--border-strong);
-}
-.tl-dot.first { background: var(--accent); border-color: var(--accent); }
-.tl-dot.last-resolved { background: var(--green); border-color: var(--green); }
-.tl-time { font-family: var(--font-mono); font-size: 11px; color: var(--accent); margin-top: 8px; }
-.tl-time .rel { color: var(--text-tertiary); margin-left: 6px; font-size: 10px; }
-.tl-event { font-size: 12px; color: var(--text-primary); line-height: 1.6; margin-top: 4px; }
-
-/* Cards */
-.card {
-  padding: 10px 12px; border-radius: var(--radius-md); background: var(--bg-card);
-  border: 1px solid var(--border); display: flex; align-items: center; gap: 10px;
-}
-.card + .card { margin-top: 6px; }
-
-/* Signal cards */
-.signal-num { font-family: var(--font-mono); font-size: 11px; color: var(--text-tertiary); min-width: 16px; }
-.signal-dot { width: 6px; height: 6px; border-radius: 2px; flex-shrink: 0; }
-.signal-text { font-size: 12px; color: var(--text-primary); line-height: 1.5; flex: 1; }
-.signal-count {
-  font-family: var(--font-mono); font-size: 10px; font-weight: 600; padding: 1px 6px;
-  border-radius: 10px; background: var(--accent-soft); color: var(--accent); flex-shrink: 0;
-}
-
-/* Resource cards */
-.res-kind {
-  font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.5px;
-  padding: 3px 8px; border-radius: var(--radius-sm); min-width: 70px; text-align: center;
-  background: var(--accent-soft); color: var(--accent); flex-shrink: 0;
-}
-.res-name { font-size: 12px; font-weight: 500; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.res-ns { font-size: 11px; color: var(--text-tertiary); }
-
-/* Cmd rows */
-.cmd-num { font-family: var(--font-mono); font-size: 11px; color: var(--text-tertiary); min-width: 16px; }
-.cmd-code { flex: 1; font-family: var(--font-mono); font-size: 11px; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cmd-code.muted { color: var(--text-secondary); }
-
-/* Copy btn */
-.copy-btn {
-  flex-shrink: 0; border: 1px solid var(--border) !important; border-radius: var(--radius-sm);
-  padding: 3px 10px; font-family: var(--font-mono); font-size: 10px; font-weight: 500;
-  background: var(--bg-input) !important; color: var(--text-tertiary); transition: all var(--transition);
-}
-.copy-btn:hover { border-color: var(--border-strong) !important; color: var(--text-secondary); }
-.copy-btn.ok { background: var(--green-soft) !important; color: var(--green); border-color: transparent !important; }
-
-/* Notification rows */
-.notif-ch { font-size: 12px; font-weight: 500; color: var(--text-primary); min-width: 80px; }
-.notif-dest { font-size: 11px; color: var(--text-tertiary); }
-.notif-status { font-family: var(--font-mono); font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
-.notif-ok { background: var(--green-soft); color: var(--green); }
-.notif-skip { color: var(--text-tertiary); }
-
-/* Conditions */
-.cond-type { font-size: 12px; font-weight: 600; color: var(--text-primary); min-width: 80px; }
-.cond-badge { font-family: var(--font-mono); font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
-.cond-true { background: var(--green-soft); color: var(--green); }
-.cond-unknown { background: var(--purple-soft); color: var(--purple); }
-.cond-false { background: var(--bg-hover); color: var(--text-tertiary); }
-.cond-reason { font-family: var(--font-mono); font-size: 10px; color: var(--text-tertiary); }
-.cond-msg { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
-
-/* Evidence stub */
-.evidence-card {
-  padding: 16px; border-radius: var(--radius-md); border: 1px dashed var(--border);
-  background: var(--purple-soft);
-}
-.evidence-label { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.evidence-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--purple); }
-.evidence-tag { font-size: 10px; font-weight: 600; letter-spacing: 1px; color: var(--purple); text-transform: uppercase; }
-.evidence-body { font-size: 12px; color: var(--text-secondary); line-height: 1.7; }
-
-/* ── Status Bar ──────────────────────────────────── */
-.status-bar {
-  height: 28px; display: flex; align-items: center; gap: 12px; padding: 0 16px;
-  background: var(--bg-raised); border-top: 1px solid var(--border); flex-shrink: 0;
-}
-.status-bar span { font-size: 10px; color: var(--text-tertiary); }
-.status-sep { width: 1px; height: 12px; background: var(--border); }
-
-/* ── Empty State ─────────────────────────────────── */
-.empty-state {
-  padding: 60px 20px; text-align: center;
-}
-.empty-state-title { font-size: 14px; color: var(--text-secondary); margin-bottom: 4px; }
-.empty-state-sub { font-size: 12px; color: var(--text-tertiary); }
-
-/* ── Pulse indicator ─────────────────────────────── */
-.pulse-dot {
-  position: relative; display: inline-flex; width: 8px; height: 8px; flex-shrink: 0;
-}
-.pulse-dot .ring {
-  position: absolute; inset: 0; border-radius: 50%; opacity: 0.35;
-  animation: pulse 1.8s ease-out infinite;
-}
-.pulse-dot .dot {
-  position: absolute; inset: 0; border-radius: 50%;
-  animation: blink 2s ease-in-out infinite;
-}
-
-/* ── Rules/Agents/Namespaces tables ──────────────── */
-.data-table { width: 100%; }
-.data-row {
-  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-}
-.data-row:hover { background: var(--bg-hover); }
-
-@media (max-width: 980px) {
-  .sidebar { display: none; }
-  .header { flex-wrap: wrap; height: auto; padding: 10px 16px; }
-  .nav { order: 3; width: 100%; }
-}
+  body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  .font-mono { font-family: 'JetBrains Mono', monospace; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #475569; }
+  .custom-scrollbar::-webkit-scrollbar { height: 4px; }
+  .canvas-bg {
+    background-size: 30px 30px;
+    background-image:
+      linear-gradient(to right, rgba(51, 65, 85, 0.1) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(51, 65, 85, 0.1) 1px, transparent 1px);
+  }
+  .edge-path { stroke: #334155; stroke-width: 2px; fill: none; transition: stroke 0.3s; }
+  .edge-path.active { stroke: #10b981; }
+  .edge-path.warning { stroke: #eab308; stroke-dasharray: 4 4; animation: flow 2s linear infinite; }
+  .edge-path.critical { stroke: #ef4444; stroke-width: 3px; stroke-dasharray: 6 6; animation: flow 1s linear infinite; }
+  .edge-label { fill: #94a3b8; font: 500 10px ui-monospace, SFMono-Regular, Menlo, monospace; paint-order: stroke; stroke: #0f172a; stroke-width: 3px; }
+  @keyframes flow { to { stroke-dashoffset: -12; } }
+  .topology-node { position: absolute; transform: translate(-50%, -50%); cursor: grab; user-select: none; z-index: 10; transition: transform 0.16s ease, filter 0.16s ease;}
+  .topology-node:hover { filter: brightness(1.08); }
+  .topology-node:active { cursor: grabbing; transform: translate(-50%, -50%) scale(1.05); }
+  .topology-node.selected { z-index: 50; }
+  .topology-node.selected .node-circle { border-color: #818cf8; box-shadow: 0 0 0 4px rgba(129, 140, 248, 0.2), 0 18px 45px rgba(15, 23, 42, 0.45); }
+  .topology-node.kind-service .node-circle {
+    width: 58px;
+    height: 58px;
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    background:
+      radial-gradient(circle at 50% 42%, rgba(16, 185, 129, 0.18), transparent 46%),
+      linear-gradient(145deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.98));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      inset 0 -18px 26px rgba(2, 6, 23, 0.38),
+      0 18px 44px rgba(2, 6, 23, 0.5);
+  }
+  .topology-node.kind-service .node-circle::after {
+    content: "";
+    position: absolute;
+    inset: 7px;
+    border-radius: 14px;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    pointer-events: none;
+  }
+  .topology-node.kind-service.selected .node-circle {
+    border-color: rgba(129, 140, 248, 0.95);
+    box-shadow:
+      0 0 0 5px rgba(99, 102, 241, 0.22),
+      0 0 34px rgba(99, 102, 241, 0.28),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      inset 0 -18px 26px rgba(2, 6, 23, 0.38),
+      0 18px 48px rgba(2, 6, 23, 0.55);
+  }
+  .topology-node.status-warning.kind-service .node-circle {
+    background:
+      radial-gradient(circle at 50% 42%, rgba(234, 179, 8, 0.2), transparent 46%),
+      linear-gradient(145deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.98));
+  }
+  .topology-node.status-critical.kind-service .node-circle {
+    background:
+      radial-gradient(circle at 50% 42%, rgba(239, 68, 68, 0.22), transparent 46%),
+      linear-gradient(145deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.98));
+  }
+  .service-glyph {
+    position: relative;
+    width: 30px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+  }
+  .service-glyph-core {
+    width: 16px;
+    height: 16px;
+    border-radius: 7px;
+    border: 2px solid #34d399;
+    box-shadow: 0 0 18px rgba(52, 211, 153, 0.36);
+    background: rgba(15, 23, 42, 0.72);
+  }
+  .service-glyph::before,
+  .service-glyph::after {
+    content: "";
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    border-radius: 3px;
+    background: #34d399;
+    opacity: 0.82;
+    box-shadow: 0 0 12px rgba(52, 211, 153, 0.4);
+  }
+  .service-glyph::before { left: 1px; top: 2px; }
+  .service-glyph::after { right: 1px; bottom: 2px; }
+  .topology-node.status-warning .service-glyph-core { border-color: #facc15; box-shadow: 0 0 18px rgba(250, 204, 21, 0.32); }
+  .topology-node.status-warning .service-glyph::before,
+  .topology-node.status-warning .service-glyph::after { background: #facc15; box-shadow: 0 0 12px rgba(250, 204, 21, 0.36); }
+  .topology-node.status-critical .service-glyph-core { border-color: #f87171; box-shadow: 0 0 18px rgba(248, 113, 113, 0.34); }
+  .topology-node.status-critical .service-glyph::before,
+  .topology-node.status-critical .service-glyph::after { background: #f87171; box-shadow: 0 0 12px rgba(248, 113, 113, 0.36); }
+  .topology-node.kind-service .node-label {
+    margin-top: 10px;
+    color: #dbeafe;
+    background: rgba(15, 23, 42, 0.88);
+    border-color: rgba(148, 163, 184, 0.18);
+    box-shadow: 0 8px 24px rgba(2, 6, 23, 0.25);
+  }
+  .slide-panel { transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+  .panel-open { transform: translateX(0); }
+  .panel-closed { transform: translateX(100%); }
+  .nav-btn.active { background-color: rgba(99, 102, 241, 0.1); color: #818cf8; border-left: 3px solid #818cf8; }
+  .nav-btn { border-left: 3px solid transparent; }
+  .inc-row.selected { background-color: rgba(99, 102, 241, 0.1); border-left: 3px solid #818cf8; }
+  .inc-row { border-left: 3px solid transparent; transition: all 0.2s; }
+  #toast { transition: bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s; }
+  .log-line { white-space: pre; }
 </style>
 </head>
-<body>
-<div class="app">
+<body class="flex h-screen bg-slate-950 overflow-hidden text-slate-300">
+
+<!-- Sidebar -->
+<aside class="w-16 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-4 gap-2 shrink-0 z-50 shadow-xl">
+  <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-600/20 mb-4 cursor-pointer" onclick="showToast('RCA Operator Dashboard connected')">
+    <i data-lucide="radar" class="text-white w-6 h-6"></i>
+  </div>
+  <button onclick="switchTab('incidents')" id="nav-incidents" class="nav-btn active w-full flex justify-center text-slate-500 hover:text-slate-300 py-3 hover:bg-slate-800/50 transition-colors group relative">
+    <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+    <div id="nav-incidents-dot" class="absolute top-2 right-3.5 w-2 h-2 bg-red-500 rounded-full animate-pulse hidden"></div>
+    <span class="absolute left-14 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">Incidents</span>
+  </button>
+  <button onclick="switchTab('topology')" id="nav-topology" class="nav-btn w-full flex justify-center text-slate-500 hover:text-slate-300 py-3 hover:bg-slate-800/50 transition-colors group relative">
+    <i data-lucide="network" class="w-5 h-5"></i>
+    <span class="absolute left-14 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">Topology</span>
+  </button>
+  <button onclick="switchTab('logs')" id="nav-logs" class="nav-btn w-full flex justify-center text-slate-500 hover:text-slate-300 py-3 hover:bg-slate-800/50 transition-colors group relative">
+    <i data-lucide="file-text" class="w-5 h-5"></i>
+    <span class="absolute left-14 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">Logs</span>
+  </button>
+  <div class="w-8 h-px bg-slate-800 my-2"></div>
+  <button onclick="switchTab('rules')" id="nav-rules" class="nav-btn w-full flex justify-center text-slate-500 hover:text-slate-300 py-3 hover:bg-slate-800/50 transition-colors group relative">
+    <i data-lucide="file-code-2" class="w-5 h-5"></i>
+    <span class="absolute left-14 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">RCA Rules</span>
+  </button>
+  <button onclick="switchTab('agents')" id="nav-agents" class="nav-btn w-full flex justify-center text-slate-500 hover:text-slate-300 py-3 hover:bg-slate-800/50 transition-colors group relative">
+    <i data-lucide="cpu" class="w-5 h-5"></i>
+    <span class="absolute left-14 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">RCA Agents</span>
+  </button>
+</aside>
+
+<main class="flex-grow flex flex-col relative min-w-0 h-full">
+
   <!-- Header -->
-  <header class="header">
-    <div class="header-left">
-      <div id="conn-dot"></div>
-      <div class="logo">
-        <img src="/images/logo.png" alt="RCA Operator" class="logo-img">
+  <header class="h-14 bg-slate-900/90 backdrop-blur border-b border-slate-800 flex items-center justify-between px-6 shrink-0 z-40">
+    <div class="flex items-center gap-4">
+      <div class="flex items-center gap-2 text-sm font-medium">
+        <span class="text-slate-400">rca-operator</span>
+        <i data-lucide="chevron-right" class="w-4 h-4 text-slate-600"></i>
+        <span id="header-scope" class="text-slate-200">cluster</span>
       </div>
-      <span class="version">v0.0.15</span>
-      <nav class="nav" id="nav">
-        <div class="nav-item active" data-tab="incidents" onclick="window._tab('incidents')">Incidents</div>
-        <div class="nav-item" data-tab="rules" onclick="window._tab('rules')">Rules</div>
-        <div class="nav-item" data-tab="agents" onclick="window._tab('agents')">Agents</div>
-        <div class="nav-item" data-tab="namespaces" onclick="window._tab('namespaces')">Namespaces</div>
-      </nav>
+      <div class="h-4 w-px bg-slate-700"></div>
+      <div id="header-active-badge" class="hidden items-center gap-2 bg-red-500/10 border border-red-500/30 text-red-400 px-3 py-1 rounded-md text-xs font-bold tracking-wide shadow-[0_0_15px_rgba(239,68,68,0.15)] cursor-pointer hover:bg-red-500/20 transition-colors" onclick="switchTab('incidents')">
+        <span class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+        <span id="header-active-count">0</span> ACTIVE
+      </div>
     </div>
-    <div class="header-right" id="header-right"></div>
+    <div class="flex items-center gap-4">
+      <div class="hidden md:flex items-center gap-4 text-xs font-mono text-slate-400">
+        <div class="flex items-center gap-1.5"><i data-lucide="box" class="w-3.5 h-3.5 text-emerald-400"></i> <span id="header-ns-count">0</span> Namespaces</div>
+        <div class="flex items-center gap-1.5"><i data-lucide="cpu" class="w-3.5 h-3.5 text-indigo-400"></i> <span id="header-agent-count">0</span> Agents</div>
+        <div class="flex items-center gap-1.5"><i data-lucide="shield-alert" class="w-3.5 h-3.5 text-red-400"></i> <span id="header-failing-count">0</span> Active</div>
+      </div>
+    </div>
   </header>
 
-  <div class="main">
-    <!-- Sidebar -->
-    <aside class="sidebar">
-      <div class="sidebar-section">
-        <div class="sidebar-title">Overview</div>
-        <div class="metric-grid" id="sb-metrics"></div>
-      </div>
-      <div class="sidebar-section">
-        <div class="sidebar-title">Namespaces</div>
-        <div id="sb-ns"></div>
-      </div>
-      <div class="sidebar-section">
-        <div class="sidebar-title">Severity</div>
-        <div id="sb-sev"></div>
-      </div>
-      <div class="sidebar-section">
-        <div class="sidebar-title">Agents</div>
-        <div id="sb-agents"></div>
-      </div>
-      <div class="sidebar-section">
-        <div class="sidebar-title">Rule Engine</div>
-        <div id="sb-rules"></div>
-      </div>
-    </aside>
+  <div class="flex-grow flex flex-col relative overflow-hidden">
 
-    <!-- Content -->
-    <div class="content">
-      <div class="toolbar" id="toolbar"></div>
-      <div class="split">
-        <div class="list-pane full" id="list-pane"></div>
-        <div class="detail" id="detail-panel" style="display:none"></div>
+    <!-- ======== TOPOLOGY VIEW ======== -->
+    <div id="view-topology" class="absolute inset-0 hidden flex-col z-10">
+      <div class="flex-grow relative" id="canvas-container">
+        <div class="absolute top-4 left-4 z-30 bg-slate-900 border border-slate-800 p-1.5 rounded-lg shadow-sm flex gap-1">
+          <button onclick="resetLayout()" title="Reset Layout" class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"><i data-lucide="move" class="w-4 h-4"></i></button>
+          <button onclick="refreshTopology(true)" title="Refresh" class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>
+          <div class="w-px h-5 bg-slate-700 my-auto mx-1"></div>
+          <button id="topo-mode-workload" onclick="setTopoMode('workload')" title="Workload view (Deployments/Pods/Nodes)" class="px-2 py-1 text-[10px] font-mono rounded transition-colors bg-slate-800 text-white">Workload</button>
+          <button id="topo-mode-service" onclick="setTopoMode('service')" title="Service dependency graph (from traces)" class="px-2 py-1 text-[10px] font-mono rounded transition-colors text-slate-400 hover:text-white hover:bg-slate-800">Services</button>
+          <div class="w-px h-5 bg-slate-700 my-auto mx-1"></div>
+          <button id="topo-clear-incident" onclick="clearTopologyIncident()" title="Show cluster graph" class="hidden p-1.5 text-indigo-300 hover:text-white hover:bg-slate-800 rounded transition-colors text-[10px] font-mono px-2">Show cluster</button>
+          <div class="w-px h-5 bg-slate-700 my-auto mx-1"></div>
+          <button onclick="zoomBy(-0.1)" title="Zoom out" class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"><i data-lucide="zoom-out" class="w-4 h-4"></i></button>
+          <button onclick="zoomFit()" title="Fit to screen" class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"><i data-lucide="maximize-2" class="w-4 h-4"></i></button>
+          <button onclick="zoomBy(0.1)" title="Zoom in" class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"><i data-lucide="zoom-in" class="w-4 h-4"></i></button>
+          <button onclick="zoomReset()" title="Reset zoom (100%)" id="topo-zoom-label" class="px-2 py-1 text-[10px] font-mono text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors min-w-[40px]">100%</button>
+        </div>
+        <div id="topology-trace-pill" class="hidden absolute top-4 left-64 z-20 bg-slate-900/95 border border-slate-800 px-3 py-1.5 rounded-md text-xs flex items-center gap-2"></div>
+        <div id="topology-error" class="hidden absolute top-4 right-4 z-20 bg-amber-500/10 border border-amber-500/30 text-amber-300 px-3 py-2 rounded text-xs"></div>
+        <div id="topology-empty" class="hidden absolute inset-0 flex items-center justify-center text-slate-500 text-sm">No topology data</div>
+        <div id="canvas-scroll" class="absolute inset-0 overflow-auto">
+          <div id="canvas-inner" class="relative canvas-bg" style="width:100%; height:100%;">
+            <svg id="edges-layer" class="absolute inset-0 w-full h-full pointer-events-none z-0"></svg>
+            <div id="nodes-layer" class="absolute inset-0 w-full h-full z-10"></div>
+          </div>
+        </div>
       </div>
-      <div class="status-bar" id="status-bar"></div>
+
+      <aside id="topology-panel" class="w-80 bg-slate-900 border-l border-slate-800 shadow-2xl flex flex-col shrink-0 absolute right-0 top-0 bottom-48 z-50 slide-panel panel-closed">
+        <div class="p-4 border-b border-slate-800 flex justify-between items-start bg-slate-900">
+          <div class="flex items-center gap-3">
+            <div id="topo-panel-icon" class="w-10 h-10 rounded-lg bg-slate-950 border border-slate-700 flex items-center justify-center">
+              <i data-lucide="box" class="w-5 h-5 text-slate-300"></i>
+            </div>
+            <div>
+              <h2 id="topo-panel-title" class="text-sm font-bold text-white tracking-tight">Resource</h2>
+              <p id="topo-panel-type" class="text-[10px] text-slate-500 font-mono uppercase tracking-wider mt-0.5">—</p>
+              <p id="topo-panel-trace" class="hidden text-[10px] text-indigo-300 font-mono mt-1"></p>
+            </div>
+          </div>
+          <button onclick="closeTopologyPanel()" class="text-slate-500 hover:text-white transition-colors p-1">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+        <div class="flex-grow overflow-y-auto p-4 space-y-6" id="topo-panel-body">
+          <div class="text-xs text-slate-500">Click a node to view details.</div>
+        </div>
+      </aside>
     </div>
+
+    <!-- ======== INCIDENTS VIEW ======== -->
+    <div id="view-incidents" class="absolute inset-0 flex z-10 bg-slate-950">
+      <div class="w-full md:w-[400px] shrink-0 border-r border-slate-800 flex flex-col bg-slate-950/50">
+        <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
+          <h2 class="font-bold text-white flex items-center gap-2 text-sm"><i data-lucide="alert-triangle" class="w-4 h-4 text-red-400"></i> Incidents</h2>
+          <span id="incidents-count" class="text-xs bg-slate-800 text-slate-300 px-2 py-0.5 rounded font-mono">0</span>
+        </div>
+        <div id="incidents-error" class="hidden mx-3 my-2 bg-amber-500/10 border border-amber-500/30 text-amber-300 px-3 py-2 rounded text-xs"></div>
+        <div class="flex-grow overflow-y-auto" id="incident-list-container"></div>
+      </div>
+      <div id="incident-detail-pane" class="flex-grow bg-slate-900 flex-col hidden overflow-hidden relative">
+        <!-- populated by renderIncidentDetail -->
+      </div>
+      <div id="incident-empty-pane" class="flex-grow flex flex-col items-center justify-center bg-slate-900 text-slate-500">
+        <i data-lucide="shield-alert" class="w-12 h-12 mb-3 opacity-20"></i>
+        <p class="font-medium text-sm">Select an incident to view details.</p>
+      </div>
+    </div>
+
+    <!-- ======== LOGS VIEW ======== -->
+    <div id="view-logs" class="absolute inset-0 hidden flex-col p-6 bg-slate-950 z-10">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl font-bold text-white flex items-center gap-2"><i data-lucide="terminal" class="w-5 h-5 text-indigo-400"></i> Unified Log Stream</h2>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-4 grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+        <div>
+          <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Namespace</label>
+          <select id="logs-ns" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200"></select>
+        </div>
+        <div>
+          <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Pod</label>
+          <select id="logs-pod" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 font-mono">
+            <option value="">(select namespace first)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Deployment</label>
+          <select id="logs-deployment" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 font-mono">
+            <option value="">(select namespace first)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Since</label>
+          <input id="logs-since" type="text" value="1h" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 font-mono">
+        </div>
+        <div class="flex gap-2">
+          <button onclick="fetchLogs()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded text-xs font-bold flex items-center gap-1.5 ml-auto">
+            <i data-lucide="play" class="w-3.5 h-3.5"></i> Tail
+          </button>
+        </div>
+      </div>
+      <div id="logs-error" class="hidden mb-3 bg-amber-500/10 border border-amber-500/30 text-amber-300 px-3 py-2 rounded text-xs"></div>
+      <div class="flex-grow bg-[#0B1120] border border-slate-800 rounded-xl overflow-hidden flex flex-col shadow-inner">
+        <div class="h-8 bg-slate-900 border-b border-slate-800 flex items-center px-4 gap-2 shrink-0">
+          <div class="w-2.5 h-2.5 rounded-full bg-red-500/50"></div>
+          <div class="w-2.5 h-2.5 rounded-full bg-yellow-500/50"></div>
+          <div class="w-2.5 h-2.5 rounded-full bg-emerald-500/50"></div>
+          <span class="text-[10px] text-slate-500 font-mono ml-2" id="logs-header-label">kubectl logs</span>
+        </div>
+        <div id="logs-output" class="flex-grow p-4 overflow-auto font-mono text-[11px]">
+          <div class="text-slate-500 italic">Select namespace + pod/deployment and click Tail.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======== RULES VIEW ======== -->
+    <div id="view-rules" class="absolute inset-0 hidden flex-col p-6 bg-slate-950 overflow-y-auto z-10">
+      <div class="flex justify-between items-end mb-6">
+        <div>
+          <h2 class="text-xl font-bold text-white">RCA Rules</h2>
+          <p class="text-slate-400 text-xs mt-1">Correlation logic definitions.</p>
+        </div>
+      </div>
+      <div id="rules-error" class="hidden mb-3 bg-amber-500/10 border border-amber-500/30 text-amber-300 px-3 py-2 rounded text-xs"></div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+        <table class="w-full text-left text-sm text-slate-400">
+          <thead class="text-[10px] text-slate-500 uppercase bg-slate-950/80 border-b border-slate-800">
+            <tr>
+              <th class="px-4 py-3 font-bold">Name</th>
+              <th class="px-4 py-3 font-bold">Priority</th>
+              <th class="px-4 py-3 font-bold">Trigger</th>
+              <th class="px-4 py-3 font-bold">Fires Type</th>
+              <th class="px-4 py-3 font-bold">Severity</th>
+              <th class="px-4 py-3 font-bold">Agent Selector</th>
+              <th class="px-4 py-3 font-bold">Age</th>
+              <th class="px-4 py-3 font-bold"></th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800/50" id="rules-table-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ======== AGENTS VIEW ======== -->
+    <div id="view-agents" class="absolute inset-0 hidden flex-col p-6 bg-slate-950 overflow-y-auto z-10">
+      <div class="flex justify-between items-end mb-6">
+        <div>
+          <h2 class="text-xl font-bold text-white">RCA Agents</h2>
+          <p class="text-slate-400 text-xs mt-1">Telemetry collector status.</p>
+        </div>
+      </div>
+      <div id="agents-error" class="hidden mb-3 bg-amber-500/10 border border-amber-500/30 text-amber-300 px-3 py-2 rounded text-xs"></div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+        <table class="w-full text-left text-sm text-slate-400">
+          <thead class="text-[10px] text-slate-500 uppercase bg-slate-950/80 border-b border-slate-800">
+            <tr>
+              <th class="px-4 py-3 font-bold">Agent Name</th>
+              <th class="px-4 py-3 font-bold">Namespaces</th>
+              <th class="px-4 py-3 font-bold">Status</th>
+              <th class="px-4 py-3 font-bold">Last Sync</th>
+              <th class="px-4 py-3 font-bold">Healthy</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800/50" id="agents-table-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<!-- Global API error banner -->
+<div id="api-banner" class="hidden fixed top-3 left-1/2 -translate-x-1/2 bg-red-500/15 border border-red-500/40 text-red-200 px-4 py-2 rounded-md text-xs font-mono z-[110] shadow-lg max-w-[80%] truncate" onclick="this.classList.add('hidden')" title="Click to dismiss"></div>
+
+<!-- Toast -->
+<div id="toast" class="fixed bottom-[-100px] left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-4 py-2 rounded-lg shadow-xl border border-slate-700 font-medium text-xs z-[100] opacity-0 flex items-center gap-2">
+  <i data-lucide="info" class="w-4 h-4 text-indigo-400"></i>
+  <span id="toast-msg">Notification message</span>
+</div>
+
+<!-- Trace detail modal (Tier 1 + Tier 2 view of a Jaeger trace) -->
+<div id="trace-modal" class="fixed inset-0 z-[120] hidden items-center justify-center bg-black/70 backdrop-blur-sm" onclick="if(event.target===this) closeTrace()">
+  <div class="bg-slate-950 border border-slate-800 rounded-xl shadow-2xl w-[min(1100px,95vw)] h-[min(85vh,900px)] flex flex-col overflow-hidden">
+    <div class="flex items-center justify-between px-5 py-3 border-b border-slate-800 bg-slate-900/60 shrink-0">
+      <div class="flex items-center gap-3 min-w-0">
+        <i data-lucide="git-branch" class="w-4 h-4 text-indigo-400 shrink-0"></i>
+        <h2 class="text-sm font-bold text-white shrink-0">Trace</h2>
+        <code id="trace-modal-id" class="text-[11px] font-mono text-indigo-300 truncate"></code>
+      </div>
+      <button onclick="closeTrace()" class="text-slate-500 hover:text-white p-1"><i data-lucide="x" class="w-4 h-4"></i></button>
+    </div>
+    <div id="trace-modal-body" class="flex-grow overflow-y-auto p-5 space-y-5"></div>
   </div>
 </div>
 
 <script>
-(function(){
-  /* ── State ─────────────────────────────────── */
-  var incidents=[], stats={}, rules=[];
-  var activeTab='incidents', selectedKey=null, signalsOpen=true;
-  var filters={phase:'all',ns:'all',sev:'all',type:'all'};
-  var connected=false;
-  var themeKey='rca-theme';
-  var tzKey='rca-tz';
-  var browserTZ=(function(){try{return Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'}catch(e){return'UTC'}})();
-  var tzOptions=(function(){
-    var z=[];try{if(Intl.supportedValuesOf)z=Intl.supportedValuesOf('timeZone')||[]}catch(e){}
-    if(!z.length)z=['UTC',browserTZ,'America/Los_Angeles','America/Denver','America/Chicago','America/New_York','Europe/London','Europe/Berlin','Asia/Kolkata','Asia/Singapore','Asia/Tokyo','Australia/Sydney'];
-    var u={},list=['Local'];z.forEach(function(zone){if(!zone||u[zone])return;u[zone]=true;list.push(zone)});
-    if(!u.UTC)list.splice(1,0,'UTC');return list;
-  })();
-  var selTZ=(function(){try{var s=localStorage.getItem(tzKey);if(s&&tzOptions.indexOf(s)!==-1)return s}catch(e){}return'UTC'})();
-  var theme=(function(){try{return localStorage.getItem(themeKey)||'dark'}catch(e){return'dark'}})();
+// --- State
+const state = {
+  activeTab: 'incidents',
+  incidents: [],
+  selectedIncidentKey: null,
+  incidentDetail: null,
+  topology: null,
+  serviceGraph: null,
+  topoMode: 'workload', // 'workload' | 'service'
+  incidentGraph: null,
+  selectedNodeId: null,
+  topologyLayout: {}, // id -> {x,y}
+  topologyZoom: 1,
+  logs: { ns:'', pod:'', deployment:'', container:'', tail:500, since:'1h', text:'', error:'' },
+  rules: [],
+  agents: [],
+  stats: null,
+};
 
-  var SEV_COLORS={P1:'var(--red)',P2:'var(--amber)',P3:'var(--blue)',P4:'var(--text-tertiary)'};
+const cache = {}; // endpoint -> { t, data, etag }
+const CACHE_TTL = 10_000;
+const SERVICE_GRAPH_LOOKBACK = '24h';
 
-  var PLAYBOOK={
-    NodeNotReady:['kubectl describe node <node-name>','kubectl get events -n <ns> --sort-by=\'.lastTimestamp\'','kubectl get pods -n <ns> -o wide | grep <node-name>'],
-    StalledRollout:['kubectl rollout history deployment/<name> -n <ns>','kubectl rollout undo deployment/<name> -n <ns>','kubectl logs deployment/<name> -n <ns> --previous'],
-    OOMKilled:['kubectl top pod -n <ns>','kubectl describe pod <pod-name> -n <ns>','kubectl get limitrange -n <ns>'],
-    ImagePullBackOff:['kubectl describe pod <pod-name> -n <ns>','kubectl get secret -n <ns> | grep docker','kubectl create secret docker-registry regcred ...'],
-    CrashLoopBackOff:['kubectl logs <pod-name> -n <ns> --previous','kubectl describe pod <pod-name> -n <ns>','kubectl get events -n <ns> --field-selector involvedObject.name=<pod>'],
-    GracePeriodViolation:['kubectl describe pod <pod-name> -n <ns>','kubectl get pod <pod-name> -n <ns> -o yaml | grep terminationGracePeriod'],
-    ProbeFailure:['kubectl describe pod <pod-name> -n <ns>','kubectl logs <pod-name> -n <ns>'],
-    /* Legacy aliases for backward compat */
-    NodeFailure:['kubectl describe node <node-name>','kubectl get events -n <ns> --sort-by=\'.lastTimestamp\''],
-    BadDeploy:['kubectl rollout history deployment/<name> -n <ns>','kubectl rollout undo deployment/<name> -n <ns>'],
-    OOM:['kubectl top pod -n <ns>','kubectl describe pod <pod-name> -n <ns>'],
-    Registry:['kubectl describe pod <pod-name> -n <ns>','kubectl get secret -n <ns> | grep docker'],
-    CrashLoop:['kubectl logs <pod-name> -n <ns> --previous','kubectl describe pod <pod-name> -n <ns>']
+// --- Utilities
+function escapeHtml(s){
+  if (s === null || s === undefined) return '';
+  const el = document.createElement('span');
+  el.textContent = String(s);
+  return el.innerHTML;
+}
+function showToast(msg){
+  const t = document.getElementById('toast');
+  document.getElementById('toast-msg').textContent = msg;
+  t.style.opacity = '1'; t.style.bottom = '24px';
+  clearTimeout(showToast._tm);
+  showToast._tm = setTimeout(()=>{ t.style.opacity='0'; t.style.bottom='-100px'; }, 3000);
+}
+function relTime(iso){
+  if(!iso) return '';
+  const d = Math.floor((Date.now() - new Date(iso).getTime())/1000);
+  if (isNaN(d)) return '';
+  if (d < 0) return 'just now';
+  if (d < 60) return d+'s ago';
+  if (d < 3600) return Math.floor(d/60)+'m ago';
+  if (d < 86400) return Math.floor(d/3600)+'h ago';
+  return Math.floor(d/86400)+'d ago';
+}
+function liveDur(iso){
+  if(!iso) return '';
+  let d = Math.floor((Date.now() - new Date(iso).getTime())/1000);
+  if (d<0) d=0;
+  const h = Math.floor(d/3600), m = Math.floor((d%3600)/60), s = d%60;
+  if (h>0) return `${h}h ${m}m ${s}s`;
+  if (m>0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+function sevColor(sev){
+  return sev === 'P1' ? 'red' : sev === 'P2' ? 'yellow' : sev === 'P3' ? 'blue' : 'slate';
+}
+function sevClasses(sev){
+  const c = sevColor(sev);
+  return `bg-${c}-500/10 text-${c}-400 border border-${c}-500/20`;
+}
+function severityLabel(sev){
+  switch (sev) {
+    case 'P1': return 'P1 Critical';
+    case 'P2': return 'P2 High';
+    case 'P3': return 'P3 Medium';
+    case 'P4': return 'P4 Low';
+    default: return sev || '—';
+  }
+}
+function severityBadge(sev, extraClass = ''){
+  return `<span title="${escapeHtml(severityLabel(sev))}" class="${sevClasses(sev)} ${extraClass}">${escapeHtml(severityLabel(sev))}</span>`;
+}
+function phaseClasses(phase){
+  const p = (phase||'').toLowerCase();
+  const c = p === 'active' ? 'red' : p === 'detecting' ? 'yellow' : p === 'resolved' ? 'emerald' : 'slate';
+  return `bg-${c}-500/10 text-${c}-400 border border-${c}-500/20`;
+}
+function incKey(i){ return `${i.namespace}/${i.name}`; }
+function incidentTitle(inc){
+  if (!inc) return '—';
+  const pod = (inc.podName||'').trim();
+  if (pod && pod.toLowerCase() !== 'unknown') return pod;
+  const affected = (inc.affectedResources||[]).find(r => r && r.name);
+  if (affected && affected.name) return affected.name;
+  if (inc.incidentType) return inc.incidentType;
+  if (inc.name) return inc.name;
+  return '—';
+}
+function cleanSignal(s){
+  // Drop empty "key=" fragments (e.g. trailing "message=") from correlated signal strings.
+  return String(s||'')
+    .replace(/(^|\s)[A-Za-z_][\w.-]*=(?=\s|$)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function incidentTraceIDs(){
+  const out = [];
+  const seen = new Set();
+  const push = (v) => {
+    const s = String(v || '').trim();
+    if (!s || seen.has(s)) return;
+    seen.add(s);
+    out.push(s);
   };
 
-  /* ── Helpers ───────────────────────────────── */
-  function esc(s){if(!s)return'';var el=document.createElement('span');el.textContent=s;return el.innerHTML}
-  function activeTZ(){return selTZ==='Local'?browserTZ:selTZ}
-
-  function pulseDot(color,sz){
-    sz=sz||8;
-    return '<span class="pulse-dot" style="width:'+sz+'px;height:'+sz+'px">'+
-      '<span class="ring" style="background:'+color+'"></span>'+
-      '<span class="dot" style="background:'+color+'"></span></span>';
-  }
-
-  function fmtClock(d,tz){
-    try{var p=new Intl.DateTimeFormat('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false,timeZone:tz}).formatToParts(d);
-    var m={};p.forEach(function(x){m[x.type]=x.value});if(m.hour)return m.hour+':'+m.minute+':'+m.second}catch(e){}return d.toISOString().slice(11,19);
-  }
-  function fmtZone(d,tz){
-    try{var p=new Intl.DateTimeFormat('en-US',{timeZone:tz,timeZoneName:'short'}).formatToParts(d);
-    for(var i=0;i<p.length;i++){if(p[i].type==='timeZoneName')return p[i].value}}catch(e){}return tz==='UTC'?'UTC':tz;
-  }
-  function relTime(iso){
-    if(!iso)return'';var d=Math.floor((Date.now()-new Date(iso).getTime())/1000);
-    if(d<0)d=0;if(d<60)return d+'s ago';if(d<3600)return Math.floor(d/60)+'m ago';
-    return Math.floor(d/3600)+'h '+Math.floor((d%3600)/60)+'m ago';
-  }
-  function absTime(iso){
-    if(!iso)return'';try{var d=new Date(iso);if(isNaN(d.getTime()))return'';var z=activeTZ();return fmtClock(d,z)+' '+fmtZone(d,z)}catch(e){return''}
-  }
-  function liveDur(iso){
-    if(!iso)return'';var d=Math.floor((Date.now()-new Date(iso).getTime())/1000);if(d<0)d=0;
-    var h=Math.floor(d/3600),m=Math.floor((d%3600)/60),s=d%60;
-    if(h>0)return h+'h '+m+'m '+s+'s';if(m>0)return m+'m '+s+'s';return s+'s';
-  }
-  function finDur(s,e){
-    if(!s||!e)return'';var d=Math.floor((new Date(e)-new Date(s))/1000);if(d<0||isNaN(d))return'';
-    var h=Math.floor(d/3600),m=Math.floor((d%3600)/60),sec=d%60;
-    if(h>0)return h+'h '+m+'m '+sec+'s';return m+'m '+sec+'s';
-  }
-  function incKey(i){return i.name+'/'+i.namespace}
-  function startTime(i){return i.firstObservedAt||i.startTime||''}
-  function resolvedTime(i){return i.resolvedAt||i.resolvedTime||''}
-  function findRes(i,k){var r=i.affectedResources||[];for(var j=0;j<r.length;j++){if(r[j].kind===k)return r[j]}return null}
-  function primaryRef(i){
-    if(i.scope&&i.scope.resourceRef&&i.scope.resourceRef.name)return i.scope.resourceRef;
-    if(i.scope&&i.scope.workloadRef&&i.scope.workloadRef.name)return i.scope.workloadRef;
-    return findRes(i,'Node')||findRes(i,'Deployment')||findRes(i,'StatefulSet')||
-      findRes(i,'DaemonSet')||findRes(i,'Job')||findRes(i,'CronJob')||
-      findRes(i,'ReplicaSet')||findRes(i,'Pod');
-  }
-  function dname(i){var r=primaryRef(i);return(r&&r.name)||i.podName||i.name}
-  function pad(n){return n<10?'0'+n:''+n}
-
-  function copyToClip(text,btn){
-    try{navigator.clipboard.writeText(text)}catch(e){}
-    if(btn){btn.textContent='\u2713';btn.className='copy-btn ok';
-    setTimeout(function(){btn.textContent='copy';btn.className='copy-btn'},1500)}
-  }
-
-  /* ── Theme ─────────────────────────────────── */
-  function applyTheme(t){
-    theme=t;document.documentElement.setAttribute('data-theme',t);
-    try{localStorage.setItem(themeKey,t)}catch(e){}
-  }
-  applyTheme(theme);
-
-  /* ── Fetch ─────────────────────────────────── */
-  function fetchAll(){
-    Promise.all([
-      fetch('/api/incidents').then(function(r){return r.json()}),
-      fetch('/api/stats').then(function(r){return r.json()}),
-      fetch('/api/rules').then(function(r){return r.json()}).catch(function(){return[]})
-    ]).then(function(res){
-      incidents=res[0]||[];stats=res[1]||{};rules=res[2]||[];connected=true;
-      document.getElementById('conn-dot').innerHTML=pulseDot('var(--green)',8);
-      render();
-    }).catch(function(){
-      connected=false;
-      document.getElementById('conn-dot').innerHTML='<span style="width:8px;height:8px;border-radius:50%;background:var(--red);display:inline-block"></span>';
-      renderStatusBar();
-    });
-  }
-
-  /* ── Filter ────────────────────────────────── */
-  function getFiltered(){
-    return incidents.filter(function(i){
-      if(filters.phase!=='all'&&i.phase!==filters.phase)return false;
-      if(filters.ns!=='all'&&i.namespace!==filters.ns)return false;
-      if(filters.sev!=='all'&&i.severity!==filters.sev)return false;
-      if(filters.type!=='all'&&i.incidentType!==filters.type)return false;
-      return true;
-    });
-  }
-  function getSorted(list){
-    var rank={P1:4,P2:3,P3:2,P4:1};
-    return list.slice().sort(function(a,b){
-      var d=(rank[b.severity]||0)-(rank[a.severity]||0);
-      if(d!==0)return d;
-      return startTime(b).localeCompare(startTime(a));
-    });
-  }
-
-  /* ── Render ────────────────────────────────── */
-  function render(){
-    renderHeader();renderMetrics();renderNamespaces();renderSeverity();
-    renderAgents();renderRuleEngine();renderToolbar();
-    if(activeTab==='incidents'){renderIncidents();renderDetail()}
-    else if(activeTab==='rules'){renderRulesTab()}
-    else if(activeTab==='agents'){renderAgentsTab()}
-    else if(activeTab==='namespaces'){renderNsTab()}
-    renderStatusBar();
-  }
-
-  function renderHeader(){
-    var el=document.getElementById('header-right');
-    var active=stats.active||0;
-    var p1=incidents.filter(function(i){return i.severity==='P1'&&i.phase!=='Resolved'}).length;
-    var h='';
-    if(p1>0)h+='<span class="header-pill pill-p1">'+pulseDot('var(--red)',5)+' '+p1+' P1</span>';
-    h+='<span class="header-pill pill-active">'+pulseDot('var(--red)',4)+' '+active+' active</span>';
-    h+='<select class="tz-select" id="tz-sel" onchange="window._setTZ(this.value)">';
-    tzOptions.forEach(function(z){
-      var label=z==='Local'?'Local ('+browserTZ+')':z;
-      h+='<option value="'+esc(z)+'"'+(selTZ===z?' selected':'')+'>'+esc(label)+'</option>';
-    });
-    h+='</select>';
-    h+='<span class="clock" id="clock"></span>';
-    h+='<button class="theme-toggle" onclick="window._toggleTheme()" title="Toggle theme">'+(theme==='dark'?'\u2600':'🌙')+'</button>';
-    el.innerHTML=h;
-  }
-
-  function renderMetrics(){
-    var el=document.getElementById('sb-metrics');
-    var items=[
-      {l:'Active',v:stats.active||0,c:'var(--red)'},
-      {l:'Detecting',v:stats.detecting||0,c:'var(--purple)'},
-      {l:'Resolved',v:stats.resolved||0,c:'var(--green)'},
-      {l:'Total',v:incidents.length,c:'var(--text-tertiary)'}
-    ];
-    el.innerHTML=items.map(function(m){
-      return '<div class="metric-card"><div class="metric-card-value" style="color:'+m.c+'">'+m.v+'</div><div class="metric-card-label">'+m.l+'</div></div>';
-    }).join('');
-  }
-
-  function renderNamespaces(){
-    var el=document.getElementById('sb-ns');
-    var ns=stats.namespaces||{};var keys=Object.keys(ns).sort();
-    var all=['all'].concat(keys);
-    el.innerHTML=all.map(function(k){
-      var sel=filters.ns===k;var info=ns[k]||{};var cnt=k!=='all'?(info.active||0):0;
-      var monitored=k!=='all'&&info.monitored;
-      return '<div class="sb-item'+(sel?' active':'')+'" onclick="window._f(\'ns\',\''+esc(k)+'\')">'+
-        (monitored?'<span class="sb-dot" style="background:var(--green)"></span>':
-        (k!=='all'?'<span class="sb-dot" style="background:var(--text-tertiary);opacity:0.3"></span>':''))+
-        '<span style="flex:1">'+esc(k)+'</span>'+
-        (cnt>0?'<span class="sb-badge">'+cnt+'</span>':'')+
-        '</div>';
-    }).join('');
-  }
-
-  function renderSeverity(){
-    var el=document.getElementById('sb-sev');
-    el.innerHTML=['all','P1','P2','P3','P4'].map(function(s){
-      var sel=filters.sev===s;
-      var dot=s!=='all'?'<span class="sb-dot" style="background:'+(SEV_COLORS[s]||'var(--text-tertiary)')+'"></span>':'';
-      return '<div class="sb-item'+(sel?' active':'')+'" onclick="window._f(\'sev\',\''+s+'\')">'+dot+'<span>'+s+'</span></div>';
-    }).join('');
-  }
-
-  function renderAgents(){
-    var el=document.getElementById('sb-agents');
-    var agents=stats.agents||[];
-    if(!agents.length){el.innerHTML='<div style="padding:8px;font-size:11px;color:var(--text-tertiary)">No agents</div>';return}
-    el.innerHTML=agents.map(function(a){
-      var name=typeof a==='string'?a:a.name;
-      var healthy=typeof a==='string'?true:a.healthy!==false;
-      var dot=healthy?pulseDot('var(--green)',5):'<span style="width:5px;height:5px;border-radius:50%;background:var(--red);display:inline-block"></span>';
-      var ns=typeof a!=='string'&&a.watchNamespaces?a.watchNamespaces:[];
-      return '<div class="agent-item">'+dot+'<span class="name">'+esc(name)+'</span>'+
-        '<span class="label">'+(healthy?'OK':'ERR')+'</span></div>'+
-        (ns.length?'<div class="agent-sub">watching: '+ns.map(esc).join(', ')+'</div>':'');
-    }).join('');
-  }
-
-  function renderRuleEngine(){
-    var el=document.getElementById('sb-rules');
-    var count=rules.length;
-    var h='<div style="display:flex;align-items:baseline;justify-content:space-between;padding:4px 8px">'+
-      '<span style="font-size:11px;color:var(--text-secondary)">Loaded CRDs</span>'+
-      '<span style="font-family:var(--font-mono);font-size:18px;font-weight:600;color:var(--accent)">'+count+'</span></div>';
-    if(count>0){
-      var svs={};rules.forEach(function(r){svs[r.firesSeverity]=(svs[r.firesSeverity]||0)+1});
-      Object.keys(svs).sort().forEach(function(s){
-        h+='<div style="padding:2px 8px;font-size:11px;color:var(--text-tertiary)">'+s+': '+svs[s]+' rule'+(svs[s]>1?'s':'')+'</div>';
-      });
+  if (state.incidentDetail) {
+    if (Array.isArray(state.incidentDetail.traceIds)) {
+      state.incidentDetail.traceIds.forEach(push);
     }
-    el.innerHTML=h;
+    push(state.incidentDetail.traceId);
+  }
+  if (state.incidentGraph && state.incidentGraph.meta) {
+    const m = state.incidentGraph.meta;
+    push(m.traceID || m.traceId || m.traceid);
+  }
+  return out;
+}
+
+function selectedIncidentNamespace(){
+  const key = String(state.selectedIncidentKey || '').trim();
+  if (!key) return '';
+  const idx = key.indexOf('/');
+  if (idx <= 0) return '';
+  return key.slice(0, idx);
+}
+
+function incidentMatchesNode(inc, node, opts = {}){
+  if (!inc || !node) return false;
+  if (!opts.includeResolved && (inc.phase || '').toLowerCase() === 'resolved') return false;
+
+  const name = String(node.name || '').trim();
+  const kind = String(node.kind || '').trim();
+  const nodeNS = String(node.namespace || '').trim();
+  const preferredNS = nodeNS || selectedIncidentNamespace();
+  const affected = Array.isArray(inc.affectedResources) ? inc.affectedResources : [];
+  const workloadKinds = new Set(['Deployment', 'StatefulSet', 'DaemonSet', 'ReplicaSet', 'Pod']);
+  const nsMatches = (resourceNS) => {
+    const rn = String(resourceNS || '').trim();
+    if (!preferredNS) return true;
+    return rn === '' || rn === preferredNS;
+  };
+
+  let match = affected.some(r =>
+    r && r.kind === kind && r.name === name && nsMatches(r.namespace)
+  );
+
+  if (!match && kind === 'Pod') {
+    match = inc.podName === name && (!preferredNS || inc.namespace === preferredNS);
   }
 
-  function renderToolbar(){
-    var el=document.getElementById('toolbar');
-    var types={};incidents.forEach(function(i){if(i.incidentType)types[i.incidentType]=true});
-    var typeList=Object.keys(types);var f=getFiltered();
-    var h='<div class="filter-group"><span class="filter-label">Phase</span>';
-    h+='<select class="filter-select" onchange="window._f(\'phase\',this.value)">';
-    ['all','Active','Detecting','Resolved'].forEach(function(p){
-      h+='<option value="'+p+'"'+(filters.phase===p?' selected':'')+'>'+p+'</option>';
+  if (!match && kind === 'Service') {
+    match = affected.some(r =>
+      r && workloadKinds.has(r.kind) && r.name === name && nsMatches(r.namespace)
+    ) || (
+      inc.podName && (!preferredNS || inc.namespace === preferredNS) &&
+      typeof inc.podName === 'string' && inc.podName.startsWith(name + '-')
+    );
+  }
+
+  if (match && preferredNS) {
+    const incNS = String(inc.namespace || '').trim();
+    if (incNS && incNS !== preferredNS) return false;
+  }
+  return match;
+}
+
+function incidentsForNode(node){
+  const out = [];
+  const seen = new Set();
+  const add = (inc, includeResolved = false) => {
+    if (!incidentMatchesNode(inc, node, { includeResolved })) return;
+    const key = incKey(inc);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(inc);
+  };
+  if (state.incidentGraph && state.incidentDetail) add(state.incidentDetail, true);
+  const list = Array.isArray(state.incidents) ? state.incidents : [];
+  list.forEach(inc => add(inc, false));
+  return out;
+}
+
+function hasIncidentTopology(inc){
+  return !!(inc && inc.hasTopology);
+}
+
+function topologyButton(inc, extraClass = ''){
+  if (!hasIncidentTopology(inc)) return '';
+  return `<button onclick="event.stopPropagation(); goToTopology('${escapeHtml(inc.namespace)}','${escapeHtml(inc.name)}')"
+              class="${extraClass}">
+            Topology <i data-lucide="arrow-right" class="w-3 h-3"></i>
+          </button>`;
+}
+
+function traceIDsForIncidents(list){
+  const out = [];
+  const seen = new Set();
+  const push = (v) => {
+    const s = String(v || '').trim();
+    if (!s || seen.has(s)) return;
+    seen.add(s);
+    out.push(s);
+  };
+
+  (Array.isArray(list) ? list : []).forEach(inc => {
+    if (Array.isArray(inc.traceIds)) inc.traceIds.forEach(push);
+    push(inc.traceId);
+  });
+  return out;
+}
+
+function resourceNodeWithNamespace(node){
+  if (!node || node.kind !== 'Service' || node.namespace) return node;
+  const name = String(node.name || '').trim();
+  if (!name) return node;
+
+  const namespaces = new Set();
+  const addNS = (ns) => {
+    const v = String(ns || '').trim();
+    if (v) namespaces.add(v);
+  };
+
+  const detail = state.incidentDetail;
+  if (detail) {
+    const resources = Array.isArray(detail.affectedResources) ? detail.affectedResources : [];
+    resources.forEach(r => {
+      if (!r) return;
+      if (r.kind === 'Service' && r.name === name) addNS(r.namespace);
+      if ((r.kind === 'Deployment' || r.kind === 'StatefulSet' || r.kind === 'DaemonSet' || r.kind === 'ReplicaSet') && r.name === name) addNS(r.namespace);
+      if (r.kind === 'Pod' && typeof r.name === 'string' && r.name.startsWith(name + '-')) addNS(r.namespace);
     });
-    h+='</select></div>';
-    if(typeList.length>0){
-      h+='<div class="filter-group"><span class="filter-label">Type</span>';
-      h+='<select class="filter-select" onchange="window._f(\'type\',this.value)">';
-      h+='<option value="all"'+(filters.type==='all'?' selected':'')+'>all</option>';
-      typeList.sort().forEach(function(t){h+='<option value="'+esc(t)+'"'+(filters.type===t?' selected':'')+'>'+esc(t)+'</option>'});
-      h+='</select></div>';
-    }
-    h+='<span class="toolbar-spacer"></span>';
-    h+='<span class="toolbar-meta">'+f.length+' result'+(f.length!==1?'s':'')+'</span>';
-    h+='<span class="toolbar-kbd">j/k navigate \u00b7 esc close</span>';
-    el.innerHTML=h;
+    if (typeof detail.podName === 'string' && detail.podName.startsWith(name + '-')) addNS(detail.namespace);
+  }
+  const selectedNS = selectedIncidentNamespace();
+  if (state.incidentGraph && selectedNS) addNS(selectedNS);
+
+  const scanGraph = (g) => {
+    if (!g || !Array.isArray(g.nodes)) return;
+    g.nodes.forEach(n => {
+      if (n && n.kind === 'Service' && n.name === name) addNS(n.namespace);
+    });
+  };
+  scanGraph(state.serviceGraph);
+  scanGraph(state.topology);
+
+  if (namespaces.size === 1) {
+    return { ...node, namespace: Array.from(namespaces)[0] };
+  }
+  return node;
+}
+
+function normalizeTraceIDs(traceIDs){
+  const out = [];
+  const seen = new Set();
+  (Array.isArray(traceIDs) ? traceIDs : []).forEach(v => {
+    const id = String(v || '').trim();
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    out.push(id);
+  });
+  return out;
+}
+
+function renderTraceIDRows(traceIDs, opts = {}){
+  const ids = normalizeTraceIDs(traceIDs);
+  const preview = Number.isFinite(opts.preview) ? opts.preview : ids.length;
+  if (!ids.length) {
+    return opts.emptyHtml || `<span class="text-xs text-slate-500 italic">—</span>`;
+  }
+  return ids.map((id, i) => {
+    const hidden = i >= preview ? 'hidden' : '';
+    const dataExtra = i >= preview ? 'data-trace-extra' : '';
+    return `<div class="flex items-center gap-2 group ${hidden}" ${dataExtra}>
+      <button onclick="openTrace('${escapeHtml(id)}')"
+              title="Open trace ${escapeHtml(id)}"
+              class="text-[11px] font-mono text-indigo-300 hover:text-indigo-200 hover:bg-slate-800/60 transition break-all flex-1 text-left cursor-pointer rounded px-1.5 py-1">${escapeHtml(id)}</button>
+      <button onclick="copyTrace('${escapeHtml(id)}', this)" title="Copy trace ID"
+              class="shrink-0 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-white transition p-1">
+        <i data-lucide="copy" class="w-3 h-3"></i>
+      </button>
+    </div>`;
+  }).join('');
+}
+
+function renderTraceIDSection(traceIDs, opts = {}){
+  const ids = normalizeTraceIDs(traceIDs);
+  const title = opts.title || 'Trace Evidence';
+  const description = opts.description || 'Open traces captured from correlated OTel signals.';
+  const preview = Number.isFinite(opts.preview) ? opts.preview : 5;
+  const emptyText = opts.emptyText || 'None recorded';
+  const countText = `${ids.length} ${ids.length === 1 ? 'trace' : 'traces'}`;
+  if (!ids.length) {
+    return `<div>
+      <div class="flex items-center justify-between gap-3 mb-1">
+        <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">${escapeHtml(title)}</h3>
+        <span class="text-[10px] font-mono text-slate-600">${escapeHtml(countText)}</span>
+      </div>
+      <p class="text-[11px] text-slate-600 mb-2">${escapeHtml(description)}</p>
+      <div class="text-[11px] text-slate-500 italic">${escapeHtml(emptyText)}</div>
+    </div>`;
+  }
+  const rows = renderTraceIDRows(ids, { preview });
+  const more = ids.length > preview
+    ? `<button onclick="toggleTraceList(this)" class="text-[10px] font-mono text-indigo-400 hover:text-indigo-300 mt-1.5">Show more (${ids.length - preview})</button>`
+    : '';
+  return `<div data-trace-wrap data-expanded="0" data-total="${ids.length}">
+    <div class="flex items-center justify-between gap-3 mb-1">
+      <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">${escapeHtml(title)}</h3>
+      <span class="text-[10px] font-mono text-slate-500 bg-slate-900 border border-slate-800 rounded px-1.5 py-0.5">${escapeHtml(countText)}</span>
+    </div>
+    <p class="text-[11px] text-slate-600 mb-2">${escapeHtml(description)}</p>
+    <div class="bg-slate-950 border border-slate-800 rounded-lg p-2 space-y-1">${rows}</div>
+    ${more}
+  </div>`;
+}
+
+function activeIncidentsList(){
+  const list = Array.isArray(state.incidents) ? state.incidents : [];
+  return list.filter(inc => String(inc.phase || '').toLowerCase() !== 'resolved');
+}
+
+function incidentInSelectedScope(inc){
+  if (!inc) return false;
+  if (!state.selectedIncidentKey) return true;
+  const ns = selectedIncidentNamespace();
+  if (!ns) return true;
+  return String(inc.namespace || '') === ns;
+}
+
+function renderTopologyTrace(){
+  const toolbarPill = document.getElementById('topology-trace-pill');
+  const panelTrace = document.getElementById('topo-panel-trace');
+
+  if (toolbarPill) {
+    // Trace IDs are rendered in selected resource details, not as a global pill.
+    toolbarPill.classList.add('hidden');
+    toolbarPill.innerHTML = '';
   }
 
-  function renderIncidents(){
-    var el=document.getElementById('list-pane');
-    var list=getSorted(getFiltered());
-    var hasSel=!!selectedKey;
-    el.className='list-pane '+(hasSel?'compact':'full');
-    var h='';
-    if(!hasSel){
-      h+='<div class="list-header"><span style="width:22px">#</span><span style="width:36px">Sev</span>'+
-        '<span style="flex:2">Service</span><span style="width:100px">Namespace</span>'+
-        '<span style="width:90px">Phase</span><span style="width:80px;text-align:right">Started</span></div>';
-    }
-    if(!list.length){
-      h+='<div class="empty-state"><div class="empty-state-title">No incidents match</div>'+
-        '<div class="empty-state-sub">Adjust filters or wait for new events</div></div>';
+  if (panelTrace) {
+    // Trace IDs are rendered in selected resource details, not in panel header.
+    panelTrace.classList.add('hidden');
+    panelTrace.textContent = '';
+  }
+}
+
+function renderTopologyActiveIncidents(){
+  // Intentionally disabled: right-side active-incidents overlay removed from topology view.
+}
+
+function kindIcon(kind){
+  switch((kind||'').toLowerCase()){
+    case 'incident': return 'shield-alert';
+    case 'span': return 'git-commit';
+    case 'pod': return 'box';
+    case 'deployment': return 'layers';
+    case 'statefulset': return 'database';
+    case 'daemonset': return 'server';
+    case 'node': return 'cpu';
+    case 'service': return 'boxes';
+    case 'namespace': return 'folder';
+    case 'replicaset': return 'copy';
+    case 'job': case 'cronjob': return 'clock';
+    default: return 'circle';
+  }
+}
+function debounceRender(){
+  if (debounceRender._q) return;
+  debounceRender._q = true;
+  requestAnimationFrame(()=>{
+    debounceRender._q = false;
+    renderAll();
+  });
+}
+
+// --- API
+// apiGet fetches JSON, honouring server ETag / Cache-Control so repeat calls
+// coalesce into 304s when nothing changed. Results are also mirrored into a
+// short-TTL in-memory cache so rapid re-renders don't hit the network at all.
+async function apiGet(path, opts){
+  opts = opts || {};
+  const now = Date.now();
+  const entry = cache[path];
+  if (!opts.noCache && entry && (now - entry.t) < CACHE_TTL) return entry.data;
+  const headers = { 'Accept': 'application/json' };
+  if (entry && entry.etag) headers['If-None-Match'] = entry.etag;
+  let r;
+  try {
+    r = await fetch(path, { headers });
+  } catch (e) {
+    apiBannerShow('Network error: ' + (e && e.message || 'unable to reach operator'));
+    throw e;
+  }
+  if (r.status === 304 && entry) {
+    cache[path] = { t: now, data: entry.data, etag: entry.etag };
+    apiBannerClear();
+    return entry.data;
+  }
+  if (r.status === 204) { cache[path] = { t: now, data: null }; apiBannerClear(); return null; }
+  if (!r.ok) {
+    apiBannerShow(`Request failed: ${r.status} ${r.statusText} (${path})`);
+    throw new Error(`${r.status} ${r.statusText}`);
+  }
+  const ct = r.headers.get('content-type') || '';
+  const data = ct.includes('application/json') ? await r.json() : await r.text();
+  const etag = r.headers.get('ETag') || '';
+  cache[path] = { t: now, data, etag };
+  apiBannerClear();
+  return data;
+}
+
+let _apiBannerTimer = null;
+function apiBannerShow(msg){
+  const el = document.getElementById('api-banner');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  clearTimeout(_apiBannerTimer);
+  _apiBannerTimer = setTimeout(apiBannerClear, 8000);
+}
+function apiBannerClear(){
+  const el = document.getElementById('api-banner');
+  if (el) el.classList.add('hidden');
+}
+function invalidateCache(prefix){
+  Object.keys(cache).forEach(k => { if (k.startsWith(prefix)) delete cache[k]; });
+}
+
+async function loadStats(){
+  try {
+    state.stats = await apiGet('/api/stats');
+    renderHeader();
+    populateLogsNamespaces();
+  } catch(e){ console.warn('stats failed', e); }
+}
+async function loadIncidents(){
+  try {
+    const data = await apiGet('/api/incidents');
+    state.incidents = Array.isArray(data) ? data : [];
+    renderIncidentsList();
+    renderHeader();
+  } catch(e){
+    showPanelError('incidents-error', 'Failed to load incidents: ' + e.message);
+  }
+}
+async function loadIncidentDetail(ns, name){
+  try {
+    const data = await apiGet(`/api/incidents/${encodeURIComponent(ns)}/${encodeURIComponent(name)}`, {noCache:true});
+    state.incidentDetail = data;
+    renderIncidentDetail();
+  } catch(e){
+    showPanelError('incidents-error', 'Failed to load incident: ' + e.message);
+  }
+}
+async function loadTopology(force){
+  try {
+    if (force) invalidateCache('/api/topology');
+    const data = await apiGet('/api/topology');
+    const first = !state.topology;
+    state.topology = data || { nodes: [], edges: [] };
+    renderTopology();
+    if (first || force) autoFitIfOverflow();
+  } catch(e){
+    document.getElementById('topology-error').classList.remove('hidden');
+    document.getElementById('topology-error').textContent = 'Topology: ' + e.message;
+  }
+}
+async function loadServiceGraph(force){
+  try {
+    const path = `/api/service-graph?lookback=${encodeURIComponent(SERVICE_GRAPH_LOOKBACK)}`;
+    if (force) invalidateCache(path);
+    const data = await apiGet(path);
+    const first = !state.serviceGraph;
+    state.serviceGraph = data || { nodes: [], edges: [] };
+    renderTopology();
+    if (first || force) autoFitIfOverflow();
+  } catch(e){
+    document.getElementById('topology-error').classList.remove('hidden');
+    document.getElementById('topology-error').textContent = 'Service graph: ' + e.message;
+  }
+}
+
+// autoFitIfOverflow zooms the topology canvas to fit when laid-out content
+// exceeds the viewport. Avoids the off-screen fan-out effect on dense workload
+// graphs without changing zoom for graphs that already fit.
+function autoFitIfOverflow(){
+  const scroll = document.getElementById('canvas-scroll');
+  if (!scroll) return;
+  const positions = Object.values(state.topologyLayout || {});
+  if (!positions.length) return;
+  let maxX = 0, maxY = 0;
+  positions.forEach(p => {
+    if (p && p.x > maxX) maxX = p.x;
+    if (p && p.y > maxY) maxY = p.y;
+  });
+  const contentW = maxX + 260;
+  const contentH = maxY + 160;
+  if (contentW <= scroll.clientWidth && contentH <= scroll.clientHeight) return;
+  zoomFit();
+}
+function setTopoMode(mode){
+  if (state.topoMode === mode) return;
+  state.topoMode = mode;
+  state.topologyLayout = {};
+  const wl = document.getElementById('topo-mode-workload');
+  const sv = document.getElementById('topo-mode-service');
+  if (wl && sv) {
+    const on = 'bg-slate-800 text-white';
+    const off = 'text-slate-400 hover:text-white hover:bg-slate-800';
+    wl.className = `px-2 py-1 text-[10px] font-mono rounded transition-colors ${mode==='workload'?on:off}`;
+    sv.className = `px-2 py-1 text-[10px] font-mono rounded transition-colors ${mode==='service'?on:off}`;
+  }
+  if (mode === 'service') loadServiceGraph(true); else loadTopology(true);
+}
+async function loadIncidentGraph(ns, name){
+  try {
+    const data = await apiGet(`/api/incidents/${encodeURIComponent(ns)}/${encodeURIComponent(name)}/graph`, {noCache:true});
+    state.incidentGraph = data; // may be null (204)
+    renderTopology();
+  } catch(e){
+    document.getElementById('topology-error').classList.remove('hidden');
+    document.getElementById('topology-error').textContent = 'Incident graph: ' + e.message;
+  }
+}
+async function loadRules(){
+  try {
+    state.rules = await apiGet('/api/rules') || [];
+    renderRules();
+  } catch(e){ showPanelError('rules-error', 'Failed to load rules: ' + e.message); }
+}
+async function loadAgents(){
+  try {
+    state.agents = await apiGet('/api/agents') || [];
+    renderAgents();
+  } catch(e){ showPanelError('agents-error', 'Failed to load agents: ' + e.message); }
+}
+
+function showPanelError(id, msg){
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  setTimeout(()=> el.classList.add('hidden'), 8000);
+}
+
+// --- Tabs
+function switchTab(tab){
+  state.activeTab = tab;
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  const navBtn = document.getElementById(`nav-${tab}`);
+  if (navBtn) navBtn.classList.add('active');
+  ['topology','incidents','logs','rules','agents'].forEach(t => {
+    const v = document.getElementById(`view-${t}`);
+    if (!v) return;
+    if (t === tab) { v.classList.remove('hidden'); v.classList.add('flex'); }
+    else { v.classList.add('hidden'); v.classList.remove('flex'); }
+  });
+  // Lazy-load per tab
+  if (tab === 'topology') {
+    if (state.incidentGraph) {
+      renderTopology();
+    } else if (state.topoMode === 'service') {
+      loadServiceGraph();
     } else {
-      list.forEach(function(inc,idx){
-        var key=incKey(inc);var isSel=key===selectedKey;var isRes=inc.phase==='Resolved';
-        var sev=inc.severity||'P4';
-        h+='<div class="inc-row'+(hasSel?' compact':'')+(isSel?' selected':'')+(isRes?' resolved':'')+'" onclick="window._sel(\''+esc(key)+'\')">';
-        if(!hasSel)h+='<span class="inc-num">'+pad(idx+1)+'</span>';
-        h+='<span class="sev '+(hasSel?'sm':'md')+' sev-'+sev+'">'+sev+'</span>';
-        h+='<div class="inc-info"><div class="inc-name'+(hasSel?' compact':'')+'">'+esc(dname(inc))+'</div>';
-        h+='<div class="inc-meta">'+(hasSel?esc(inc.incidentType):esc(inc.namespace)+' \u00b7 '+esc(inc.incidentType))+'</div></div>';
-        if(!hasSel)h+='<span class="inc-ns">'+esc(inc.namespace)+'</span>';
-        h+='<span class="phase phase-'+(inc.phase||'Resolved')+'">';
-        if(inc.phase==='Active'||inc.phase==='Detecting')h+=pulseDot(inc.phase==='Active'?'var(--red)':'var(--purple)',5);
-        h+=esc(inc.phase)+'</span>';
-        if(!hasSel){
-          h+='<div class="inc-time"><div class="inc-time-rel">'+relTime(startTime(inc))+'</div>';
-          h+='<div class="inc-time-abs">'+absTime(startTime(inc))+'</div></div>';
-        }
-        h+='</div>';
-      });
+      loadTopology();
     }
-    el.innerHTML=h;
+    setTimeout(renderTopologyEdges, 50);
+  }
+  if (tab === 'rules') loadRules();
+  if (tab === 'agents') loadAgents();
+  if (tab === 'logs') loadStats();
+}
+
+function goToTopology(ns, name){
+  state.selectedIncidentKey = `${ns}/${name}`;
+  switchTab('topology');
+  loadIncidentGraph(ns, name);
+  loadIncidentDetail(ns, name);
+  document.getElementById('topo-clear-incident').classList.remove('hidden');
+}
+function clearTopologyIncident(){
+  state.incidentGraph = null;
+  state.selectedIncidentKey = null;
+  document.getElementById('topo-clear-incident').classList.add('hidden');
+  refreshTopology(true);
+}
+
+// --- Render: Header
+function renderHeader(){
+  if (!state.stats) return;
+  const active = state.stats.active || 0;
+  document.getElementById('header-active-count').textContent = active;
+  document.getElementById('header-failing-count').textContent = active;
+  const badge = document.getElementById('header-active-badge');
+  const dot = document.getElementById('nav-incidents-dot');
+  if (active > 0) { badge.classList.remove('hidden'); badge.classList.add('flex'); dot.classList.remove('hidden'); }
+  else { badge.classList.add('hidden'); badge.classList.remove('flex'); dot.classList.add('hidden'); }
+  const nsCount = state.stats.namespaces ? Object.keys(state.stats.namespaces).length : 0;
+  document.getElementById('header-ns-count').textContent = nsCount;
+  document.getElementById('header-agent-count').textContent = (state.stats.agents || []).length;
+}
+
+// --- Render: Incidents list
+function renderIncidentsList(){
+  const c = document.getElementById('incident-list-container');
+  document.getElementById('incidents-count').textContent = state.incidents.length;
+  if (!state.incidents.length) {
+    c.innerHTML = `<div class="p-6 text-center text-slate-500 text-xs">No incidents.</div>`;
+    return;
+  }
+  c.innerHTML = state.incidents.map(inc => {
+    const key = incKey(inc);
+    const sel = key === state.selectedIncidentKey ? 'selected' : '';
+    const sev = inc.severity || '';
+    const phase = inc.phase || '';
+    const phColor = phase.toLowerCase() === 'active' ? 'red' : phase.toLowerCase() === 'resolved' ? 'emerald' : 'yellow';
+    const when = inc.firstObservedAt || inc.activeAt || inc.lastObservedAt || '';
+    return `
+      <div class="inc-row p-3 border-b border-slate-800/50 cursor-pointer hover:bg-slate-800/30 ${sel}"
+           onclick="selectIncident('${escapeHtml(inc.namespace)}','${escapeHtml(inc.name)}')">
+        <div class="flex justify-between items-center mb-1.5">
+          <div class="flex items-center gap-2 min-w-0">
+            ${severityBadge(sev, 'px-1.5 py-0.5 rounded text-[9px] font-bold font-mono whitespace-nowrap')}
+            <span class="font-bold text-slate-200 text-xs truncate">${escapeHtml(incidentTitle(inc))}</span>
+          </div>
+          <span class="text-[10px] text-slate-500 font-mono shrink-0 ml-2">${escapeHtml(relTime(when))}</span>
+        </div>
+        <div class="flex justify-between items-center text-[10px]">
+          <span class="text-slate-400 font-mono truncate">${escapeHtml(inc.incidentType || '—')}</span>
+          <span class="text-${phColor}-400 font-bold flex items-center gap-1">${escapeHtml(phase)}</span>
+        </div>
+        <div class="flex justify-between items-center mt-2">
+          <span class="text-[10px] text-slate-500 font-mono truncate">${escapeHtml(inc.namespace)}</span>
+          ${topologyButton(inc, 'text-[10px] font-mono text-indigo-300 hover:text-indigo-200 hover:bg-slate-800/60 px-2 py-0.5 rounded flex items-center gap-1')}
+        </div>
+      </div>`;
+  }).join('');
+  lucide.createIcons();
+}
+
+function selectIncident(ns, name){
+  state.selectedIncidentKey = `${ns}/${name}`;
+  renderIncidentsList();
+  document.getElementById('incident-empty-pane').classList.add('hidden');
+  const pane = document.getElementById('incident-detail-pane');
+  pane.classList.remove('hidden'); pane.classList.add('flex');
+  loadIncidentDetail(ns, name);
+}
+
+// --- Render: Incident detail
+function renderIncidentDetail(){
+  const d = state.incidentDetail;
+  const pane = document.getElementById('incident-detail-pane');
+  if (!d) { pane.innerHTML = ''; return; }
+  const sev = d.severity || '';
+  const phase = d.phase || '';
+  const resources = (d.affectedResources || []).map(r => `
+    <div class="bg-slate-950 border border-slate-800 rounded p-2 flex items-center justify-between">
+      <div class="flex items-center gap-2 min-w-0">
+        <span class="bg-indigo-500/10 text-indigo-400 font-mono text-[9px] px-1.5 py-0.5 rounded font-bold uppercase shrink-0">${escapeHtml(r.kind||'')}</span>
+        <span class="text-xs text-slate-300 truncate">${escapeHtml(r.name||'')}</span>
+      </div>
+      <span class="text-[10px] text-slate-500 font-mono shrink-0 ml-2">${escapeHtml(r.namespace||'')}</span>
+    </div>`).join('') || `<div class="text-xs text-slate-500 italic">No resources</div>`;
+
+  const normalizedSignals = (d.correlatedSignals || [])
+    .map(s => cleanSignal(s))
+    .filter(s => s.length > 0);
+  const groupedSignalMap = new Map();
+  normalizedSignals.forEach(s => {
+    groupedSignalMap.set(s, (groupedSignalMap.get(s) || 0) + 1);
+  });
+  const groupedSignals = Array.from(groupedSignalMap.entries())
+    .map(([text, count]) => ({ text, count }))
+    .sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return a.text.localeCompare(b.text);
+    });
+  const signals = groupedSignals.map(g => `
+    <div class="bg-slate-950 border border-slate-800 rounded px-2 py-1.5 flex items-start justify-between gap-2">
+      <span class="text-[10px] text-slate-300 font-mono leading-relaxed break-all">${escapeHtml(g.text)}</span>
+      <span class="shrink-0 text-[9px] font-bold font-mono rounded px-1.5 py-0.5 ${g.count > 1 ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' : 'bg-slate-800 text-slate-400 border border-slate-700'}">x${g.count}</span>
+    </div>
+  `).join('') || `<span class="text-xs text-slate-500 italic">None</span>`;
+
+  const timelineEntries = (d.timeline || []).slice().sort((a, b) => {
+    const at = a && a.time ? new Date(a.time).getTime() : 0;
+    const bt = b && b.time ? new Date(b.time).getTime() : 0;
+    return at - bt;
+  });
+  const timeline = timelineEntries.length
+    ? `<div class="bg-slate-950 border border-slate-800 rounded-lg p-3 overflow-x-auto custom-scrollbar">
+        <div class="relative min-w-max pb-1">
+          <div class="absolute top-4 left-0 right-0 h-px bg-slate-700"></div>
+          <div class="flex gap-4 items-start pr-2">
+            ${timelineEntries.map(t => `
+              <article class="relative w-[280px] pt-7">
+                <div class="absolute top-[11px] left-4 w-2.5 h-2.5 rounded-full border border-indigo-300 bg-indigo-400"></div>
+                <div class="text-[10px] font-mono text-indigo-300 mb-1">${escapeHtml(t.time ? new Date(t.time).toISOString().replace('T', ' ').replace('.000Z', 'Z') : 'unknown time')}</div>
+                <div class="text-[10px] text-slate-500 font-mono mb-2">${escapeHtml(relTime(t.time))}</div>
+                <div class="text-[11px] text-slate-200 leading-relaxed break-words">${escapeHtml(cleanSignal(t.event))}</div>
+              </article>
+            `).join('')}
+          </div>
+        </div>
+      </div>`
+    : `<div class="text-xs text-slate-500 italic">No timeline entries</div>`;
+
+  const traceEvidence = renderTraceIDSection([...(Array.isArray(d.traceIds) ? d.traceIds : []), d.traceId], {
+    emptyText: 'No trace IDs captured for this incident.'
+  });
+
+  const elapsedRef = d.resolvedAt || null;
+  const startRef = d.activeAt || d.firstObservedAt;
+  const dur = elapsedRef
+    ? (startRef ? Math.max(0, Math.floor((new Date(elapsedRef)-new Date(startRef))/1000)) + 's' : '—')
+    : liveDur(startRef);
+
+  pane.innerHTML = `
+    <div class="p-6 border-b border-slate-800 bg-slate-900/80 backdrop-blur z-10 shrink-0 flex justify-between items-start">
+      <div class="min-w-0">
+        <div class="flex items-center gap-2 mb-2 flex-wrap">
+          ${severityBadge(sev, 'px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider font-mono whitespace-nowrap')}
+          <span class="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider font-mono flex items-center gap-1.5 ${phaseClasses(phase)}">
+            ${phase.toLowerCase()==='active' ? '<div class="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></div>' : ''}
+            ${escapeHtml(phase)}
+          </span>
+          <span class="px-2 py-0.5 bg-slate-800 text-slate-400 rounded text-[9px] font-mono">${escapeHtml(d.incidentType||'—')}</span>
+          ${d.firedRule ? `<span class="px-2 py-0.5 bg-purple-500/10 text-purple-300 border border-purple-500/30 rounded text-[9px] font-mono">rule: ${escapeHtml(d.firedRule)}</span>` : ''}
+        </div>
+        <h2 class="text-xl font-bold text-white tracking-tight mb-1 truncate">${escapeHtml(incidentTitle(d))}</h2>
+        <p class="text-xs text-slate-400 font-mono truncate">${escapeHtml(d.namespace)} &bull; ${escapeHtml(d.name)}</p>
+      </div>
+      <div class="text-right shrink-0 ml-4">
+        <div class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1">Time Elapsed</div>
+        <div class="text-lg font-mono font-bold text-amber-400">${escapeHtml(dur)}</div>
+        ${topologyButton(d, 'mt-2 text-[10px] font-mono text-indigo-300 hover:text-indigo-200 bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded flex items-center gap-1')}
+      </div>
+    </div>
+    <div class="flex-grow overflow-y-auto p-6 space-y-6">
+      <section>
+        <h3 class="text-[10px] font-bold text-purple-400 uppercase tracking-widest mb-2 flex items-center gap-1.5"><i data-lucide="brain-circuit" class="w-3.5 h-3.5"></i> Summary</h3>
+        <div class="bg-purple-500/5 border border-purple-500/20 rounded-lg p-4 shadow-sm">
+          <p class="text-xs text-slate-300 leading-relaxed">${escapeHtml(cleanSignal(d.summary || d.message || d.reason || 'No summary available'))}</p>
+          ${d.message && d.summary && d.message !== d.summary ? `<p class="text-[11px] text-slate-400 leading-relaxed mt-2">${escapeHtml(cleanSignal(d.message))}</p>` : ''}
+          ${d.reason ? `<p class="text-[11px] text-slate-500 font-mono mt-2">reason: ${escapeHtml(d.reason)}</p>` : ''}
+        </div>
+      </section>
+
+      <section>
+        <h3 class="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-2 flex items-center gap-1.5"><i data-lucide="terminal-square" class="w-3.5 h-3.5"></i> Playbook</h3>
+        <div class="bg-slate-950 border border-slate-800 rounded-lg p-3 text-[11px] text-slate-400">
+          ${d.resolvedAt
+            ? `Incident resolved at <span class="text-slate-300 font-mono">${escapeHtml(new Date(d.resolvedAt).toISOString())}</span>.`
+            : `Review affected resources and correlated signals. Inspect pod logs via the Logs tab, and open topology for blast-radius context.`}
+        </div>
+      </section>
+
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <section>
+          <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Affected Resources</h3>
+          <div class="space-y-1.5">${resources}</div>
+        </section>
+        <section>
+          <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Conditions</h3>
+          <div class="bg-slate-950 border border-slate-800 rounded-lg overflow-hidden text-xs">
+            <div class="p-2.5 border-b border-slate-800 flex items-start gap-2">
+              <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-500 mt-0.5"></i>
+              <div><div class="font-bold text-slate-200">Signals Correlated <span class="font-mono text-[9px] bg-slate-800 px-1 rounded text-slate-400 ml-1">${d.signalCount||0}</span></div></div>
+            </div>
+            <div class="p-2.5 flex items-start gap-2">
+              <i data-lucide="bell-ring" class="w-3.5 h-3.5 ${d.notified?'text-emerald-500':'text-slate-600'} mt-0.5"></i>
+              <div><div class="font-bold text-slate-200">Alert Dispatched <span class="font-mono text-[9px] bg-slate-800 px-1 rounded text-slate-400 ml-1">${d.notified?'True':'False'}</span></div></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section>
+        <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Correlated Signals</h3>
+        <div class="flex items-center justify-between mb-2 text-[10px] font-mono">
+          <span class="text-slate-500">Grouped by unique signal</span>
+          <span class="text-indigo-300">${groupedSignals.length} unique / ${normalizedSignals.length} total</span>
+        </div>
+        <div class="space-y-1.5">${signals}</div>
+      </section>
+
+      <section>
+        ${traceEvidence}
+      </section>
+
+      <section>
+        <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Timeline</h3>
+        ${timeline}
+      </section>
+    </div>
+  `;
+  lucide.createIcons();
+}
+
+// --- Render: Topology
+function normalizeTopologyStatus(status){
+  const s = (status || '').toLowerCase();
+  if (s === 'critical' || s === 'error' || s === 'failed' || s === 'down') return 'critical';
+  if (s === 'warning' || s === 'warn' || s === 'degraded' || s === 'pending') return 'warning';
+  if (s === 'healthy' || s === 'ok' || s === 'ready' || s === 'running') return 'healthy';
+  return '';
+}
+
+function nodeStatusFromIncidents(node){
+  // Cross-reference with active incidents to colour the node.
+  // Node IDs in the graph look like "deploy:<ns>/<name>", "pod:<ns>/<name>",
+  // "service:<name>", etc. We match by (kind, namespace, name) and fall back
+  // to workload-by-name for Services, because many signals (notably
+  // OTelSpanError) attach the AffectedResource to the backing Deployment/Pod
+  // — not the Service object — via applyOTelScopeOverrides on the backend.
+  // Without this fallback the Services view stays green while the Workload
+  // view correctly shows the incident.
+  let worst = 'healthy';
+  for (const inc of incidentsForNode(node)) {
+    const sev = inc.severity;
+    if (sev === 'P1') return 'critical';
+    if (sev === 'P2' && worst !== 'critical') worst = 'critical';
+    else if (worst === 'healthy') worst = 'warning';
+  }
+  return worst;
+}
+
+function nodeVisualStatus(node){
+  const direct = normalizeTopologyStatus(node.status);
+  if (direct) return direct;
+  return nodeStatusFromIncidents(node);
+}
+
+function displayTopologyGraph(){
+  if (state.incidentGraph) return filterIncidentGraphForRender(state.incidentGraph);
+  if (state.topoMode === 'service') return state.serviceGraph;
+  return state.topology;
+}
+
+function filterIncidentGraphForRender(g){
+  return failureServiceGraph(g);
+}
+
+function failureServiceGraph(g){
+  const nodes = Array.isArray(g.nodes) ? g.nodes : [];
+  const edges = Array.isArray(g.edges) ? g.edges : [];
+  const byID = new Map(nodes.map(n => [n.id, n]));
+
+  const serviceIDs = new Set(nodes.filter(n => n.kind === 'Service').map(n => n.id));
+  if (!serviceIDs.size) {
+    return { ...g, nodes: [], edges: [], meta: { ...(g.meta || {}), view: 'failure-services' } };
   }
 
-  function renderDetail(){
-    var p=document.getElementById('detail-panel');
-    if(!selectedKey){p.style.display='none';return}
-    var inc=incidents.find(function(i){return incKey(i)===selectedKey});
-    if(!inc){p.style.display='none';selectedKey=null;return}
-    p.style.display='';
-    var sev=inc.severity||'P4';var name=dname(inc);
-    var podRes=findRes(inc,'Pod');var nodeRes=findRes(inc,'Node');var ref=primaryRef(inc);
-    var h='';
+  const rootIDs = new Set(nodes.filter(n => n.isRoot || n.kind === 'Incident').map(n => n.id));
+  const affected = new Set();
+  const serviceToPod = new Map();
+  const calls = [];
 
-    /* Header */
-    h+='<div class="detail-head" style="position:relative">';
-    h+='<div class="detail-badges">';
-    h+='<span class="sev md sev-'+sev+'">'+sev+'</span>';
-    h+='<span class="phase phase-'+(inc.phase||'Resolved')+'">';
-    if(inc.phase==='Active'||inc.phase==='Detecting')h+=pulseDot(inc.phase==='Active'?'var(--red)':'var(--purple)',5);
-    h+=esc(inc.phase)+'</span>';
-    h+='<span class="tag tag-default">'+esc(inc.incidentType)+'</span>';
-    h+=(inc.notified?'<span class="tag tag-green">notified</span>':'<span class="tag tag-purple">pending</span>');
-    h+='</div>';
-    h+='<div class="detail-title">'+esc(name)+'</div>';
-    h+='<div class="detail-subtitle"><span class="val">'+esc(inc.namespace)+'</span><span class="sep">\u00b7</span>';
-    h+='<span class="val">'+esc(inc.agentRef)+'</span><span class="sep">\u00b7</span>';
-    h+='<span>started </span><span class="val">'+absTime(startTime(inc))+'</span>';
-    if(resolvedTime(inc))h+=' \u2192 <span style="color:var(--green)">'+absTime(resolvedTime(inc))+'</span>';
-    h+='</div>';
-    h+='<div class="detail-dur"><span class="detail-dur-label">Duration</span><span class="detail-dur-val" id="live-dur">';
-    if(inc.phase==='Resolved')h+='<span style="color:var(--text-secondary)">'+finDur(startTime(inc),resolvedTime(inc))+'</span>';
-    else h+='<span style="color:'+(inc.phase==='Active'?'var(--amber)':'var(--purple)')+'">'+liveDur(startTime(inc))+'</span>';
-    h+='</span></div>';
-    h+='<div class="detail-id">IncidentReport \u00b7 '+esc(inc.namespace)+'/'+esc(inc.name)+'</div>';
-    h+='<button class="detail-close" onclick="window._close()">\u00d7</button>';
-    h+='</div>';
-
-    /* Body */
-    h+='<div class="detail-body">';
-
-    /* Timeline */
-    var tl=inc.timeline||[];
-    h+='<div><div class="section-title">Timeline</div>';
-    if(tl.length){
-      h+='<div class="timeline"><div class="tl-track"><div class="tl-line"></div>';
-      tl.forEach(function(ev,i){
-        var cls='tl-dot';if(i===0)cls+=' first';else if(i===tl.length-1&&inc.phase==='Resolved')cls+=' last-resolved';
-        h+='<div class="tl-entry"><div class="'+cls+'"></div>';
-        h+='<div class="tl-time">'+absTime(ev.time)+'<span class="rel">'+relTime(ev.time)+'</span></div>';
-        h+='<div class="tl-event">'+esc(ev.event)+'</div></div>';
-      });
-      h+='</div></div>';
-    } else h+='<div style="font-size:12px;color:var(--text-tertiary)">No timeline entries</div>';
-    h+='</div>';
-
-    /* Signals */
-    var sigs=inc.correlatedSignals||[];
-    var sigGroups=[];var sigMap={};
-    sigs.forEach(function(s){if(sigMap[s]!==undefined)sigGroups[sigMap[s]].count++;else{sigMap[s]=sigGroups.length;sigGroups.push({text:s,count:1})}});
-    sigGroups.sort(function(a,b){return b.count-a.count});
-
-    h+='<div><div class="section-title-toggle" onclick="window._toggleSignals()">';
-    h+='<span>Correlated Signals ('+sigs.length+(sigGroups.length!==sigs.length?' \u00b7 '+sigGroups.length+' unique':'')+')</span>';
-    h+='<span class="toggle-icon'+(signalsOpen?'':' collapsed')+'">\u25BE</span></div>';
-    h+='<div id="signals-body" style="'+(signalsOpen?'':'display:none')+'">';
-    if(sigGroups.length){
-      sigGroups.forEach(function(g,i){
-        h+='<div class="card"><span class="signal-num">'+(i+1)+'.</span>';
-        h+='<span class="signal-dot" style="background:'+(SEV_COLORS[sev]||'var(--text-tertiary)')+'"></span>';
-        h+='<span class="signal-text">'+esc(g.text)+'</span>';
-        if(g.count>1)h+='<span class="signal-count">\u00d7'+g.count+'</span>';
-        h+='</div>';
-      });
-    } else h+='<div style="font-size:12px;color:var(--text-tertiary)">No signals</div>';
-    h+='</div></div>';
-
-    /* Resources */
-    var res=inc.affectedResources||[];
-    h+='<div><div class="section-title">Affected Resources</div>';
-    if(res.length){
-      res.forEach(function(r){
-        h+='<div class="card"><span class="res-kind">'+esc((r.kind||'').toUpperCase())+'</span>';
-        h+='<div style="flex:1;min-width:0"><div class="res-name">'+esc(r.name)+'</div>';
-        if(r.namespace)h+='<div class="res-ns">'+esc(r.namespace)+'</div>';
-        h+='</div><button class="copy-btn" onclick="window._copy(this,\''+esc(r.name)+'\')">copy</button></div>';
-      });
-    } else h+='<div style="font-size:12px;color:var(--text-tertiary)">None</div>';
-    h+='</div>';
-
-    /* Commands */
-    var allCmds=[];var cmdSeen={};
-    function addCmd(label,cmd){if(cmdSeen[cmd])return;cmdSeen[cmd]=true;allCmds.push({k:label,v:cmd})}
-    addCmd('get','kubectl get incidentreport -n '+inc.namespace+' | grep '+name);
-    addCmd('describe','kubectl describe incidentreport '+inc.name+' -n '+inc.namespace);
-    if(podRes)addCmd('logs','kubectl logs '+podRes.name+' -n '+inc.namespace+' --previous');
-    addCmd('events','kubectl get events -n '+inc.namespace+' --sort-by=\'.lastTimestamp\' | head -30');
-    var pb=PLAYBOOK[inc.incidentType]||[];
-    pb.forEach(function(cmd){
-      var filled=cmd.replace(/<ns>/g,inc.namespace).replace(/<name>/g,(ref&&ref.name)||name)
-        .replace(/<pod-name>/g,podRes?podRes.name:name).replace(/<pod>/g,podRes?podRes.name:name)
-        .replace(/<node-name>/g,nodeRes?nodeRes.name:name);
-      addCmd('action',filled);
-    });
-    h+='<div><div class="section-title">Commands'+(pb.length?' \u00b7 '+esc(inc.incidentType):'')+'</div>';
-    allCmds.forEach(function(c,i){
-      h+='<div class="card"><span class="cmd-num">'+(i+1)+'.</span>';
-      h+='<code class="cmd-code'+(c.k==='action'?' muted':'')+'">'+esc(c.v)+'</code>';
-      h+='<button class="copy-btn" onclick="window._copy(this,\''+esc(c.v.replace(/'/g,"\\'"))+'\')">copy</button></div>';
-    });
-    h+='</div>';
-
-    /* Notifications */
-    h+='<div><div class="section-title">Notifications</div>';
-    [{ch:'Slack',dest:'#incidents',ok:inc.notified},
-     {ch:'PagerDuty',dest:'P1/P2 only',ok:inc.notified&&(sev==='P1'||sev==='P2')},
-     {ch:'K8s Event',dest:'IncidentReport',ok:true}
-    ].forEach(function(n){
-      h+='<div class="card" style="justify-content:space-between"><div style="display:flex;align-items:center;gap:10px">';
-      h+='<span class="notif-ch">'+esc(n.ch)+'</span><span class="notif-dest">'+esc(n.dest)+'</span></div>';
-      h+='<span class="notif-status '+(n.ok?'notif-ok':'notif-skip')+'">'+(n.ok?'SENT':'SKIPPED')+'</span></div>';
-    });
-    h+='</div>';
-
-    /* Trace & Rule */
-    var traceId=inc.traceId||'';var firedRule=inc.firedRule||'';
-    if(traceId||firedRule){
-      h+='<div><div class="section-title">Trace & Rule Engine</div>';
-      if(firedRule)h+='<div class="card"><span class="cmd-num">rule</span><code class="cmd-code">'+esc(firedRule)+'</code></div>';
-      if(traceId)h+='<div class="card"><span class="cmd-num">trace</span><code class="cmd-code">'+esc(traceId)+'</code><button class="copy-btn" onclick="window._copy(this,\''+esc(traceId)+'\')">copy</button></div>';
-      h+='</div>';
+  edges.forEach(e => {
+    const kind = String(e.kind || '').toLowerCase();
+    if (kind === 'affects' && rootIDs.has(e.from)) {
+      affected.add(e.to);
     }
-
-    /* Evidence */
-    h+='<div><div class="section-title">Evidence Summary</div>';
-    h+='<div class="evidence-card"><div class="evidence-label"><span class="evidence-dot"></span>';
-    h+='<span class="evidence-tag">Rule-Based Incident View</span></div>';
-    var body=inc.summary||inc.message||(inc.correlatedSignals&&inc.correlatedSignals.length?inc.correlatedSignals[0]:'Phase 1 records signals, affected resources, and timeline for quick investigation.');
-    h+='<div class="evidence-body">'+esc(body)+'</div></div></div>';
-
-    /* Conditions */
-    h+='<div><div class="section-title">Status Conditions</div>';
-    [{type:'Available',status:inc.phase==='Active'?'True':inc.phase==='Resolved'?'False':'Unknown',
-      reason:inc.phase==='Active'?'IncidentActive':'IncidentResolved',
-      msg:sev+' '+inc.incidentType+' incident \u2014 '+inc.phase},
-     {type:'Progressing',status:inc.phase==='Detecting'?'True':'False',
-      reason:inc.phase==='Detecting'?'CorrelatingSignals':'IncidentStable',
-      msg:inc.phase==='Detecting'?'Correlator is accumulating signals':'Incident not actively changing'},
-     {type:'Degraded',status:'False',reason:'OperatorHealthy',msg:'All notifications dispatched successfully'}
-    ].forEach(function(c){
-      var cls=c.status==='True'?'cond-true':c.status==='Unknown'?'cond-unknown':'cond-false';
-      h+='<div class="card" style="flex-wrap:wrap"><div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">';
-      h+='<span class="cond-type">'+esc(c.type)+'</span>';
-      h+='<span class="cond-badge '+cls+'">'+c.status+'</span>';
-      h+='<span class="cond-reason">'+esc(c.reason)+'</span></div>';
-      h+='<div class="cond-msg" style="width:100%">'+esc(c.msg)+'</div></div>';
-    });
-    h+='</div>';
-
-    h+='</div>';
-    p.innerHTML=h;
-  }
-
-  /* ── Tab content renderers ─────────────────── */
-  function renderRulesTab(){
-    var el=document.getElementById('list-pane');
-    document.getElementById('detail-panel').style.display='none';
-    el.className='list-pane full';
-    var h='<div class="list-header"><span style="min-width:40px">Pri</span><span style="flex:1">Name</span>'+
-      '<span style="min-width:120px">Trigger</span><span style="min-width:100px">Fires</span>'+
-      '<span style="min-width:50px">Sev</span><span style="min-width:100px">Conditions</span>'+
-      '<span style="min-width:60px">Selector</span><span style="min-width:60px">Age</span></div>';
-    if(!rules.length){
-      h+='<div class="empty-state"><div class="empty-state-title">No RCACorrelationRule CRDs found</div>'+
-        '<div class="empty-state-sub">Deploy rules from config/rules/ or create custom rules</div></div>';
-    } else {
-      rules.forEach(function(r){
-        var condText=(r.conditions||[]).join(', ')||'none';
-        h+='<div class="data-row">';
-        h+='<span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:var(--accent);min-width:40px;text-align:right">'+r.priority+'</span>';
-        h+='<div style="flex:1;min-width:0;font-size:13px;font-weight:500">'+esc(r.name)+'</div>';
-        h+='<span style="font-family:var(--font-mono);font-size:12px;min-width:120px">'+esc(r.triggerEvent)+'</span>';
-        h+='<span style="font-size:12px;min-width:100px">'+esc(r.firesType)+'</span>';
-        h+='<span class="sev sm sev-'+r.firesSeverity+'" style="min-width:50px">'+r.firesSeverity+'</span>';
-        h+='<span style="font-size:11px;color:var(--text-tertiary);min-width:100px" title="'+esc(condText)+'">'+esc(condText.length>35?condText.slice(0,35)+'\u2026':condText)+'</span>';
-        h+='<span style="font-size:11px;color:var(--text-tertiary);min-width:60px">'+esc(r.agentSelector)+'</span>';
-        h+='<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary);min-width:60px">'+esc(r.age)+'</span>';
-        h+='</div>';
-      });
+    if (kind === 'runs_on' && serviceIDs.has(e.from)) {
+      if (!serviceToPod.has(e.from)) serviceToPod.set(e.from, new Set());
+      serviceToPod.get(e.from).add(e.to);
     }
-    el.innerHTML=h;
-  }
-
-  function renderAgentsTab(){
-    var el=document.getElementById('list-pane');
-    document.getElementById('detail-panel').style.display='none';
-    el.className='list-pane full';
-    var agents=stats.agents||[];
-    if(!agents.length){
-      el.innerHTML='<div class="empty-state"><div class="empty-state-title">No RCAAgent resources found</div></div>';return;
-    }
-    var h='<div class="list-header"><span style="width:20px"></span><span style="flex:1">Name</span>'+
-      '<span style="min-width:200px">Watch Namespaces</span><span style="min-width:80px">Status</span></div>';
-    agents.forEach(function(a){
-      var name=typeof a==='string'?a:a.name;var healthy=typeof a==='string'?true:a.healthy!==false;
-      var ns=(typeof a!=='string'&&a.watchNamespaces)?a.watchNamespaces:[];
-      h+='<div class="data-row"><span style="width:20px"><span style="width:8px;height:8px;border-radius:50%;background:'+(healthy?'var(--green)':'var(--red)')+';display:inline-block"></span></span>';
-      h+='<div style="flex:1;font-size:13px;font-weight:500">'+esc(name)+'</div>';
-      h+='<span style="font-size:12px;color:var(--text-secondary);min-width:200px">'+ns.map(esc).join(', ')+'</span>';
-      h+='<span style="font-family:var(--font-mono);font-size:11px;font-weight:600;min-width:80px;color:'+(healthy?'var(--green)':'var(--red)')+'">'+(healthy?'HEALTHY':'DEGRADED')+'</span>';
-      h+='</div>';
-    });
-    el.innerHTML=h;
-  }
-
-  function renderNsTab(){
-    var el=document.getElementById('list-pane');
-    document.getElementById('detail-panel').style.display='none';
-    el.className='list-pane full';
-    var ns=stats.namespaces||{};var keys=Object.keys(ns).sort();
-    if(!keys.length){
-      el.innerHTML='<div class="empty-state"><div class="empty-state-title">No namespaces found</div></div>';return;
-    }
-    var h='<div class="list-header"><span style="width:20px"></span><span style="flex:1">Namespace</span>'+
-      '<span style="min-width:100px">Active</span><span style="min-width:100px">Monitored</span>'+
-      '<span style="min-width:200px">Incident Types</span></div>';
-    keys.forEach(function(k){
-      var e=ns[k];var typesInNs={};incidents.forEach(function(i){if(i.namespace===k&&i.phase!=='Resolved')typesInNs[i.incidentType]=true});
-      var typeList=Object.keys(typesInNs).sort().join(', ')||'\u2014';
-      h+='<div class="data-row"><span style="width:20px"><span style="width:8px;height:8px;border-radius:50%;background:'+(e.monitored?'var(--green)':'var(--text-tertiary)')+';opacity:'+(e.monitored?'1':'0.3')+';display:inline-block"></span></span>';
-      h+='<div style="flex:1;font-size:13px;font-weight:500">'+esc(k)+'</div>';
-      h+='<span style="font-family:var(--font-mono);font-size:14px;font-weight:600;min-width:100px;color:'+(e.active>0?'var(--red)':'var(--text-tertiary)')+'">'+e.active+'</span>';
-      h+='<span style="font-size:11px;font-weight:600;min-width:100px;color:'+(e.monitored?'var(--green)':'var(--text-tertiary)')+'">'+(e.monitored?'YES':'NO')+'</span>';
-      h+='<span style="font-size:11px;color:var(--text-secondary);min-width:200px">'+esc(typeList)+'</span>';
-      h+='</div>';
-    });
-    el.innerHTML=h;
-  }
-
-  function renderStatusBar(){
-    var el=document.getElementById('status-bar');
-    var f=getFiltered();
-    el.innerHTML=pulseDot(connected?'var(--green)':'var(--red)',5)+
-      '<span>'+(connected?'Connected':'Disconnected')+'</span>'+
-      '<span class="status-sep"></span><span>Polling 10s</span>'+
-      '<span class="status-sep"></span><span>'+f.length+'/'+incidents.length+' shown</span>'+
-      '<div style="flex:1"></div><span>RCA Operator v0.0.15</span>';
-  }
-
-  /* ── Event Handlers ────────────────────────── */
-  window._sel=function(key){
-    selectedKey=selectedKey===key?null:key;
-    renderIncidents();renderDetail();
-    if(selectedKey){
-      var inc=incidents.find(function(i){return incKey(i)===selectedKey});
-      if(inc){
-        fetch('/api/incidents/'+encodeURIComponent(inc.namespace)+'/'+encodeURIComponent(inc.name))
-          .then(function(r){return r.json()})
-          .then(function(d){
-            if(d.traceId)inc.traceId=d.traceId;
-            if(d.firedRule)inc.firedRule=d.firedRule;
-            if(selectedKey===key)renderDetail();
-          }).catch(function(){});
-      }
-    }
-  };
-  window._close=function(){selectedKey=null;renderIncidents();renderDetail()};
-  window._f=function(type,val){
-    if(filters[type]===val&&val!=='all')filters[type]='all';else filters[type]=val;
-    render();
-  };
-  window._copy=function(btn,text){copyToClip(text,btn)};
-  window._tab=function(tab){
-    activeTab=tab;selectedKey=null;
-    document.querySelectorAll('#nav .nav-item').forEach(function(el){
-      if(el.getAttribute('data-tab')===tab){
-        el.className='nav-item active';
-      } else {
-        el.className='nav-item';
-      }
-    });
-    render();
-  };
-  window._toggleSignals=function(){
-    signalsOpen=!signalsOpen;
-    var body=document.getElementById('signals-body');
-    var icon=document.querySelector('.toggle-icon');
-    if(body)body.style.display=signalsOpen?'':'none';
-    if(icon){if(signalsOpen)icon.classList.remove('collapsed');else icon.classList.add('collapsed')}
-  };
-  window._toggleTheme=function(){applyTheme(theme==='dark'?'light':'dark');render()};
-  window._setTZ=function(tz){
-    if(tzOptions.indexOf(tz)===-1)return;
-    selTZ=tz;try{localStorage.setItem(tzKey,tz)}catch(e){}
-    renderIncidents();renderDetail();tickClock();
-  };
-
-  /* Keyboard */
-  document.addEventListener('keydown',function(e){
-    if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT')return;
-    if(e.key==='Escape'){selectedKey=null;render();return}
-    if(e.key==='j'||e.key==='k'){
-      e.preventDefault();
-      var list=getSorted(getFiltered());
-      var idx=list.findIndex(function(i){return incKey(i)===selectedKey});
-      var next=e.key==='j'?Math.min(idx+1,list.length-1):Math.max(idx-1,0);
-      if(list[next]){selectedKey=incKey(list[next]);renderIncidents();renderDetail()}
+    if (kind === 'calls' && serviceIDs.has(e.from) && serviceIDs.has(e.to)) {
+      calls.push(e);
     }
   });
 
-  /* Live duration tick */
-  setInterval(function(){
-    var el=document.getElementById('live-dur');
-    if(!el||!selectedKey)return;
-    var inc=incidents.find(function(i){return incKey(i)===selectedKey});
-    if(!inc||inc.phase==='Resolved')return;
-    el.innerHTML='<span style="color:'+(inc.phase==='Active'?'var(--amber)':'var(--purple)')+'">'+liveDur(startTime(inc))+'</span>';
-  },1000);
+  const evidence = new Set();
+  serviceIDs.forEach(id => {
+    if (affected.has(id)) evidence.add(id);
+    const pods = serviceToPod.get(id);
+    if (pods) {
+      for (const p of pods) {
+        if (affected.has(p)) {
+          evidence.add(id);
+          break;
+        }
+      }
+    }
+  });
 
-  /* Clock */
-  function tickClock(){
-    var el=document.getElementById('clock');if(!el)return;
-    var now=new Date();var tz=activeTZ();
-    el.textContent=fmtClock(now,tz)+' '+fmtZone(now,tz);
+  if (!evidence.size) {
+    calls.forEach(e => { evidence.add(e.from); evidence.add(e.to); });
+  }
+  if (!evidence.size) {
+    serviceIDs.forEach(id => evidence.add(id));
   }
 
-  /* Init */
-  document.getElementById('conn-dot').innerHTML=pulseDot('var(--green)',8);
-  fetchAll();
-  setInterval(fetchAll,10000);
-  setInterval(tickClock,1000);
-  tickClock();
-})();
+  const adj = new Map();
+  calls.forEach(e => {
+    if (!adj.has(e.from)) adj.set(e.from, new Set());
+    if (!adj.has(e.to)) adj.set(e.to, new Set());
+    adj.get(e.from).add(e.to);
+    adj.get(e.to).add(e.from);
+  });
+
+  const keepSvc = new Set(evidence);
+  const queue = Array.from(evidence);
+  while (queue.length) {
+    const cur = queue.shift();
+    const nexts = adj.get(cur);
+    if (!nexts) continue;
+    nexts.forEach(n => {
+      if (keepSvc.has(n)) return;
+      keepSvc.add(n);
+      queue.push(n);
+    });
+  }
+
+  const keptNodes = Array.from(keepSvc).map(id => byID.get(id)).filter(Boolean);
+  const keptEdges = calls.filter(e => keepSvc.has(e.from) && keepSvc.has(e.to));
+
+  if (!keptEdges.length && keptNodes.length > 1) {
+    const sorted = keptNodes.slice().sort((a, b) => {
+      const ak = `${(a.name || a.id || '').toLowerCase()}`;
+      const bk = `${(b.name || b.id || '').toLowerCase()}`;
+      return ak.localeCompare(bk);
+    });
+    for (let i = 0; i < sorted.length - 1; i++) {
+      keptEdges.push({ from: sorted[i].id, to: sorted[i + 1].id, kind: 'calls' });
+    }
+  }
+
+  return {
+    ...g,
+    nodes: keptNodes,
+    edges: keptEdges,
+    meta: { ...(g.meta || {}), view: 'failure-services' },
+  };
+}
+
+function renderTopology(){
+  const g = displayTopologyGraph();
+  const empty = document.getElementById('topology-empty');
+  const err = document.getElementById('topology-error');
+  err.classList.add('hidden');
+  renderTopologyTrace();
+  renderTopologyActiveIncidents();
+  if (!g || !g.nodes || g.nodes.length === 0) {
+    if (state.incidentGraph) {
+      empty.textContent = 'No service-to-service error topology for this incident';
+    } else {
+      empty.textContent = 'No topology data';
+    }
+    empty.classList.remove('hidden');
+    document.getElementById('nodes-layer').innerHTML = '';
+    document.getElementById('edges-layer').innerHTML = '';
+    return;
+  }
+  empty.classList.add('hidden');
+  layoutTopology(g);
+  renderTopologyNodes(g);
+  renderTopologyEdges();
+}
+
+function layoutTopology(g){
+  if (isIncidentTopologyGraph(g)) {
+    layoutIncidentTopology(g);
+  } else if (state.topoMode === 'service' && g === state.serviceGraph) {
+    layoutServiceTopology(g);
+  } else {
+    layoutClusterTopology(g);
+  }
+  fitCanvasToLayout();
+}
+
+// fitCanvasToLayout sizes the scrollable inner canvas so every laid-out node
+// (plus label padding) fits inside it. Where the graph is smaller than the
+// viewport the canvas stays at viewport size, so small graphs don't get an
+// awkward scrollbar; larger graphs grow the canvas and enable both horizontal
+// and vertical scrolling (Argo-CD-style pan).
+function fitCanvasToLayout(){
+  const scroll = document.getElementById('canvas-scroll');
+  const inner  = document.getElementById('canvas-inner');
+  if (!scroll || !inner) return;
+  const positions = Object.values(state.topologyLayout || {});
+  const padRight = 240;  // room for label text that extends past the node circle
+  const padBottom = 140;
+  let maxX = 0, maxY = 0;
+  positions.forEach(p => {
+    if (p && typeof p.x === 'number' && p.x > maxX) maxX = p.x;
+    if (p && typeof p.y === 'number' && p.y > maxY) maxY = p.y;
+  });
+  const z = state.topologyZoom || 1;
+  const contentW = Math.ceil(maxX + padRight);
+  const contentH = Math.ceil(maxY + padBottom);
+  // Inner size (unscaled) stays at content size; we use an outer wrapper via
+  // scale transform. Simpler: grow inner to cover whichever is larger between
+  // viewport and (content * zoom).
+  const targetW = Math.max(scroll.clientWidth, Math.ceil(contentW * z));
+  const targetH = Math.max(scroll.clientHeight, Math.ceil(contentH * z));
+  inner.style.width  = (targetW / z) + 'px';
+  inner.style.height = (targetH / z) + 'px';
+  inner.style.transformOrigin = '0 0';
+  inner.style.transform = z === 1 ? '' : `scale(${z})`;
+}
+
+function zoomBy(delta){
+  const cur = state.topologyZoom || 1;
+  const next = Math.max(0.3, Math.min(2.5, Math.round((cur + delta) * 100) / 100));
+  setZoom(next);
+}
+function zoomReset(){ setZoom(1); }
+function zoomFit(){
+  const scroll = document.getElementById('canvas-scroll');
+  if (!scroll) return;
+  const positions = Object.values(state.topologyLayout || {});
+  if (!positions.length) return;
+  let maxX = 0, maxY = 0;
+  positions.forEach(p => {
+    if (p && p.x > maxX) maxX = p.x;
+    if (p && p.y > maxY) maxY = p.y;
+  });
+  const contentW = maxX + 260;
+  const contentH = maxY + 160;
+  const fitX = scroll.clientWidth  / contentW;
+  const fitY = scroll.clientHeight / contentH;
+  const z = Math.max(0.3, Math.min(2.5, Math.min(fitX, fitY)));
+  setZoom(z);
+  scroll.scrollLeft = 0; scroll.scrollTop = 0;
+}
+function setZoom(z){
+  state.topologyZoom = z;
+  const label = document.getElementById('topo-zoom-label');
+  if (label) label.textContent = Math.round(z * 100) + '%';
+  fitCanvasToLayout();
+}
+
+function isIncidentTopologyGraph(g){
+  if (state.incidentGraph && g === state.incidentGraph) return true;
+  return (g.nodes || []).some(n => n && (n.isRoot || n.kind === 'Incident'));
+}
+
+function layoutClusterTopology(g){
+  // Jaeger-style hierarchical DAG layout.
+  // Rank nodes from sinks (e.g. k8s Nodes) on the right, sources
+  // (Deployments/Services) on the left. Within a column, group by namespace
+  // for readability and keep generous vertical spacing so labels don't collide.
+  // Layout is measured against the scroll viewport so small graphs remain
+  // centred; larger graphs extend past the viewport and the scroll container
+  // surfaces horizontal + vertical scrollbars.
+  const scrollEl = document.getElementById('canvas-scroll') || document.getElementById('canvas-container');
+  const cw = scrollEl.clientWidth  || 800;
+  const ch = scrollEl.clientHeight || 600;
+  const nodes = Array.isArray(g.nodes) ? g.nodes : [];
+  const edges = Array.isArray(g.edges) ? g.edges : [];
+
+  const outgoing = new Map();
+  nodes.forEach(n => outgoing.set(n.id, []));
+  edges.forEach(e => {
+    if (e.from === e.to) return; // ignore self-loops for ranking
+    if (outgoing.has(e.from)) outgoing.get(e.from).push(e.to);
+  });
+
+  // Reverse-topological rank: sinks get rank 0, parents get max(child)+1.
+  // Cycle-safe via visiting set.
+  const rank = new Map();
+  const visiting = new Set();
+  const computeRank = (id) => {
+    if (rank.has(id)) return rank.get(id);
+    if (visiting.has(id)) return 0;
+    visiting.add(id);
+    let r = 0;
+    const outs = outgoing.get(id) || [];
+    if (outs.length) {
+      let m = -1;
+      outs.forEach(c => { const cr = computeRank(c); if (cr > m) m = cr; });
+      r = m + 1;
+    }
+    visiting.delete(id);
+    rank.set(id, r);
+    return r;
+  };
+  nodes.forEach(n => computeRank(n.id));
+
+  // Force Nodes to the rightmost column regardless of edge wiring.
+  let maxRank = 0;
+  rank.forEach(v => { if (v > maxRank) maxRank = v; });
+  if (nodes.some(n => n.kind === 'Node')) {
+    nodes.forEach(n => { if (n.kind === 'Node') rank.set(n.id, 0); });
+    nodes.forEach(n => {
+      if (n.kind !== 'Node' && rank.get(n.id) === 0) rank.set(n.id, Math.max(1, maxRank));
+    });
+    maxRank = 0;
+    rank.forEach(v => { if (v > maxRank) maxRank = v; });
+  }
+
+  const columns = Array.from({ length: maxRank + 1 }, () => []);
+  nodes.forEach(n => columns[rank.get(n.id)].push(n));
+
+  const sortKey = (n) => `${(n.namespace||'~').toLowerCase()}|${(n.kind||'').toLowerCase()}|${(n.label||n.name||n.id).toLowerCase()}`;
+  columns.forEach(col => col.sort((a, b) => sortKey(a).localeCompare(sortKey(b))));
+
+  const prev = state.topologyLayout || {};
+  state.topologyLayout = {};
+  const marginX = 120;
+  const marginY = 70;
+  const usableW = Math.max(320, cw - marginX * 2);
+  const minRowHeight = 74; // leaves room for circle + two-line label
+  const xStep = maxRank > 0 ? usableW / maxRank : 0;
+
+  columns.forEach((colNodes, idx) => {
+    // rank 0 (sinks) sits on the right; highest rank on the left.
+    const x = maxRank > 0 ? marginX + (maxRank - idx) * xStep : cw / 2;
+    if (colNodes.length === 1) {
+      state.topologyLayout[colNodes[0].id] = { x, y: ch / 2 };
+      return;
+    }
+    const totalH = Math.max(ch - marginY * 2, (colNodes.length - 1) * minRowHeight);
+    const step = totalH / (colNodes.length - 1);
+    const startY = Math.max(marginY, (ch - totalH) / 2);
+    colNodes.forEach((n, i) => {
+      state.topologyLayout[n.id] = { x, y: startY + i * step };
+    });
+  });
+
+  // Preserve user-dragged positions for nodes still present.
+  Object.keys(state.topologyLayout).forEach(id => {
+    if (prev[id]) state.topologyLayout[id] = prev[id];
+  });
+}
+
+function layoutIncidentTopology(g){
+  const scrollEl = document.getElementById('canvas-scroll') || document.getElementById('canvas-container');
+  const cw = scrollEl.clientWidth  || 800;
+  const ch = scrollEl.clientHeight || 600;
+  const nodes = Array.isArray(g.nodes) ? g.nodes : [];
+  const edges = Array.isArray(g.edges) ? g.edges : [];
+
+  const byID = new Map();
+  const incoming = new Map();
+  const outgoing = new Map();
+  nodes.forEach(n => {
+    byID.set(n.id, n);
+    incoming.set(n.id, []);
+    outgoing.set(n.id, []);
+  });
+  edges.forEach(e => {
+    if (!byID.has(e.from) || !byID.has(e.to)) return;
+    incoming.get(e.to).push(e.from);
+    outgoing.get(e.from).push(e.to);
+  });
+
+  let roots = nodes.filter(n => n.isRoot).map(n => n.id);
+  if (!roots.length) {
+    roots = nodes.filter(n => (incoming.get(n.id) || []).length === 0).map(n => n.id);
+  }
+  if (!roots.length && nodes.length) {
+    roots = [nodes[0].id];
+  }
+
+  const level = new Map();
+  roots.forEach(id => level.set(id, 0));
+
+  const maxPasses = Math.max(1, nodes.length * 2);
+  for (let pass = 0; pass < maxPasses; pass++) {
+    let changed = false;
+    edges.forEach(e => {
+      if (!level.has(e.from)) return;
+      const candidate = level.get(e.from) + 1;
+      if (!level.has(e.to) || candidate > level.get(e.to)) {
+        level.set(e.to, candidate);
+        changed = true;
+      }
+    });
+    if (!changed) break;
+  }
+
+  let maxLevel = 0;
+  nodes.forEach(n => {
+    if (!level.has(n.id)) level.set(n.id, 0);
+    if (level.get(n.id) > maxLevel) maxLevel = level.get(n.id);
+  });
+
+  const columns = Array.from({ length: maxLevel + 1 }, () => []);
+  nodes.forEach(n => columns[level.get(n.id)].push(n));
+
+  const orderByID = new Map();
+  const nodeSortKey = (n) => `${(n.kind || '').toLowerCase()}:${(n.name || n.id || '').toLowerCase()}`;
+
+  columns[0].sort((a, b) => {
+    if (a.isRoot && !b.isRoot) return -1;
+    if (!a.isRoot && b.isRoot) return 1;
+    return nodeSortKey(a).localeCompare(nodeSortKey(b));
+  });
+  columns[0].forEach((n, i) => orderByID.set(n.id, i));
+
+  for (let col = 1; col < columns.length; col++) {
+    columns[col].sort((a, b) => {
+      const parentScore = (id) => {
+        const parents = (incoming.get(id) || []).filter(p => level.get(p) === col - 1);
+        if (!parents.length) return Number.POSITIVE_INFINITY;
+        const total = parents.reduce((acc, p) => acc + (orderByID.get(p) ?? 0), 0);
+        return total / parents.length;
+      };
+      const pa = parentScore(a.id);
+      const pb = parentScore(b.id);
+      if (pa !== pb) return pa - pb;
+      return nodeSortKey(a).localeCompare(nodeSortKey(b));
+    });
+    columns[col].forEach((n, i) => orderByID.set(n.id, i));
+  }
+
+  // Split over-stuffed columns: dense service meshes tend to dump most
+  // services into one rank. If a column holds more than MAX_PER_COL nodes we
+  // stripe them across two sub-columns so labels have room to breathe.
+  const MAX_PER_COL = 6;
+  const placedColumns = []; // each entry: { x-offset-in-steps (float), nodes[] }
+  columns.forEach((colNodes, colIdx) => {
+    if (colNodes.length <= MAX_PER_COL) {
+      placedColumns.push({ offset: colIdx, nodes: colNodes });
+      return;
+    }
+    const even = [], odd = [];
+    colNodes.forEach((n, i) => (i % 2 === 0 ? even : odd).push(n));
+    placedColumns.push({ offset: colIdx - 0.18, nodes: even });
+    placedColumns.push({ offset: colIdx + 0.18, nodes: odd });
+  });
+
+  const prevIncident = state.topologyLayout || {};
+  state.topologyLayout = {};
+  const marginX = 120;
+  const marginY = 90;
+  const usableW = Math.max(260, cw - marginX * 2);
+  const usableH = Math.max(220, ch - marginY * 2);
+  const xStep = maxLevel > 0 ? usableW / maxLevel : 0;
+
+  placedColumns.forEach(({ offset, nodes: colNodes }) => {
+    const x = maxLevel > 0 ? marginX + (offset * xStep) : cw / 2;
+    if (colNodes.length === 1) {
+      state.topologyLayout[colNodes[0].id] = { x, y: ch / 2 };
+      return;
+    }
+    const step = colNodes.length > 1 ? usableH / (colNodes.length - 1) : 0;
+    colNodes.forEach((n, rowIdx) => {
+      state.topologyLayout[n.id] = { x, y: marginY + (rowIdx * step) };
+    });
+  });
+  // Preserve previously-placed positions (including user drags) for nodes
+  // that still exist in the new incident graph.
+  Object.keys(state.topologyLayout).forEach(id => {
+    if (prevIncident[id]) state.topologyLayout[id] = prevIncident[id];
+  });
+}
+
+// layoutServiceTopology places service-graph nodes using a Sugiyama-style
+// layered layout that is cycle-safe and degrades gracefully for dense meshes.
+//
+// 1. Each node's column is the longest cycle-broken path from any source to
+//    that node (i.e. depth via longest-incoming-chain DFS). This produces a
+//    proper left-to-right call flow even when the trace graph contains
+//    bidirectional edges or short cycles, which previously collapsed every
+//    node into a single column.
+// 2. If depths still collapse (true mesh / single SCC), we fall back to a
+//    sqrt-balanced grid so nodes never pile on top of each other.
+// 3. Within a column nodes are ordered by the barycenter of their parents'
+//    row positions to minimise edge crossings.
+// 4. Vertical and horizontal spacing are clamped to per-cell minimums so
+//    labels never collide with edge counts on small viewports — the canvas
+//    grows past the viewport instead, and the scroll container handles pan.
+function layoutServiceTopology(g){
+  const scrollEl = document.getElementById('canvas-scroll') || document.getElementById('canvas-container');
+  const cw = scrollEl.clientWidth  || 900;
+  const ch = scrollEl.clientHeight || 600;
+  const nodes = Array.isArray(g.nodes) ? g.nodes : [];
+  const edges = Array.isArray(g.edges) ? g.edges : [];
+  if (!nodes.length) { state.topologyLayout = {}; return; }
+
+  // --- adjacency, ignoring self-loops & dangling refs -----------------------
+  const inAdj = new Map();
+  const outAdj = new Map();
+  nodes.forEach(n => { inAdj.set(n.id, []); outAdj.set(n.id, []); });
+  edges.forEach(e => {
+    if (!e || e.from === e.to) return;
+    if (!inAdj.has(e.to) || !outAdj.has(e.from)) return;
+    inAdj.get(e.to).push(e.from);
+    outAdj.get(e.from).push(e.to);
+  });
+
+  // --- column = longest cycle-broken incoming path --------------------------
+  // DFS with an in-progress set so revisiting a node via a back-edge yields 0
+  // rather than recursing infinitely. This produces correct depths on DAGs
+  // and a stable "best-effort" depth on graphs with cycles.
+  const depth = new Map();
+  const visiting = new Set();
+  const computeDepth = (id) => {
+    if (depth.has(id)) return depth.get(id);
+    if (visiting.has(id)) return 0;
+    visiting.add(id);
+    let d = 0;
+    (inAdj.get(id) || []).forEach(p => {
+      const pd = computeDepth(p);
+      if (pd + 1 > d) d = pd + 1;
+    });
+    visiting.delete(id);
+    depth.set(id, d);
+    return d;
+  };
+  nodes.forEach(n => computeDepth(n.id));
+  let maxDepth = 0;
+  depth.forEach(v => { if (v > maxDepth) maxDepth = v; });
+
+  // --- mesh fallback: when depth collapses, spread by alpha order ----------
+  // A pure cycle / single-SCC graph leaves every node at depth 0. Detect that
+  // (or any case where most nodes share one column) and fall back to a
+  // sqrt-balanced grid so nothing piles up.
+  const meshFallback = (maxDepth + 1) < Math.min(nodes.length, 4);
+  if (meshFallback) {
+    const sorted = nodes.slice().sort((a, b) => {
+      const sa = nodeVisualStatus(a), sb = nodeVisualStatus(b);
+      const rank = (s) => s === 'critical' ? 0 : s === 'warning' ? 1 : 2;
+      if (rank(sa) !== rank(sb)) return rank(sa) - rank(sb);
+      return (a.label || a.name || a.id).localeCompare(b.label || b.name || b.id);
+    });
+    const cols = Math.max(2, Math.ceil(Math.sqrt(sorted.length)));
+    sorted.forEach((n, i) => depth.set(n.id, i % cols));
+    maxDepth = cols - 1;
+  }
+
+  // --- bucket into columns --------------------------------------------------
+  const columns = Array.from({ length: maxDepth + 1 }, () => []);
+  nodes.forEach(n => columns[depth.get(n.id) || 0].push(n));
+
+  // --- order within column: barycenter of parents' positions ---------------
+  const orderByID = new Map();
+  const labelOf = (n) => (n.label || n.name || n.id || '').toLowerCase();
+  if (columns[0]) {
+    columns[0].sort((a, b) => labelOf(a).localeCompare(labelOf(b)));
+    columns[0].forEach((n, i) => orderByID.set(n.id, i));
+  }
+  for (let c = 1; c < columns.length; c++) {
+    columns[c].sort((a, b) => {
+      const score = (id) => {
+        const ps = (inAdj.get(id) || []).filter(p => orderByID.has(p));
+        if (!ps.length) return Number.POSITIVE_INFINITY;
+        let total = 0;
+        ps.forEach(p => { total += orderByID.get(p); });
+        return total / ps.length;
+      };
+      const sa = score(a.id), sb = score(b.id);
+      if (sa !== sb) return sa - sb;
+      return labelOf(a).localeCompare(labelOf(b));
+    });
+    columns[c].forEach((n, i) => orderByID.set(n.id, i));
+  }
+
+  // --- placement ------------------------------------------------------------
+  // Per-cell minimums prevent label/edge-count overlap on dense layouts. The
+  // canvas grows past the viewport when a column is too tall to fit; the
+  // scroll container surfaces both axes.
+  const marginX = 110;
+  const marginY = 90;
+  const minColW = 200; // wide enough for "product-catalog" + edge counts
+  const minRowH = 130; // circle (48) + label (~28) + edge-label clearance
+  const colCount = columns.length;
+  const rowCount = columns.reduce((m, c) => Math.max(m, c.length), 0);
+
+  const usableW = Math.max(minColW * Math.max(1, colCount - 1), cw - marginX * 2);
+  const usableH = Math.max(minRowH * Math.max(1, rowCount - 1), ch - marginY * 2);
+  const xStep = colCount > 1 ? usableW / (colCount - 1) : 0;
+
+  const prev = state.topologyLayout || {};
+  state.topologyLayout = {};
+  columns.forEach((col, idx) => {
+    const x = colCount > 1 ? marginX + idx * xStep : cw / 2;
+    if (col.length === 1) {
+      state.topologyLayout[col[0].id] = { x, y: ch / 2 };
+      return;
+    }
+    const totalH = Math.max(usableH, (col.length - 1) * minRowH);
+    const startY = Math.max(marginY, (ch - totalH) / 2);
+    const step = totalH / (col.length - 1);
+    col.forEach((n, i) => {
+      state.topologyLayout[n.id] = { x, y: startY + i * step };
+    });
+  });
+
+  // Preserve user-dragged positions for nodes still present.
+  Object.keys(state.topologyLayout).forEach(id => {
+    if (prev[id]) state.topologyLayout[id] = prev[id];
+  });
+}
+
+function renderTopologyNodes(g){
+  const html = g.nodes.map(node => {
+    const pos = state.topologyLayout[node.id] || { x: 100, y: 100 };
+    const status = nodeVisualStatus(node);
+    const iconColor = status === 'healthy' ? 'text-emerald-400' : status === 'warning' ? 'text-yellow-400' : 'text-red-300';
+    const dot = status === 'healthy' ? '' : status === 'warning' ? 'bg-yellow-500' : 'bg-red-500 animate-pulse';
+    const sel = state.selectedNodeId === node.id ? 'selected' : '';
+    const icon = kindIcon(node.kind);
+    const kindClass = `kind-${String(node.kind || 'unknown').toLowerCase().replace(/[^a-z0-9_-]+/g, '-')}`;
+    const statusClass = `status-${status}`;
+    const serviceIcon = String(node.kind || '').toLowerCase() === 'service';
+    const label = node.label || node.name || node.id;
+    return `
+      <div id="node-${escapeHtml(btoa(unescape(encodeURIComponent(node.id))).replace(/=/g,''))}"
+           data-node-id="${escapeHtml(node.id)}"
+           class="topology-node ${kindClass} ${statusClass} ${sel}" style="left:${pos.x}px; top:${pos.y}px;"
+           onmousedown="startNodeDrag(event, '${escapeHtml(node.id)}')"
+           onclick="selectTopologyNode('${escapeHtml(node.id)}', event)">
+        <div class="node-circle w-12 h-12 rounded-full border-2 border-slate-700 bg-slate-900 flex items-center justify-center transition-colors shadow-lg z-10 relative">
+          ${serviceIcon ? '<div class="service-glyph" aria-hidden="true"><span class="service-glyph-core"></span></div>' : `<i data-lucide="${icon}" class="w-5 h-5 ${iconColor}"></i>`}
+          ${dot ? `<div class="absolute top-0 right-0 w-3 h-3 rounded-full border-2 border-slate-900 ${dot}"></div>` : ''}
+        </div>
+        <div class="absolute top-full mt-2 left-1/2 -translate-x-1/2 pointer-events-none">
+          <div class="node-label text-[10px] font-semibold text-slate-300 bg-slate-900/80 px-2 py-0.5 rounded border border-slate-800 backdrop-blur whitespace-nowrap shadow-sm">
+            ${escapeHtml(label)}
+          </div>
+          <div class="text-[9px] font-mono text-slate-500 text-center mt-0.5">${escapeHtml(node.kind||'')}</div>
+        </div>
+      </div>`;
+  }).join('');
+  document.getElementById('nodes-layer').innerHTML = html;
+  lucide.createIcons();
+}
+
+function renderTopologyEdges(){
+  const g = displayTopologyGraph();
+  const layer = document.getElementById('edges-layer');
+  if (!g || !g.edges) { layer.innerHTML = ''; return; }
+  const nodeStatusByID = new Map();
+  (g.nodes || []).forEach(n => nodeStatusByID.set(n.id, nodeVisualStatus(n)));
+
+  const isServiceGraphView = state.topoMode === 'service' && !state.incidentGraph;
+  const edgesForRender = isServiceGraphView
+    ? simplifyServiceEdgesForRender(g.edges || [], nodeStatusByID)
+    : (g.edges || []);
+
+  // Simplification pass: service graphs from real clusters are mesh-dense.
+  // We hide two sources of visual noise by default:
+  //   1. Self-loops (a service calling itself) — almost always instrumentation
+  //      artefacts (e.g. retries, internal middleware spans).
+  //   2. Long-tail low-volume edges — keep them routed but draw them dimmed
+  //      so the dominant traffic and any failing path remain prominent.
+  // An unhealthy edge (either endpoint critical/warning) is always drawn at
+  // full opacity so error signal is never suppressed.
+  let maxCount = 0;
+  edgesForRender.forEach(e => { if (e.count && e.count > maxCount) maxCount = e.count; });
+  const dimBelow = maxCount > 0 ? maxCount * 0.05 : 0;
+
+  let defs = `<defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+  </defs>`;
+  let paths = '';
+  let labels = '';
+  edgesForRender.forEach(edge => {
+    if (edge.from === edge.to) return; // drop self-loops unconditionally
+    const src = state.topologyLayout[edge.from];
+    const tgt = state.topologyLayout[edge.to];
+    if (!src || !tgt) return;
+    const cls = edgeClass(edge, nodeStatusByID);
+    const isUnhealthy = cls === 'critical' || cls === 'warning';
+    const dim = !isUnhealthy && edge.count && edge.count < dimBelow;
+    const opacity = dim ? 0.22 : 1;
+    const count = edge.count ? formatCount(edge.count) : '';
+    const dx = tgt.x - src.x;
+    const dy = tgt.y - src.y;
+    const ctrl = Math.max(60, Math.abs(dx) * 0.45);
+    const path = `M ${src.x} ${src.y} C ${src.x + ctrl} ${src.y}, ${tgt.x - ctrl} ${tgt.y}, ${tgt.x} ${tgt.y}`;
+    paths += `<path d="${path}" class="edge-path ${cls}" opacity="${opacity}" marker-end="url(#arrow)"></path>`;
+    if (count && !dim) {
+      const mx = (src.x + tgt.x) / 2;
+      // Push the count off the path's tangent normal so it never overlaps the
+      // node-label band that sits ~28px below each circle. For mostly-vertical
+      // edges (small |dx|) we offset horizontally; otherwise we offset along
+      // the perpendicular of the segment.
+      const len = Math.hypot(dx, dy) || 1;
+      let nx, ny;
+      if (Math.abs(dx) < 24) {
+        nx = 14; ny = 0;
+      } else {
+        // perpendicular unit vector, pointing "up" for left-to-right edges
+        nx = -dy / len * 14;
+        ny =  dx / len * 14;
+        if (ny > 0) { nx = -nx; ny = -ny; } // bias above the curve
+      }
+      const lx = mx + nx;
+      const ly = (src.y + tgt.y) / 2 + ny;
+      labels += `<text x="${lx}" y="${ly}" class="edge-label" text-anchor="middle" dominant-baseline="middle">${escapeHtml(count)}</text>`;
+    }
+  });
+  layer.innerHTML = defs + paths + labels;
+}
+
+function simplifyServiceEdgesForRender(edges, nodeStatusByID){
+  const list = Array.isArray(edges) ? edges.filter(e => e && e.from !== e.to) : [];
+  if (list.length <= 24) return list;
+
+  const unhealthy = (id) => {
+    const s = nodeStatusByID && nodeStatusByID.get(id);
+    return s === 'critical' || s === 'warning';
+  };
+
+  const ranked = list.slice().sort((a, b) => {
+    const au = unhealthy(a.from) || unhealthy(a.to);
+    const bu = unhealthy(b.from) || unhealthy(b.to);
+    if (au !== bu) return au ? -1 : 1;
+    const ac = Number(a.count || 0);
+    const bc = Number(b.count || 0);
+    if (ac !== bc) return bc - ac;
+    if (a.from !== b.from) return String(a.from).localeCompare(String(b.from));
+    return String(a.to).localeCompare(String(b.to));
+  });
+
+  const keep = [];
+  const outBySource = new Map();
+  const inByTarget = new Map();
+  const perNodeCap = 3;
+  const globalCap = Math.max(32, Math.ceil(Math.sqrt(list.length) * 6));
+
+  for (const e of ranked) {
+    if (keep.length >= globalCap) break;
+    const srcCount = outBySource.get(e.from) || 0;
+    const tgtCount = inByTarget.get(e.to) || 0;
+    const mustKeep = unhealthy(e.from) || unhealthy(e.to);
+    if (!mustKeep && (srcCount >= perNodeCap || tgtCount >= perNodeCap)) continue;
+    keep.push(e);
+    outBySource.set(e.from, srcCount + 1);
+    inByTarget.set(e.to, tgtCount + 1);
+  }
+
+  return keep.length ? keep : ranked.slice(0, Math.min(24, ranked.length));
+}
+
+function formatCount(n){
+  if (n >= 1_000_000) return (n/1_000_000).toFixed(1).replace(/\.0$/,'') + 'M';
+  if (n >= 1_000) return (n/1_000).toFixed(1).replace(/\.0$/,'') + 'k';
+  return String(n);
+}
+
+function edgeClass(edge, nodeStatusByID){
+  const kind = (edge && edge.kind ? String(edge.kind) : '').toLowerCase();
+  const from = nodeStatusByID ? nodeStatusByID.get(edge.from) : undefined;
+  const to   = nodeStatusByID ? nodeStatusByID.get(edge.to)   : undefined;
+  const unhealthy = (s) => s === 'critical' || s === 'warning';
+
+  // Incident-root → affected-resource: always red.
+  if (kind === 'affects') return 'critical';
+
+  // Any structural / call edge touching an unhealthy endpoint is painted red
+  // so blast radius is visible at a glance. Node icons keep their own
+  // severity colour (yellow for P3/warning, red for P1/P2/critical), which
+  // lets operators distinguish severity while still seeing the failure path.
+  if (unhealthy(from) || unhealthy(to)) return 'critical';
+
+  if (kind === 'calls' || kind === 'owns' || kind === 'scheduled_on' || kind === 'runs_on') {
+    return 'active';
+  }
+  return '';
+}
+
+// Drag
+let dragNode = null, dragOffX = 0, dragOffY = 0, didDrag = false;
+function startNodeDrag(e, id){
+  if (e.button !== 0) return;
+  dragNode = id; didDrag = false;
+  const pos = state.topologyLayout[id];
+  const rect = document.getElementById('canvas-inner').getBoundingClientRect();
+  const z = state.topologyZoom || 1;
+  dragOffX = (e.clientX - rect.left) / z - pos.x;
+  dragOffY = (e.clientY - rect.top) / z - pos.y;
+  e.preventDefault();
+}
+document.addEventListener('mousemove', e => {
+  if (!dragNode) return;
+  didDrag = true;
+  const rect = document.getElementById('canvas-inner').getBoundingClientRect();
+  const z = state.topologyZoom || 1;
+  const nx = (e.clientX - rect.left) / z - dragOffX;
+  const ny = (e.clientY - rect.top) / z - dragOffY;
+  state.topologyLayout[dragNode] = { x: nx, y: ny };
+  const id = 'node-' + btoa(unescape(encodeURIComponent(dragNode))).replace(/=/g,'');
+  const el = document.getElementById(id);
+  if (el) { el.style.left = nx+'px'; el.style.top = ny+'px'; }
+  renderTopologyEdges();
+  fitCanvasToLayout();
+});
+document.addEventListener('mouseup', () => { dragNode = null; });
+
+function resetLayout(){
+  const g = displayTopologyGraph();
+  state.topologyLayout = {};
+  setZoom(1);
+  if (g) { layoutTopology(g); renderTopologyNodes(g); renderTopologyEdges(); }
+}
+function refreshTopology(force){
+  if (state.incidentGraph) {
+    renderTopology();
+    return;
+  }
+  if (state.topoMode === 'service') {
+    loadServiceGraph(!!force);
+    return;
+  }
+  loadTopology(!!force);
+}
+
+async function selectTopologyNode(id, e){
+  if (didDrag) { didDrag = false; return; }
+  const g = displayTopologyGraph();
+  const node = g.nodes.find(n => n.id === id);
+  if (!node) return;
+  state.selectedNodeId = id;
+  document.querySelectorAll('.topology-node').forEach(el => el.classList.remove('selected'));
+  const domId = 'node-' + btoa(unescape(encodeURIComponent(id))).replace(/=/g,'');
+  const domEl = document.getElementById(domId);
+  if (domEl) domEl.classList.add('selected');
+
+  // Open panel
+  const panel = document.getElementById('topology-panel');
+  panel.classList.remove('panel-closed'); panel.classList.add('panel-open');
+  document.getElementById('topo-panel-title').textContent = node.name || node.label || id;
+  document.getElementById('topo-panel-type').textContent = node.kind || '—';
+  document.getElementById('topo-panel-icon').innerHTML = `<i data-lucide="${kindIcon(node.kind)}" class="w-5 h-5 text-slate-300"></i>`;
+  const body = document.getElementById('topo-panel-body');
+  body.innerHTML = `<div class="text-xs text-slate-500">Loading...</div>`;
+  lucide.createIcons();
+
+  const supported = { Pod: true, Deployment: true, Node: true, Service: true };
+  if (!supported[node.kind]) {
+    body.innerHTML = `<div class="text-xs text-slate-500">No details available for kind <span class="font-mono">${escapeHtml(node.kind||'unknown')}</span>.</div>`;
+    lucide.createIcons();
+    return;
+  }
+  const resourceNode = resourceNodeWithNamespace(node);
+  const nodeIncidents = incidentsForNode(resourceNode);
+  const traces = traceIDsForIncidents(nodeIncidents);
+  const showTraceList = resourceNode.kind === 'Service' || resourceNode.kind === 'Deployment';
+
+  if (!resourceNode.namespace && resourceNode.kind === 'Service') {
+    renderExternalServicePanel(resourceNode, { traceIDs: traces, incidents: nodeIncidents });
+    return;
+  }
+  if (!resourceNode.namespace && resourceNode.kind !== 'Node') {
+    body.innerHTML = `<div class="text-xs text-slate-500">No details available for this node.</div>`;
+    return;
+  }
+
+  try {
+    const ns = resourceNode.namespace || '_';
+    const r = await apiGet(`/api/resources/${encodeURIComponent(ns)}/${encodeURIComponent(resourceNode.kind)}/${encodeURIComponent(resourceNode.name)}`, {noCache:true});
+    renderResourcePanel(r, { traceIDs: traces, showTraceList, incidents: nodeIncidents, node: resourceNode });
+  } catch(e){
+    if (resourceNode.kind === 'Service' && !node.namespace) {
+      renderExternalServicePanel(resourceNode, { traceIDs: traces, incidents: nodeIncidents, error: e.message });
+      return;
+    }
+    body.innerHTML = `<div class="text-xs text-amber-300">Failed to load resource: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderExternalServicePanel(node, opts){
+  const body = document.getElementById('topo-panel-body');
+  const traceIDs = Array.isArray(opts && opts.traceIDs) ? opts.traceIDs : [];
+  const activeIncident = (opts && Array.isArray(opts.incidents) && opts.incidents.length) ? opts.incidents[0] : null;
+  const lookupError = opts && opts.error ? String(opts.error) : '';
+
+  const tracesSection = traceIDs.length
+    ? renderTraceIDSection(traceIDs)
+    : '';
+
+  const incidentSection = activeIncident
+    ? `<div>
+      <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Incident Context</h3>
+      <div class="bg-red-500/5 border border-red-500/30 rounded p-2">
+        <div class="text-[10px] font-bold text-red-400 mb-1">${escapeHtml(severityLabel(activeIncident.severity))} • ${escapeHtml(activeIncident.incidentType || '')}</div>
+        <div class="text-[11px] text-slate-300">${escapeHtml(activeIncident.summary || activeIncident.message || activeIncident.name || '')}</div>
+      </div>
+    </div>`
+    : '';
+
+  body.innerHTML = `
+    <div>
+      <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Resource Status</h3>
+      <div class="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs">
+        <div class="text-slate-400">${lookupError ? `Kubernetes Service not found: ${escapeHtml(lookupError)}` : 'External trace service (no Kubernetes namespace metadata)'}</div>
+      </div>
+    </div>
+    ${tracesSection}
+    ${incidentSection}
+  `;
+  lucide.createIcons();
+}
+function closeTopologyPanel(){
+  state.selectedNodeId = null;
+  document.querySelectorAll('.topology-node').forEach(el => el.classList.remove('selected'));
+  const panel = document.getElementById('topology-panel');
+  panel.classList.remove('panel-open'); panel.classList.add('panel-closed');
+}
+// serviceTrafficStats sums call counts on edges incident to the given service
+// node from the loaded service graph. Returns null when no service graph is
+// loaded or the node is not a service.
+function serviceTrafficStats(node){
+  if (!node || node.kind !== 'Service') return null;
+  const sg = state.serviceGraph;
+  if (!sg || !Array.isArray(sg.edges)) return null;
+  let inCalls = 0, outCalls = 0;
+  const peers = new Set();
+  sg.edges.forEach(e => {
+    if (!e || e.kind !== 'calls' || e.from === e.to) return;
+    const c = Number(e.count || 0);
+    if (e.from === node.id) { outCalls += c; peers.add(e.to); }
+    else if (e.to === node.id) { inCalls += c; peers.add(e.from); }
+  });
+  if (!inCalls && !outCalls && peers.size === 0) return null;
+  return { inCalls, outCalls, peerCount: peers.size };
+}
+
+function fmtCount(n){
+  n = Number(n||0);
+  if (n >= 1_000_000) return (n/1_000_000).toFixed(1).replace(/\.0$/,'') + 'M';
+  if (n >= 1_000) return (n/1_000).toFixed(1).replace(/\.0$/,'') + 'k';
+  return String(n);
+}
+
+// --- Trace detail modal --------------------------------------------------
+async function openTrace(id){
+  const modal = document.getElementById('trace-modal');
+  const body = document.getElementById('trace-modal-body');
+  const idEl = document.getElementById('trace-modal-id');
+  idEl.textContent = id;
+  body.innerHTML = `<div class="text-xs text-slate-500 italic">Loading trace…</div>`;
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+  document.body.style.overflow = 'hidden';
+  try {
+    const data = await apiGet('/api/traces/' + encodeURIComponent(id));
+    renderTraceModal(data);
+  } catch(e) {
+    body.innerHTML = `<div class="text-xs text-amber-300">Failed to load trace: ${escapeHtml(e.message || 'unknown error')}</div>
+      <div class="text-[11px] text-slate-500 mt-2">This usually means the Jaeger query API isn't reachable from the operator, or the trace expired.</div>`;
+  }
+  lucide.createIcons();
+}
+
+function closeTrace(){
+  const modal = document.getElementById('trace-modal');
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+  document.body.style.overflow = '';
+}
+
+function fmtDuration(us){
+  if (!us || us < 0) return '—';
+  if (us < 1000) return us + 'µs';
+  const ms = us / 1000;
+  if (ms < 1000) return (ms < 10 ? ms.toFixed(1) : Math.round(ms)) + 'ms';
+  return (ms / 1000).toFixed(2) + 's';
+}
+
+function renderTraceModal(d){
+  const body = document.getElementById('trace-modal-body');
+  if (!d || !Array.isArray(d.spans) || !d.spans.length) {
+    body.innerHTML = `<div class="text-xs text-slate-500 italic">Trace not found in Jaeger. It may have expired or never been ingested.</div>`;
+    return;
+  }
+  const isErr = d.status === 'error';
+  const errSet = new Set(Array.isArray(d.errorSpans) ? d.errorSpans : []);
+
+  // --- Tier 1.1: Summary header
+  const startStr = d.startTime ? new Date(d.startTime).toLocaleString() : '—';
+  const summary = `
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
+      <div class="bg-slate-900 border border-slate-800 rounded p-2.5">
+        <div class="text-[9px] text-slate-500 uppercase tracking-wider">Status</div>
+        <div class="mt-0.5 text-xs font-bold ${isErr ? 'text-red-400' : 'text-emerald-400'}">${isErr ? 'ERROR' : 'OK'}</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded p-2.5">
+        <div class="text-[9px] text-slate-500 uppercase tracking-wider">Duration</div>
+        <div class="mt-0.5 text-sm font-mono text-white">${fmtDuration(d.durationMicros)}</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded p-2.5">
+        <div class="text-[9px] text-slate-500 uppercase tracking-wider">Spans</div>
+        <div class="mt-0.5 text-sm font-mono text-white">${d.spanCount}</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded p-2.5">
+        <div class="text-[9px] text-slate-500 uppercase tracking-wider">Services</div>
+        <div class="mt-0.5 text-sm font-mono text-white">${d.serviceCount}</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded p-2.5">
+        <div class="text-[9px] text-slate-500 uppercase tracking-wider">Started</div>
+        <div class="mt-0.5 text-[11px] font-mono text-slate-300 truncate" title="${escapeHtml(startStr)}">${escapeHtml(startStr)}</div>
+      </div>
+    </div>
+    ${d.rootService || d.rootOperation ? `<div class="text-[11px] text-slate-400">
+      <span class="text-slate-500">Root</span>
+      <span class="font-mono text-slate-200 ml-2">${escapeHtml(d.rootService||'')}</span>
+      <span class="font-mono text-indigo-300 ml-1.5">${escapeHtml(d.rootOperation||'')}</span>
+      ${d.criticalPathMs ? `<span class="text-slate-500 ml-3">critical path</span><span class="font-mono text-slate-300 ml-1.5">${d.criticalPathMs}ms</span>` : ''}
+    </div>` : ''}`;
+
+  // --- Tier 1.3: Error spans pinned at top (if any)
+  let errorBlock = '';
+  if (errSet.size) {
+    const errs = d.spans.filter(s => errSet.has(s.spanId)).slice(0, 6);
+    errorBlock = `<div>
+      <h3 class="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-2">Errors (${errSet.size})</h3>
+      <div class="space-y-1.5">
+        ${errs.map(s => `
+          <div class="bg-red-500/5 border border-red-500/30 rounded p-2.5">
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="text-[11px] font-mono font-bold text-red-300">${escapeHtml(s.service||'')}</span>
+                <span class="text-[11px] text-slate-300 truncate">${escapeHtml(s.operation||'')}</span>
+                ${s.statusCode ? `<span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-red-500/20 text-red-300">${escapeHtml(s.statusCode)}</span>` : ''}
+              </div>
+              <span class="text-[10px] font-mono text-slate-500 shrink-0">${fmtDuration(s.durationUs)}</span>
+            </div>
+            ${s.exceptionType || s.exceptionMessage ? `
+              <div class="mt-1.5 text-[11px] font-mono">
+                ${s.exceptionType ? `<span class="text-amber-300">${escapeHtml(s.exceptionType)}</span>` : ''}
+                ${s.exceptionMessage ? `<span class="text-slate-300 ml-1">${escapeHtml(s.exceptionMessage)}</span>` : ''}
+              </div>` : ''}
+            ${s.podName ? `<div class="mt-1.5 flex items-center gap-1.5 text-[10px]">
+              <span class="text-slate-500">pod</span>
+              <button onclick="openPodLogs('${escapeHtml(s.podNamespace||'')}','${escapeHtml(s.podName)}')"
+                      class="font-mono text-indigo-300 hover:text-indigo-200 hover:underline">${escapeHtml(s.podName)}</button>
+            </div>` : ''}
+          </div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  // --- Tier 1.2: Waterfall span list
+  const totalUs = Math.max(1, d.durationMicros);
+  const slowestUs = d.spans.reduce((m, s) => Math.max(m, s.durationUs || 0), 0);
+  const waterfall = `<div>
+    <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Waterfall</h3>
+    <div class="bg-slate-900 border border-slate-800 rounded-lg divide-y divide-slate-800">
+      ${d.spans.map(s => {
+        const isErrSpan = errSet.has(s.spanId);
+        const isSlow = !isErrSpan && slowestUs > 0 && s.durationUs >= slowestUs * 0.5 && s.durationUs >= totalUs * 0.2;
+        const left = (s.startOffsetUs / totalUs) * 100;
+        const w = Math.max(0.5, (s.durationUs / totalUs) * 100);
+        const barColor = isErrSpan ? 'bg-red-500' : isSlow ? 'bg-amber-500' : 'bg-indigo-500';
+        const indent = Math.min(8, s.depth || 0) * 12;
+        return `<div class="px-3 py-2 hover:bg-slate-800/40 transition cursor-pointer" onclick="this.querySelector('[data-tags]').classList.toggle('hidden')">
+          <div class="flex items-center gap-3" style="padding-left:${indent}px">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 text-[11px]">
+                <span class="font-mono text-slate-200 truncate">${escapeHtml(s.service||'')}</span>
+                <span class="text-slate-500">·</span>
+                <span class="text-slate-400 truncate">${escapeHtml(s.operation||'')}</span>
+                ${s.kind ? `<span class="text-[9px] font-mono text-slate-600">${escapeHtml(s.kind)}</span>` : ''}
+                ${s.statusCode ? `<span class="text-[9px] font-mono px-1 rounded ${isErrSpan ? 'bg-red-500/20 text-red-300' : 'bg-slate-800 text-slate-400'}">${escapeHtml(s.statusCode)}</span>` : ''}
+              </div>
+              <div class="relative h-2 mt-1.5 bg-slate-950 rounded-sm overflow-hidden">
+                <div class="absolute top-0 h-full ${barColor} rounded-sm" style="left:${left}%;width:${w}%"></div>
+              </div>
+            </div>
+            <div class="text-[10px] font-mono text-slate-400 w-16 text-right shrink-0">${fmtDuration(s.durationUs)}</div>
+          </div>
+          ${renderSpanDetails(s)}
+        </div>`;
+      }).join('')}
+    </div>
+    <div class="text-[10px] text-slate-600 mt-1.5">Click a span to expand tags · pod links open in Logs tab.${d.truncated ? ` <span class="text-amber-400">Trace has ${d.spanCount} spans; showing the ${d.spans.length} most relevant.</span>` : ''}</div>
+  </div>`;
+
+  // --- Tier 1.4: Service breakdown
+  const breakdownMax = (d.serviceBreakdown || []).reduce((m, s) => Math.max(m, s.percentOfTrace || 0), 0) || 1;
+  const breakdown = (d.serviceBreakdown || []).length ? `<div>
+    <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Service Breakdown</h3>
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-3 space-y-1.5">
+      ${d.serviceBreakdown.map(s => `
+        <div class="flex items-center gap-3">
+          <div class="text-[11px] font-mono text-slate-200 w-32 truncate">${escapeHtml(s.service||'')}</div>
+          <div class="flex-1 h-1.5 bg-slate-950 rounded-sm overflow-hidden">
+            <div class="h-full bg-indigo-500/70" style="width:${(s.percentOfTrace/breakdownMax)*100}%"></div>
+          </div>
+          <div class="text-[10px] font-mono text-slate-400 w-14 text-right">${s.percentOfTrace.toFixed(1)}%</div>
+          <div class="text-[10px] font-mono text-slate-500 w-16 text-right">${fmtDuration(s.totalDurationUs)}</div>
+          <div class="text-[10px] font-mono text-slate-600 w-10 text-right">${s.spanCount}sp</div>
+        </div>
+      `).join('')}
+    </div>
+  </div>` : '';
+
+  body.innerHTML = summary + breakdown + errorBlock + waterfall;
+  lucide.createIcons();
+}
+
+// renderSpanDetails returns the collapsible detail block shown when a span
+// row is clicked: HTTP/DB/RPC tags, k8s context, and freeform tags.
+function renderSpanDetails(s){
+  const rows = [];
+  if (s.httpMethod || s.httpUrl) {
+    rows.push(['HTTP', `${escapeHtml(s.httpMethod||'')} ${escapeHtml(s.httpUrl||'')}`.trim()]);
+  }
+  if (s.dbSystem || s.dbStatement) {
+    const v = (s.dbSystem ? `<span class="text-slate-500">${escapeHtml(s.dbSystem)}</span> ` : '') + escapeHtml(s.dbStatement||'');
+    rows.push(['DB', v]);
+  }
+  if (s.peerService) rows.push(['Peer', escapeHtml(s.peerService)]);
+  if (s.podName) {
+    const podLink = `<button onclick="event.stopPropagation(); openPodLogs('${escapeHtml(s.podNamespace||'')}','${escapeHtml(s.podName)}')" class="text-indigo-300 hover:text-indigo-200 hover:underline">${escapeHtml(s.podName)}</button>`;
+    const meta = [s.podNamespace, s.containerName, s.nodeName].filter(Boolean).map(escapeHtml).join(' · ');
+    rows.push(['Pod', podLink + (meta ? ` <span class="text-slate-600">${meta}</span>` : '')]);
+  }
+  if (s.exceptionType || s.exceptionMessage) {
+    rows.push(['Exception', `<span class="text-amber-300">${escapeHtml(s.exceptionType||'')}</span> ${escapeHtml(s.exceptionMessage||'')}`]);
+  }
+  if (s.tags) {
+    const keys = Object.keys(s.tags).sort();
+    keys.forEach(k => rows.push([k, escapeHtml(s.tags[k])]));
+  }
+  if (!rows.length) {
+    return `<div data-tags class="hidden mt-2 text-[10px] text-slate-600 italic">No additional tags.</div>`;
+  }
+  return `<div data-tags class="hidden mt-2 bg-slate-950/80 border border-slate-800 rounded p-2 space-y-0.5">
+    ${rows.map(([k,v]) => `<div class="flex gap-3 text-[10px] font-mono">
+      <span class="text-slate-500 w-20 shrink-0">${escapeHtml(k)}</span>
+      <span class="text-slate-300 break-all">${v}</span>
+    </div>`).join('')}
+  </div>`;
+}
+
+// openPodLogs jumps to the Logs tab and prefills namespace + pod selectors.
+function openPodLogs(ns, pod){
+  closeTrace();
+  switchTab('logs');
+  setTimeout(() => {
+    const nsEl = document.getElementById('logs-ns');
+    const podEl = document.getElementById('logs-pod');
+    if (nsEl && ns) {
+      nsEl.value = ns;
+      nsEl.dispatchEvent(new Event('change'));
+    }
+    setTimeout(() => {
+      if (podEl && pod) {
+        podEl.value = pod;
+        podEl.dispatchEvent(new Event('change'));
+      }
+      if (typeof fetchLogs === 'function') fetchLogs();
+    }, 250);
+  }, 50);
+}
+
+function copyTrace(id, btn){
+  navigator.clipboard?.writeText(id).then(() => {
+    if (!btn) return;
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<i data-lucide="check" class="w-3 h-3 text-emerald-400"></i>';
+    lucide.createIcons();
+    setTimeout(() => { btn.innerHTML = orig; lucide.createIcons(); }, 900);
+  });
+}
+
+function toggleTraceList(btn){
+  const wrap = btn.closest('[data-trace-wrap]');
+  if (!wrap) return;
+  const expanded = wrap.getAttribute('data-expanded') === '1';
+  wrap.setAttribute('data-expanded', expanded ? '0' : '1');
+  wrap.querySelectorAll('[data-trace-extra]').forEach(el => {
+    el.classList.toggle('hidden', expanded);
+  });
+  const total = Number(wrap.getAttribute('data-total') || '0');
+  const hiddenCount = wrap.querySelectorAll('[data-trace-extra]').length;
+  btn.textContent = expanded
+    ? `Show more (${hiddenCount || total})`
+    : 'Show fewer';
+}
+
+function renderResourcePanel(r, opts){
+  const body = document.getElementById('topo-panel-body');
+  if (!r) { body.innerHTML = `<div class="text-xs text-slate-500">No data.</div>`; return; }
+  const traceIDs = Array.isArray(opts && opts.traceIDs) ? opts.traceIDs : [];
+  const showTraceList = !!(opts && opts.showTraceList);
+  const nodeIncidents = Array.isArray(opts && opts.incidents) ? opts.incidents : [];
+  const resourceIncidents = Array.isArray(r.openIncidents) ? r.openIncidents : [];
+  const mergedOpenIncidents = resourceIncidents.length ? resourceIncidents : nodeIncidents;
+  const node = (opts && opts.node) || null;
+  const isService = r.kind === 'Service';
+
+  // --- Status: compact key/value bar (no header) for Services; full card otherwise.
+  const statusBits = [];
+  if (r.age) statusBits.push(['Age', r.age]);
+  if (isService) {
+    if (r.phase) statusBits.push(['Type', r.phase]);
+  } else if (r.phase) {
+    statusBits.push(['Phase', r.phase]);
+  }
+  if (r.nodeName) statusBits.push(['Node', r.nodeName]);
+  if (r.kind === 'Deployment') statusBits.push(['Replicas', `${r.readyReplicas||0}/${r.desiredReplicas||0}`]);
+  if (r.kind === 'Pod') statusBits.push(['Restarts', String(r.restartCount||0)]);
+  if (r.nodeReady !== undefined && r.nodeReady !== null) statusBits.push(['Ready', r.nodeReady ? 'True' : 'False']);
+
+  const statusBar = isService
+    ? `<div class="flex flex-wrap gap-x-5 gap-y-1.5 text-[11px] pb-3 border-b border-slate-800">
+         ${statusBits.map(([k,v]) => `<span class="text-slate-500">${escapeHtml(k)} <span class="text-slate-200 font-mono ml-1">${escapeHtml(v)}</span></span>`).join('')}
+       </div>`
+    : `<div>
+         <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Resource Status</h3>
+         <div class="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs font-mono">
+           ${statusBits.map(([k,v]) => `<div class="flex justify-between py-1 border-b border-slate-800/50 last:border-0"><span class="text-slate-500">${escapeHtml(k)}</span><span class="text-slate-300">${escapeHtml(v)}</span></div>`).join('') || '<div class="text-slate-500">No status fields</div>'}
+         </div>
+       </div>`;
+
+  // --- Service traffic block (from graph edge counts).
+  const traffic = isService ? serviceTrafficStats(node) : null;
+  const trafficBlock = traffic
+    ? `<div class="grid grid-cols-3 gap-2">
+         <div class="bg-slate-950 border border-slate-800 rounded-lg p-2.5">
+           <div class="text-[9px] text-slate-500 uppercase tracking-wider">Inbound</div>
+           <div class="text-sm font-mono text-emerald-300 mt-0.5">${fmtCount(traffic.inCalls)}</div>
+         </div>
+         <div class="bg-slate-950 border border-slate-800 rounded-lg p-2.5">
+           <div class="text-[9px] text-slate-500 uppercase tracking-wider">Outbound</div>
+           <div class="text-sm font-mono text-sky-300 mt-0.5">${fmtCount(traffic.outCalls)}</div>
+         </div>
+         <div class="bg-slate-950 border border-slate-800 rounded-lg p-2.5">
+           <div class="text-[9px] text-slate-500 uppercase tracking-wider">Peers</div>
+           <div class="text-sm font-mono text-slate-200 mt-0.5">${traffic.peerCount}</div>
+         </div>
+       </div>`
+    : '';
+
+  const tracesSection = showTraceList
+    ? renderTraceIDSection(traceIDs)
+    : '';
+
+  // --- Incidents: single-line, click to drill in.
+  const incidents = mergedOpenIncidents.map(inc => {
+    const sev = inc.severity || '';
+    const typ = inc.incidentType || '';
+    const sumLine = inc.summary || inc.message || inc.name || '';
+    const ts = inc.activeAt || inc.firstObservedAt || inc.lastObservedAt || null;
+    return `<div class="bg-red-500/5 border border-red-500/30 rounded px-2.5 py-1.5 mb-1.5 cursor-pointer hover:bg-red-500/10 transition"
+                 onclick="switchTab('incidents'); selectIncident('${escapeHtml(inc.namespace)}','${escapeHtml(inc.name)}')">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="text-[10px] font-mono font-bold text-red-400 shrink-0">${escapeHtml(typ)}</span>
+          <span class="text-[9px] font-mono text-red-300/70 shrink-0">${escapeHtml(severityLabel(sev))}</span>
+          <span class="text-[10px] text-slate-500 font-mono shrink-0">${escapeHtml(relTime(ts))}</span>
+        </div>
+        <i data-lucide="arrow-right" class="w-3 h-3 text-slate-500 shrink-0"></i>
+      </div>
+      <div class="text-[11px] text-slate-400 mt-0.5 truncate">${escapeHtml(sumLine)}</div>
+    </div>`;
+  }).join('') || `<div class="text-xs text-slate-500 italic">None</div>`;
+
+  // --- Recent events: only show if the API actually returned k8s events
+  // distinct from the incidents we already render above. Avoids two sections
+  // showing the same payload.
+  const realEvents = Array.isArray(r.recentEvents) ? r.recentEvents : [];
+  const eventsSection = realEvents.length
+    ? `<div>
+         <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Recent Events</h3>
+         <div class="bg-slate-950 border border-slate-800 rounded-lg p-2">
+           ${realEvents.map(ev => `<div class="text-[11px] py-1 border-b border-slate-800/50 last:border-0">
+             <div class="flex justify-between">
+               <span class="text-${ev.type==='Warning'?'amber':'slate'}-400 font-bold">${escapeHtml(ev.reason||'')}</span>
+               <span class="text-slate-500 font-mono">${escapeHtml(relTime(ev.time))}</span>
+             </div>
+             <div class="text-slate-400 truncate">${escapeHtml(ev.message||'')}</div>
+           </div>`).join('')}
+         </div>
+       </div>`
+    : '';
+
+  body.innerHTML = `
+    ${statusBar}
+    ${trafficBlock}
+    ${tracesSection}
+    <div>
+      <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Open Incidents</h3>
+      ${incidents}
+    </div>
+    ${eventsSection}
+  `;
+  lucide.createIcons();
+}
+
+// --- Render: Logs
+function populateLogsNamespaces(){
+  const sel = document.getElementById('logs-ns');
+  if (!sel || !state.stats) return;
+  const current = sel.value;
+  const names = Object.keys(state.stats.namespaces || {}).sort();
+  sel.innerHTML = `<option value="">(select namespace)</option>` +
+    names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+  if (current && names.includes(current)) sel.value = current;
+  if (!sel._podBound) {
+    sel.addEventListener('change', populateLogsPods);
+    sel._podBound = true;
+  }
+  if (sel.value) populateLogsPods();
+}
+async function populateLogsPods(){
+  const ns = document.getElementById('logs-ns').value.trim();
+  const podSel = document.getElementById('logs-pod');
+  const depSel = document.getElementById('logs-deployment');
+  if (!podSel || !depSel) return;
+  if (!ns) {
+    podSel.innerHTML = `<option value="">(select namespace first)</option>`;
+    depSel.innerHTML = `<option value="">(select namespace first)</option>`;
+    return;
+  }
+  podSel.innerHTML = `<option value="">loading...</option>`;
+  depSel.innerHTML = `<option value="">loading...</option>`;
+  try {
+    const pods = await apiGet('/api/pods?ns=' + encodeURIComponent(ns), {noCache:true}) || [];
+    if (!pods.length) {
+      podSel.innerHTML = `<option value="">(no pods)</option>`;
+      depSel.innerHTML = `<option value="">(no deployments)</option>`;
+      return;
+    }
+    podSel.innerHTML = `<option value="">(select pod)</option>` +
+      pods.map(p => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}${p.phase ? ' · '+escapeHtml(p.phase) : ''}</option>`).join('');
+    const deps = [...new Set(pods.map(p => p.deployment).filter(Boolean))].sort();
+    depSel.innerHTML = `<option value="">(select deployment)</option>` +
+      deps.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
+  } catch(e){
+    podSel.innerHTML = `<option value="">(failed to load pods)</option>`;
+    depSel.innerHTML = `<option value="">(failed)</option>`;
+  }
+}
+async function fetchLogs(){
+  const ns = document.getElementById('logs-ns').value.trim();
+  const pod = document.getElementById('logs-pod').value.trim();
+  const deployment = document.getElementById('logs-deployment').value.trim();
+  const since = document.getElementById('logs-since').value.trim() || '1h';
+  const errEl = document.getElementById('logs-error');
+  errEl.classList.add('hidden');
+  if (!ns) { errEl.textContent='Namespace is required.'; errEl.classList.remove('hidden'); return; }
+  if (!pod && !deployment) { errEl.textContent='Pod or Deployment is required.'; errEl.classList.remove('hidden'); return; }
+  const out = document.getElementById('logs-output');
+  out.innerHTML = `<div class="text-slate-500 italic">Fetching logs...</div>`;
+  const qs = new URLSearchParams({ ns, tailLines: '500', since });
+  if (pod) qs.set('pod', pod);
+  else if (deployment) qs.set('deployment', deployment);
+  try {
+    const r = await fetch('/api/logs?' + qs.toString());
+    if (!r.ok) {
+      const txt = await r.text();
+      errEl.textContent = `Logs error (${r.status}): ${txt.trim() || r.statusText}`;
+      errEl.classList.remove('hidden');
+      out.innerHTML = '';
+      return;
+    }
+    const text = await r.text();
+    renderLogsText(text);
+    document.getElementById('logs-header-label').textContent = `kubectl logs -n ${ns} ${pod||deployment}`.trim();
+  } catch(e){
+    errEl.textContent = 'Logs error: ' + e.message;
+    errEl.classList.remove('hidden');
+    out.innerHTML = '';
+  }
+}
+// Logs virtualization: we keep the full line buffer and only render the
+// trailing window. For typical log tails (<=5000 lines) this renders instantly
+// and keeps DOM size bounded. Users can click "Show all" to render everything.
+const LOG_WINDOW = 800;
+const LOG_LEVEL_RX = /\b(DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL)\b/i;
+let _logsAllLines = [];
+let _logsShowAll = false;
+
+function logLineHTML(line, i){
+  if (!line) return '';
+  const m = line.match(LOG_LEVEL_RX);
+  let cls = 'text-slate-300';
+  if (m) {
+    const lv = m[1].toUpperCase();
+    if (lv === 'DEBUG' || lv === 'INFO') cls = 'text-emerald-300';
+    else if (lv === 'WARN' || lv === 'WARNING') cls = 'text-yellow-300';
+    else if (lv === 'ERROR' || lv === 'FATAL') cls = 'text-red-400';
+  }
+  return `<div class="log-line ${cls}"><span class="text-slate-600 inline-block w-10 text-right pr-2 select-none">${i+1}</span>${escapeHtml(line)}</div>`;
+}
+
+function renderLogsText(text){
+  _logsAllLines = text.split('\n');
+  _logsShowAll = false;
+  paintLogs();
+}
+
+function paintLogs(){
+  const out = document.getElementById('logs-output');
+  if (!out) return;
+  const total = _logsAllLines.length;
+  if (total === 0) { out.innerHTML = `<div class="text-slate-500 italic">(empty)</div>`; return; }
+  const hidden = !_logsShowAll && total > LOG_WINDOW ? total - LOG_WINDOW : 0;
+  const startIdx = hidden;
+  const slice = _logsAllLines.slice(startIdx);
+  const banner = hidden
+    ? `<div class="mb-2 text-[10px] text-indigo-300 font-mono">Showing last ${LOG_WINDOW.toLocaleString()} of ${total.toLocaleString()} lines. <button onclick="showAllLogs()" class="underline hover:text-indigo-200">Show all</button></div>`
+    : (_logsShowAll && total > LOG_WINDOW ? `<div class="mb-2 text-[10px] text-slate-500 font-mono">Showing all ${total.toLocaleString()} lines. <button onclick="showTailLogs()" class="underline hover:text-slate-300">Tail only</button></div>` : '');
+  const html = slice.map((line, idx) => logLineHTML(line, startIdx + idx)).join('');
+  out.innerHTML = banner + (html || `<div class="text-slate-500 italic">(empty)</div>`);
+  // Scroll to bottom so newest logs are visible (standard tail behaviour).
+  out.scrollTop = out.scrollHeight;
+}
+
+function showAllLogs(){ _logsShowAll = true;  paintLogs(); }
+function showTailLogs(){ _logsShowAll = false; paintLogs(); }
+
+// --- Render: Rules
+function renderRules(){
+  const tb = document.getElementById('rules-table-body');
+  if (!state.rules.length) {
+    tb.innerHTML = `<tr><td colspan="8" class="px-4 py-8 text-center text-slate-500 text-xs">No rules defined.</td></tr>`;
+    return;
+  }
+  tb.innerHTML = state.rules.map(r => `
+    <tr class="hover:bg-slate-800/30">
+      <td class="px-4 py-3 font-medium text-slate-300">${escapeHtml(r.name||'')}</td>
+      <td class="px-4 py-3 font-mono text-[10px] text-slate-400">${escapeHtml(String(r.priority ?? ''))}</td>
+      <td class="px-4 py-3 font-mono text-[10px] text-indigo-300">${escapeHtml(r.triggerEvent||'')}</td>
+      <td class="px-4 py-3 font-mono text-[10px] text-slate-300">${escapeHtml(r.firesType||'')}</td>
+      <td class="px-4 py-3">${severityBadge(r.firesSeverity, 'px-1.5 py-0.5 rounded text-[10px] font-bold font-mono whitespace-nowrap')}</td>
+      <td class="px-4 py-3 font-mono text-[10px] text-slate-400">${escapeHtml(r.agentSelector||'')}</td>
+      <td class="px-4 py-3 font-mono text-[10px] text-slate-500">${escapeHtml(r.age||'')}</td>
+      <td class="px-4 py-3">${r.autoGenerated ? '<span class="bg-indigo-500/10 text-indigo-300 border border-indigo-500/30 px-1.5 py-0.5 rounded text-[9px] font-bold font-mono">AUTO</span>' : ''}</td>
+    </tr>`).join('');
+}
+
+// --- Render: Agents
+function renderAgents(){
+  const tb = document.getElementById('agents-table-body');
+  if (!state.agents.length) {
+    tb.innerHTML = `<tr><td colspan="5" class="px-4 py-8 text-center text-slate-500 text-xs">No agents registered.</td></tr>`;
+    return;
+  }
+  tb.innerHTML = state.agents.map(a => {
+    const healthy = !!a.healthy;
+    const nss = (a.watchNamespaces || []).join(', ') || '—';
+    return `
+    <tr class="hover:bg-slate-800/30">
+      <td class="px-4 py-3 font-medium text-slate-300 flex items-center gap-2">
+        <div class="w-2 h-2 rounded-full ${healthy ? 'bg-emerald-500' : 'bg-red-500'}"></div>
+        ${escapeHtml(a.name||'')}
+      </td>
+      <td class="px-4 py-3 font-mono text-[10px] text-slate-400">${escapeHtml(nss)}</td>
+      <td class="px-4 py-3"><span class="bg-${healthy?'emerald':'red'}-500/10 text-${healthy?'emerald':'red'}-400 px-1.5 py-0.5 rounded text-[10px] font-bold font-mono">${escapeHtml(a.status||'UNKNOWN')}</span></td>
+      <td class="px-4 py-3 text-[10px] font-mono text-slate-500">${escapeHtml(relTime(a.lastSync))}</td>
+      <td class="px-4 py-3">${healthy ? '<span class="text-emerald-400 text-[10px] font-bold">●</span>' : '<span class="text-red-400 text-[10px] font-bold">●</span>'}</td>
+    </tr>`;
+  }).join('');
+}
+
+// --- Orchestration
+function renderAll(){
+  renderHeader();
+  renderIncidentsList();
+  if (state.incidentDetail) renderIncidentDetail();
+  renderRules();
+  renderAgents();
+  if (state.activeTab === 'topology') renderTopology();
+}
+
+async function tick(){
+  await loadStats();
+  await loadIncidents();
+  // Auto-select first incident if nothing selected.
+  if (!state.selectedIncidentKey && state.incidents.length) {
+    const first = state.incidents[0];
+    state.selectedIncidentKey = incKey(first);
+    renderIncidentsList();
+    if (state.activeTab === 'incidents') {
+      document.getElementById('incident-empty-pane').classList.add('hidden');
+      const pane = document.getElementById('incident-detail-pane');
+      pane.classList.remove('hidden'); pane.classList.add('flex');
+      loadIncidentDetail(first.namespace, first.name);
+    }
+  }
+  // Invalidate per-endpoint so next load refreshes.
+  invalidateCache('/api/stats');
+  invalidateCache('/api/incidents');
+}
+
+window.switchTab = switchTab;
+window.selectIncident = selectIncident;
+window.goToTopology = goToTopology;
+window.clearTopologyIncident = clearTopologyIncident;
+window.resetLayout = resetLayout;
+window.refreshTopology = refreshTopology;
+window.selectTopologyNode = selectTopologyNode;
+window.closeTopologyPanel = closeTopologyPanel;
+window.startNodeDrag = startNodeDrag;
+window.copyTrace = copyTrace;
+window.toggleTraceList = toggleTraceList;
+window.openTrace = openTrace;
+window.closeTrace = closeTrace;
+window.openPodLogs = openPodLogs;
+
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape') {
+    const m = document.getElementById('trace-modal');
+    if (m && !m.classList.contains('hidden')) closeTrace();
+  }
+});
+window.fetchLogs = fetchLogs;
+window.showAllLogs = showAllLogs;
+window.showTailLogs = showTailLogs;
+window.showToast = showToast;
+
+window.addEventListener('resize', () => {
+  if (state.activeTab === 'topology' && (state.topology || state.incidentGraph)) {
+    resetLayout();
+  }
+});
+
+window.addEventListener('load', async () => {
+  lucide.createIcons();
+  await tick();
+  setInterval(tick, 15000);
+  // Live duration ticker for detail pane.
+  setInterval(() => {
+    if (state.activeTab === 'incidents' && state.incidentDetail && !state.incidentDetail.resolvedAt) {
+      const dEl = document.querySelector('#incident-detail-pane .text-amber-400');
+      if (dEl) {
+        const start = state.incidentDetail.activeAt || state.incidentDetail.firstObservedAt;
+        if (start) dEl.textContent = liveDur(start);
+      }
+    }
+  }, 1000);
+});
+
 </script>
 </body>
 </html>

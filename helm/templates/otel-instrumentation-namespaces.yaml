@@ -1,0 +1,63 @@
+{{- if and .Values.instrumentation.enabled .Values.opentelemetryOperator.enabled }}
+{{- if .Values.instrumentation.targetNamespaces }}
+{{- /*
+  Instrumentation CRs for target namespaces.
+
+  WHY: The otel-operator webhook resolves "inject-python: true" by looking
+  for an Instrumentation CR in the pod's OWN namespace. A CR in rca-system
+  is invisible to pods in rca-demo. This template mirrors the primary CR
+  into every namespace listed under instrumentation.targetNamespaces.
+
+  The OTLP endpoint uses the full cluster DNS FQDN so the pods in remote
+  namespaces can reach the collector service in the release namespace.
+
+  Hook ordering: weight=15 (after OpenTelemetryCollector at weight=10,
+  before nothing — runs alongside the primary Instrumentation CR at weight=20).
+*/}}
+{{- range .Values.instrumentation.targetNamespaces }}
+---
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: {{ include "rca-operator.fullname" $ }}-instrumentation
+  namespace: {{ . }}
+  labels:
+    {{- include "rca-operator.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: instrumentation
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "15"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  exporter:
+    # Full FQDN is required — pods in {{ . }} cannot resolve a bare
+    # service name that lives in {{ include "rca-operator.namespace" $ }}.
+    endpoint: {{ include "rca-operator.otlpEndpoint" $ | quote }}
+  propagators:
+    {{- toYaml $.Values.instrumentation.propagators | nindent 4 }}
+  sampler:
+    type: {{ $.Values.instrumentation.sampler.type }}
+    argument: {{ $.Values.instrumentation.sampler.argument | quote }}
+  {{- if $.Values.instrumentation.python }}
+  python:
+    {{- toYaml $.Values.instrumentation.python | nindent 4 }}
+  {{- end }}
+  {{- if $.Values.instrumentation.java }}
+  java:
+    {{- toYaml $.Values.instrumentation.java | nindent 4 }}
+  {{- end }}
+  {{- if $.Values.instrumentation.nodejs }}
+  nodejs:
+    {{- toYaml $.Values.instrumentation.nodejs | nindent 4 }}
+  {{- end }}
+  {{- if $.Values.instrumentation.dotnet }}
+  dotnet:
+    {{- toYaml $.Values.instrumentation.dotnet | nindent 4 }}
+  {{- end }}
+  {{- if $.Values.instrumentation.go }}
+  go:
+    {{- toYaml $.Values.instrumentation.go | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

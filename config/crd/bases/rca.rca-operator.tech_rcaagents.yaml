@@ -120,11 +120,11 @@ spec:
                 type: object
               otel:
                 description: OTel holds optional OpenTelemetry configuration for exporting
-                  traces and metrics to SigNoz.
+                  traces to an OTLP collector.
                 properties:
                   endpoint:
                     description: Endpoint is the OTLP gRPC collector address (e.g.
-                      "signoz-collector:4317").
+                      "otel-collector.observability.svc.cluster.local:4317").
                     minLength: 1
                     type: string
                   insecure:

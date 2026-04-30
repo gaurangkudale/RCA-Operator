@@ -1,0 +1,87 @@
+# values-dev.yaml — Local Kind dev overrides
+#
+# Fast iteration without a registry. Load the image into Kind first:
+#   make docker-build
+#   kind load docker-image controller:latest --name rca-dev
+#
+# Then install:
+#   helm upgrade --install rca ./helm \
+#     --namespace rca-system --create-namespace \
+#     -f helm/values-dev.yaml --wait --timeout 5m
+
+# ── Operator image ────────────────────────────────────────────────────────────
+image:
+  repository: controller
+  tag: latest
+  pullPolicy: Never   # Use Kind-loaded image; no registry pull
+
+# ── Scale down for single-node Kind ──────────────────────────────────────────
+replicaCount: 1
+
+podDisruptionBudget:
+  enabled: false       # Not meaningful on a single-node cluster
+
+# ── Self-telemetry: send operator spans to bundled Jaeger ────────────────────
+# jaeger.enabled=true (default) + otel.endpoint="" → auto-computed to Jaeger
+otel:
+  enabled: true
+  endpoint: ""         # Auto: <release>-jaeger:4317
+
+# ── Graph builder: auto-wires to bundled Jaeger ───────────────────────────────
+# jaeger.enabled=true (default) + graphBuilder.jaegerQueryURL="" → auto
+graphBuilder:
+  jaegerQueryURL: ""   # Auto: http://<release>-jaeger:16686
+
+# ── Jaeger: in-memory storage, reduced resources ─────────────────────────────
+jaeger:
+  storage:
+    type: memory       # Ephemeral — fine for dev/testing
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+# ── OTel Collector: reduced resources ────────────────────────────────────────
+otelCollector:
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+# ── OTel Operator: reduced resources ─────────────────────────────────────────
+opentelemetryOperator:
+  manager:
+    resources:
+      limits:
+        cpu: 100m
+        memory: 128Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
+
+# ── RCA ingest: low latency thresholds for faster dev feedback ────────────────
+otelIngest:
+  filters:
+    traces:
+      statusCodeERROR: true
+      httpStatusGte: 500
+      latencyP99Ms: 2000   # 2s instead of 5s — easier to trigger in dev
+    logs:
+      minSeverity: "WARN"
+
+# ── Auto-detection: disabled for basic testing ────────────────────────────────
+autoDetect:
+  enabled: false
+
+# ── Instrumentation: target rca-demo namespace (create it before installing) ──
+instrumentation:
+  targetNamespaces:
+    - rca-demo
+    - default

@@ -2,6 +2,7 @@ package watcher
 
 import (
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 )
@@ -39,5 +40,20 @@ func TestChannelEventEmitter_DropsWhenFull(t *testing.T) {
 	count := len(ch)
 	if count != 1 {
 		t.Errorf("expected 1 event in channel (second dropped), got %d", count)
+	}
+}
+
+func TestChannelEventEmitter_CoalescesDuplicateDedupKeys(t *testing.T) {
+	ch := make(chan CorrelatorEvent, 4)
+	em := NewChannelEventEmitterWithOptions(ch, logr.Discard(), ChannelEventEmitterOptions{
+		DedupWindow: time.Minute,
+	})
+
+	ev := OTelLogMatchEvent{ServiceName: "checkout", BodyHash: "same"}
+	em.Emit(ev)
+	em.Emit(ev)
+
+	if count := len(ch); count != 1 {
+		t.Fatalf("channel len = %d, want 1 duplicate coalesced", count)
 	}
 }

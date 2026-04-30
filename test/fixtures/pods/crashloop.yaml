@@ -16,7 +16,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: crashloop-demo
-  namespace: default
+  namespace: rca-demo
   labels:
     app: crashloop-demo
     rca.rca-operator.tech/fixture: "true"

@@ -9,6 +9,9 @@ on:
 permissions:
   contents: write
 
+env:
+  HELM_VERSION: "v3.17.3"
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -21,7 +24,7 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
-          version: v4.0.4
+          version: ${{ env.HELM_VERSION }}
 
       - name: Get chart version
         id: chart_version
@@ -30,9 +33,37 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Chart version: $VERSION"
 
+      - name: Add Helm repositories
+        run: |
+          helm repo add opentelemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+          helm repo add jaegertracing https://jaegertracing.github.io/helm-charts
+          helm repo update
+          echo "✓ Helm repositories added and updated"
+
+      - name: Update Helm dependencies
+        run: |
+          helm dep update helm/
+          echo "✓ Helm dependencies resolved"
+          echo "--- Dependency list ---"
+          helm dep list helm/
+
+      - name: Lint before packaging
+        run: |
+          helm lint helm/ --strict
+          echo "✓ Pre-package lint passed"
+
       - name: Package Helm chart
         run: |
           helm package helm/ -d /tmp/charts
+          echo "✓ Helm chart packaged"
+          ls -lh /tmp/charts/
+
+      - name: Verify package contents
+        run: |
+          PACKAGE=$(ls /tmp/charts/rca-operator-*.tgz)
+          echo "--- Packaged sub-charts ---"
+          tar -tzf "$PACKAGE" | grep "charts/" | head -20
+          echo "✓ Package includes sub-chart dependencies"
 
       - name: Checkout GitHub Pages repository
         uses: actions/checkout@v4
@@ -42,7 +73,7 @@ jobs:
           path: gh-pages
           fetch-depth: 0
 
-      - name: Update Helm repository
+      - name: Update Helm repository index
         run: |
           # Create charts directory if it doesn't exist
           mkdir -p gh-pages/charts
@@ -58,13 +89,18 @@ jobs:
             helm repo index charts \
               --url https://gaurangkudale.github.io/rca-operator.github.io/charts \
               --merge index.yaml
+            echo "✓ Merged with existing index.yaml"
           else
             helm repo index charts \
               --url https://gaurangkudale.github.io/rca-operator.github.io/charts
+            echo "✓ Created new index.yaml"
           fi
 
           # Move index to root for easier access
           cp charts/index.yaml index.yaml
+
+          echo "--- Published chart versions ---"
+          grep -E "^  - |version:" gh-pages/index.yaml | head -30
 
       - name: Commit and push to GitHub Pages
         run: |
@@ -72,5 +108,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "Add Helm chart v${{ steps.chart_version.outputs.version }}" || echo "No changes to commit"
+          git diff --cached --stat
+          git commit -m "chore: publish Helm chart v${{ steps.chart_version.outputs.version }}" \
+            || echo "No changes to commit"
           git push

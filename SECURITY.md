@@ -6,8 +6,8 @@ We release security fixes for the **latest minor version** only. If you are runn
 
 | Version | Supported |
 |---|---|
-| 0.1.x (latest) | ✅ Yes |
-| < 0.1 | ❌ No — please upgrade |
+| Latest minor (see `helm/Chart.yaml`) | ✅ Yes |
+| Older releases | ❌ No — please upgrade |
 
 ---
 

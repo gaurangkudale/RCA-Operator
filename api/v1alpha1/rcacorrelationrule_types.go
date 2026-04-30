@@ -64,7 +64,7 @@ type RuleCondition struct {
 	EventType string `json:"eventType"`
 
 	// scope defines the relationship between the trigger event and this condition.
-	// +kubebuilder:validation:Enum=samePod;sameNode;sameNamespace;any
+	// +kubebuilder:validation:Enum=samePod;sameNode;sameNamespace;sameTrace;any
 	// +kubebuilder:default=samePod
 	Scope string `json:"scope"`
 
@@ -72,6 +72,42 @@ type RuleCondition struct {
 	// is NOT present in the buffer.
 	// +optional
 	Negate bool `json:"negate,omitempty"`
+
+	// attributes is an optional list of key/value predicates evaluated against
+	// candidate events that implement the AttributesEvent interface (OTel span
+	// and log signals). All predicates must match (AND logic). Events that do
+	// not expose attributes are treated as having no attributes — any predicate
+	// other than `NotExists` fails for such events.
+	// +optional
+	Attributes []AttributeMatch `json:"attributes,omitempty"`
+}
+
+// AttributeMatch is a single key/value predicate applied to an event's
+// attributes map. It is used by RuleCondition.Attributes to match against
+// OTel resource/span/log attributes (e.g. http.status_code, service.name).
+type AttributeMatch struct {
+	// key is the attribute name, e.g. "http.status_code" or "service.name".
+	// Dotted OTel semantic-convention keys are supported as-is.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Key string `json:"key"`
+
+	// op is the predicate operator applied to the attribute value.
+	//   Equals      — attribute value equals `value`
+	//   NotEquals   — attribute value does not equal `value`
+	//   Contains    — attribute value contains `value` as a substring
+	//   NotContains — attribute value does not contain `value`
+	//   Regex       — attribute value matches the RE2 regex in `value`
+	//   Exists      — attribute is present with a non-empty value (`value` ignored)
+	//   NotExists   — attribute is absent or empty (`value` ignored)
+	//   Gte/Lte/Gt/Lt — numeric comparison against `value` (parses both sides as float64)
+	// +kubebuilder:validation:Enum=Equals;NotEquals;Contains;NotContains;Regex;Exists;NotExists;Gte;Lte;Gt;Lt
+	// +kubebuilder:default=Equals
+	Op string `json:"op"`
+
+	// value is the comparison target. Ignored for Exists/NotExists.
+	// +optional
+	Value string `json:"value,omitempty"`
 }
 
 // RuleFires defines the incident output when a rule matches.

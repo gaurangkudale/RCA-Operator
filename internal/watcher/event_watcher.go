@@ -12,8 +12,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	toolscache "k8s.io/client-go/tools/cache"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
-
-	"github.com/gaurangkudale/rca-operator/internal/metrics"
 )
 
 const (
@@ -333,14 +331,12 @@ func (w *EventWatcher) sweepDedupMap(_ context.Context) {
 
 // shouldEmit returns true and records the current time when the given key has
 // not been seen within the configured DedupWindow. Returns false otherwise.
-// When a signal is suppressed, it records the rca_signals_deduplicated_total metric.
 // Thread-safe.
-func (w *EventWatcher) shouldEmit(key, eventType string) bool {
+func (w *EventWatcher) shouldEmit(key, _ string) bool {
 	now := w.clock()
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if last, ok := w.dedupSeen[key]; ok && now.Sub(last) < w.config.DedupWindow {
-		metrics.RecordSignalDeduplicated(eventType)
 		return false
 	}
 	w.dedupSeen[key] = now

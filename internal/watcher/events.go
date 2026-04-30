@@ -1,6 +1,9 @@
 package watcher
 
-import "time"
+import (
+	"maps"
+	"time"
+)
 
 // EventType identifies the concrete watcher signal type sent to the correlator.
 type EventType string
@@ -38,7 +41,55 @@ const (
 
 	// CronJob-sourced signals (detected from batch/v1 CronJob objects).
 	EventTypeCronJobFailed EventType = "CronJobFailed"
+
+	// OTel-sourced signals (ingested via internal/otelingest from the cluster-wide
+	// OTel Collector DaemonSet). These allow the correlator to reason about
+	// user-workload traces and logs alongside Kubernetes control-plane events.
+	EventTypeOTelSpanError        EventType = "OTelSpanError"
+	EventTypeOTelSpanLatencySpike EventType = "OTelSpanLatencySpike"
+	EventTypeOTelLogMatch         EventType = "OTelLogMatch"
+	EventTypeOTelSpanEvent        EventType = "OTelSpanEvent"
 )
+
+var validEventTypes = map[EventType]struct{}{
+	EventTypeCrashLoopBackOff:     {},
+	EventTypeOOMKilled:            {},
+	EventTypeImagePullBackOff:     {},
+	EventTypePodPendingTooLong:    {},
+	EventTypeGracePeriodViolation: {},
+	EventTypePodHealthy:           {},
+	EventTypePodDeleted:           {},
+	EventTypeNodeNotReady:         {},
+	EventTypePodEvicted:           {},
+	EventTypeProbeFailure:         {},
+	EventTypeStalledRollout:       {},
+	EventTypeNodePressure:         {},
+	EventTypeStalledStatefulSet:   {},
+	EventTypeStalledDaemonSet:     {},
+	EventTypeJobFailed:            {},
+	EventTypeCronJobFailed:        {},
+	EventTypeOTelSpanError:        {},
+	EventTypeOTelSpanLatencySpike: {},
+	EventTypeOTelLogMatch:         {},
+	EventTypeOTelSpanEvent:        {},
+}
+
+// IsKnownEventType reports whether name is one of the signal types emitted by
+// the watcher or OTLP ingest pipeline.
+func IsKnownEventType(name string) bool {
+	_, ok := validEventTypes[EventType(name)]
+	return ok
+}
+
+// AttributesEvent is an optional interface implemented by events that carry
+// key/value attributes (notably OTel span and log signals). The CRD rule engine
+// uses this for attribute-level condition matching without needing type-switches.
+//
+// Events that do not implement this interface are treated as having no attributes,
+// preserving backward compatibility with existing K8s-event-only rules.
+type AttributesEvent interface {
+	Attributes() map[string]string
+}
 
 // CorrelatorEvent is the shared typed event interface consumed by the correlator.
 type CorrelatorEvent interface {
@@ -325,4 +376,198 @@ func (e CronJobFailedEvent) Type() EventType       { return EventTypeCronJobFail
 func (e CronJobFailedEvent) OccurredAt() time.Time { return e.At }
 func (e CronJobFailedEvent) DedupKey() string {
 	return string(e.Type()) + ":" + e.Namespace + ":" + e.CronJobName
+}
+
+// OTelSpanErrorEvent is emitted when the operator ingests a span whose status
+// is ERROR (or that carries a 5xx HTTP/gRPC status attribute). The span may
+// originate from any auto-instrumented workload in the cluster.
+//
+// BaseEvent fields are populated from k8s.* resource attributes applied by the
+// OTel Collector's k8sattributes processor: Namespace = k8s.namespace.name,
+// PodName = k8s.pod.name, NodeName = k8s.node.name.
+type OTelSpanErrorEvent struct {
+	BaseEvent
+	TraceID       string
+	SpanID        string
+	ParentSpanID  string
+	ServiceName   string
+	SpanName      string
+	SpanKind      string // CLIENT | SERVER | INTERNAL | PRODUCER | CONSUMER
+	StatusCode    string // STATUS_CODE_ERROR | STATUS_CODE_OK | STATUS_CODE_UNSET
+	StatusMessage string
+	DurationNanos int64
+	StartTime     time.Time
+	EndTime       time.Time
+	Attrs         map[string]string
+	ResourceAttrs map[string]string
+}
+
+func (e OTelSpanErrorEvent) Type() EventType       { return EventTypeOTelSpanError }
+func (e OTelSpanErrorEvent) OccurredAt() time.Time { return e.At }
+func (e OTelSpanErrorEvent) DedupKey() string {
+	// Span-level dedup: a given SpanID within a TraceID is unique.
+	return string(e.Type()) + ":" + e.TraceID + ":" + e.SpanID
+}
+func (e OTelSpanErrorEvent) Attributes() map[string]string {
+	m := mergedAttrs(e.Attrs, e.ResourceAttrs, e)
+	promoteTraceIDs(m, e.TraceID, e.SpanID, e.ParentSpanID)
+	return m
+}
+
+// OTelSpanLatencySpikeEvent is emitted when a span's duration exceeds the
+// configured latency threshold (see Helm otelIngest.filters.traces.latencyP99Ms).
+type OTelSpanLatencySpikeEvent struct {
+	BaseEvent
+	TraceID       string
+	SpanID        string
+	ParentSpanID  string
+	ServiceName   string
+	SpanName      string
+	DurationNanos int64
+	ThresholdNs   int64
+	StartTime     time.Time
+	EndTime       time.Time
+	Attrs         map[string]string
+	ResourceAttrs map[string]string
+}
+
+func (e OTelSpanLatencySpikeEvent) Type() EventType       { return EventTypeOTelSpanLatencySpike }
+func (e OTelSpanLatencySpikeEvent) OccurredAt() time.Time { return e.At }
+func (e OTelSpanLatencySpikeEvent) DedupKey() string {
+	return string(e.Type()) + ":" + e.TraceID + ":" + e.SpanID
+}
+func (e OTelSpanLatencySpikeEvent) Attributes() map[string]string {
+	m := mergedAttrs(e.Attrs, e.ResourceAttrs, baseAttrHolder{ServiceName: e.ServiceName, SpanName: e.SpanName})
+	promoteTraceIDs(m, e.TraceID, e.SpanID, e.ParentSpanID)
+	return m
+}
+
+// OTelLogMatchEvent is emitted when the operator ingests a log record whose
+// severity is WARN or above (configurable via otelIngest.filters.logs.minSeverity).
+//
+// BodyHash is a hash of the normalized log body used for dedup within the
+// sliding buffer (identical log lines from the same service collapse to one entry).
+type OTelLogMatchEvent struct {
+	BaseEvent
+	TraceID       string
+	SpanID        string
+	ServiceName   string
+	Severity      string // OTel severity text: TRACE | DEBUG | INFO | WARN | ERROR | FATAL
+	SeverityNum   int32  // OTel severity number (1-24)
+	Body          string // Redacted body text (PII already stripped at ingest time).
+	BodyHash      string // Hash of the redacted body; used for dedup.
+	Attrs         map[string]string
+	ResourceAttrs map[string]string
+}
+
+func (e OTelLogMatchEvent) Type() EventType       { return EventTypeOTelLogMatch }
+func (e OTelLogMatchEvent) OccurredAt() time.Time { return e.At }
+func (e OTelLogMatchEvent) DedupKey() string {
+	// Log dedup: same service + same body hash collapses within the buffer window.
+	return string(e.Type()) + ":" + e.ServiceName + ":" + e.BodyHash
+}
+func (e OTelLogMatchEvent) Attributes() map[string]string {
+	m := mergedAttrs(e.Attrs, e.ResourceAttrs, baseAttrHolder{ServiceName: e.ServiceName, Severity: e.Severity, Body: e.Body})
+	promoteTraceIDs(m, e.TraceID, e.SpanID, "")
+	return m
+}
+
+// OTelSpanEventEvent is emitted when a span carries a standalone OTel event
+// record (e.g. exception.stacktrace, log.message). These are attached to spans
+// but evaluated independently by the correlator because an exception event can
+// be the strongest root-cause signal even on an otherwise-OK span.
+type OTelSpanEventEvent struct {
+	BaseEvent
+	TraceID       string
+	SpanID        string
+	ServiceName   string
+	EventName     string // e.g. "exception", "log"
+	EventTime     time.Time
+	Attrs         map[string]string
+	ResourceAttrs map[string]string
+}
+
+func (e OTelSpanEventEvent) Type() EventType       { return EventTypeOTelSpanEvent }
+func (e OTelSpanEventEvent) OccurredAt() time.Time { return e.At }
+func (e OTelSpanEventEvent) DedupKey() string {
+	// Include EventName so multiple distinct events on one span do not collapse.
+	return string(e.Type()) + ":" + e.TraceID + ":" + e.SpanID + ":" + e.EventName
+}
+func (e OTelSpanEventEvent) Attributes() map[string]string {
+	m := mergedAttrs(e.Attrs, e.ResourceAttrs, baseAttrHolder{ServiceName: e.ServiceName, EventName: e.EventName})
+	promoteTraceIDs(m, e.TraceID, e.SpanID, "")
+	return m
+}
+
+// baseAttrHolder is a tiny struct used only to promote OTel event struct
+// fields into the flat Attributes() map for rule-engine matching.
+type baseAttrHolder struct {
+	ServiceName string
+	SpanName    string
+	Severity    string
+	Body        string
+	EventName   string
+}
+
+// mergedAttrs flattens span/log attributes, resource attributes, and struct-level
+// fields into a single map keyed for CRD rule condition matching. Struct-level
+// fields take precedence over attrs/resourceAttrs on key collisions to guarantee
+// that well-known keys like "service.name" always reflect the event's promoted field.
+func mergedAttrs(attrs, resourceAttrs map[string]string, self any) map[string]string {
+	out := make(map[string]string, len(attrs)+len(resourceAttrs)+8)
+	maps.Copy(out, resourceAttrs)
+	maps.Copy(out, attrs)
+	switch s := self.(type) {
+	case OTelSpanErrorEvent:
+		if s.ServiceName != "" {
+			out["service.name"] = s.ServiceName
+		}
+		if s.SpanName != "" {
+			out["span.name"] = s.SpanName
+		}
+		if s.SpanKind != "" {
+			out["span.kind"] = s.SpanKind
+		}
+		if s.StatusCode != "" {
+			out["span.status.code"] = s.StatusCode
+		}
+		if s.StatusMessage != "" {
+			out["span.status.message"] = s.StatusMessage
+		}
+	case baseAttrHolder:
+		if s.ServiceName != "" {
+			out["service.name"] = s.ServiceName
+		}
+		if s.SpanName != "" {
+			out["span.name"] = s.SpanName
+		}
+		if s.Severity != "" {
+			out["log.severity"] = s.Severity
+		}
+		if s.Body != "" {
+			out["log.body"] = s.Body
+		}
+		if s.EventName != "" {
+			out["event.name"] = s.EventName
+		}
+	}
+	return out
+}
+
+// promoteTraceIDs writes the span's OTel identifiers into the flattened
+// attribute map under stable keys ("trace.id", "span.id", "parent.span.id")
+// so CRD rules using sameTrace scope or attribute-match predicates can key off
+// them without each rule author needing to know which struct field carries
+// the identifier. Empty values are not written so rules can use the Exists
+// predicate to detect missing IDs.
+func promoteTraceIDs(out map[string]string, traceID, spanID, parentSpanID string) {
+	if traceID != "" {
+		out["trace.id"] = traceID
+	}
+	if spanID != "" {
+		out["span.id"] = spanID
+	}
+	if parentSpanID != "" {
+		out["parent.span.id"] = parentSpanID
+	}
 }

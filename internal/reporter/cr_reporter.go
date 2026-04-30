@@ -29,6 +29,17 @@ const (
 	AnnotationSignal     = "rca.rca-operator.tech/signal"
 	AnnotationLastSeen   = "rca.rca-operator.tech/last-seen"
 	AnnotationSignalSeen = "rca.rca-operator.tech/signal-count"
+	// AnnotationTraceID records the W3C trace-id hex string carried by the
+	// most recent OTel-sourced signal for this incident. Empty for incidents
+	// derived only from Kubernetes events.
+	AnnotationTraceID = "rca.rca-operator.tech/trace-id"
+	// AnnotationTraceIDs records all unique trace-ids observed for the
+	// incident, serialized as a comma-separated list in insertion order.
+	AnnotationTraceIDs = "rca.rca-operator.tech/trace-ids"
+	// AnnotationFiredRule records the name of the correlator rule that last
+	// produced this incident's classification. Empty for single-signal
+	// incidents that were not produced by a correlation rule.
+	AnnotationFiredRule = "rca.rca-operator.tech/fired-rule"
 
 	LabelAgent           = "rca.rca-operator.tech/agent"
 	LabelSeverity        = "rca.rca-operator.tech/severity"
@@ -54,6 +65,7 @@ const (
 const (
 	MaxTimelineEntries = incidentstatus.MaxTimelineEntries
 	MaxSignalEntries   = 20
+	MaxTraceIDEntries  = 20
 )
 
 type Reporter struct {
@@ -174,12 +186,7 @@ func (r *Reporter) createIncident(ctx context.Context, input incident.Input, fin
 				LabelPodName:         safeLabelValue(primaryPodName(input)),
 				LabelFingerprintHash: fingerprintHash,
 			},
-			Annotations: map[string]string{
-				AnnotationSignal:     input.Summary,
-				AnnotationDedupKey:   input.DedupKey,
-				AnnotationLastSeen:   firstSeen.Format(time.RFC3339),
-				AnnotationSignalSeen: "1",
-			},
+			Annotations: buildInitialAnnotations(input, firstSeen),
 		},
 		Spec: rcav1alpha1.IncidentReportSpec{
 			AgentRef:     input.AgentRef,
@@ -218,16 +225,16 @@ func (r *Reporter) createIncident(ctx context.Context, input incident.Input, fin
 	}
 
 	r.openByFingerprint[fingerprint] = types.NamespacedName{Namespace: report.Namespace, Name: report.Name}
-	metrics.RecordIncidentDetected(input.AgentRef, input.IncidentType, input.Severity)
 	r.log.Info("Created IncidentReport",
 		"namespace", report.Namespace,
 		"name", report.Name,
 		"incidentType", input.IncidentType,
 		"fingerprint", fingerprint,
 	)
+	metrics.RecordIncidentDetecting(input.IncidentType, input.Severity)
 	if r.Recorder != nil {
-		r.Recorder.Eventf(report, nil, corev1.EventTypeWarning, "IncidentDetected", "Detect",
-			"New %s incident detected severity=%s: %s", input.IncidentType, input.Severity, input.Summary)
+		msg := truncateEventMessage(fmt.Sprintf("New %s incident detected severity=%s: %s", input.IncidentType, input.Severity, input.Summary))
+		r.Recorder.Eventf(report, nil, corev1.EventTypeWarning, "IncidentDetected", "Detect", "%s", msg)
 	}
 	return nil
 }
@@ -462,7 +469,7 @@ func (r *Reporter) findExistingByWorkloadRef(ctx context.Context, input incident
 
 	for i := range list.Items {
 		report := &list.Items[i]
-		if !reportMatchesWorkloadRef(report, workloadRef) {
+		if !reportMatchesWorkloadRef(report, workloadRef, input.IncidentType) {
 			continue
 		}
 		if report.Status.Phase != PhaseResolved {
@@ -489,9 +496,25 @@ func (r *Reporter) findExistingByWorkloadRef(ctx context.Context, input incident
 // reportMatchesWorkloadRef returns true when the given incident covers the
 // provided workload ref, checking both Spec.Scope.WorkloadRef and every
 // entry in Status.AffectedResources. Kind, Namespace, and Name must all match.
-func reportMatchesWorkloadRef(report *rcav1alpha1.IncidentReport, workloadRef *rcav1alpha1.IncidentObjectRef) bool {
+//
+// For OTel incident types, the report's incident type must also match the
+// incoming incident type so telemetry incidents are not merged into unrelated
+// Kubernetes lifecycle incidents on the same workload.
+func reportMatchesWorkloadRef(report *rcav1alpha1.IncidentReport, workloadRef *rcav1alpha1.IncidentObjectRef, incomingIncidentType string) bool {
 	if workloadRef == nil {
 		return false
+	}
+	if incident.IsOTelIncidentType(incomingIncidentType) {
+		reportIncidentType := report.Spec.IncidentType
+		if reportIncidentType == "" {
+			reportIncidentType = report.Status.IncidentType
+		}
+		// Coalesce OTel signals (span errors, log matches, span events, latency
+		// spikes) for the same workload into a single incident while still
+		// preventing OTel incidents from merging into Kubernetes-native incidents.
+		if !incident.IsOTelIncidentType(reportIncidentType) {
+			return false
+		}
 	}
 	if ref := report.Spec.Scope.WorkloadRef; ref != nil {
 		if ref.Kind == workloadRef.Kind && ref.Namespace == workloadRef.Namespace && ref.Name == workloadRef.Name {
@@ -507,7 +530,21 @@ func reportMatchesWorkloadRef(report *rcav1alpha1.IncidentReport, workloadRef *r
 }
 
 func (r *Reporter) updateActiveIncident(ctx context.Context, report *rcav1alpha1.IncidentReport, input incident.Input, fingerprint, hash string) error {
+	metrics.RecordSignalDeduplicated(input.IncidentType)
 	now := metav1.NewTime(input.ObservedAt)
+	reportIncidentType := report.Spec.IncidentType
+	if reportIncidentType == "" {
+		reportIncidentType = report.Status.IncidentType
+	}
+	preserveIncidentType := incident.IsOTelIncidentType(reportIncidentType) &&
+		incident.IsOTelIncidentType(input.IncidentType) &&
+		reportIncidentType != "" &&
+		reportIncidentType != input.IncidentType
+	targetIncidentType := input.IncidentType
+	if preserveIncidentType {
+		targetIncidentType = reportIncidentType
+	}
+
 	if report.Labels == nil {
 		report.Labels = make(map[string]string)
 	}
@@ -520,15 +557,16 @@ func (r *Reporter) updateActiveIncident(ctx context.Context, report *rcav1alpha1
 
 	metaBase := report.DeepCopy()
 	report.Labels[LabelSeverity] = higherSeverity(report.Labels[LabelSeverity], input.Severity)
-	report.Labels[LabelIncidentType] = input.IncidentType
+	report.Labels[LabelIncidentType] = targetIncidentType
 	report.Labels[LabelFingerprintHash] = hash
 	report.Labels[LabelPodName] = safeLabelValue(primaryPodName(input))
 	report.Annotations[AnnotationSignal] = input.Summary
 	report.Annotations[AnnotationDedupKey] = input.DedupKey
 	report.Annotations[AnnotationLastSeen] = now.Format(time.RFC3339)
 	report.Annotations[AnnotationSignalSeen] = incrementCounter(report.Annotations[AnnotationSignalSeen])
+	applyDiagnosticAnnotations(report.Annotations, input)
 	report.Spec.Fingerprint = fingerprint
-	report.Spec.IncidentType = input.IncidentType
+	report.Spec.IncidentType = targetIncidentType
 	report.Spec.Scope = input.Scope
 	if err := r.client.Patch(ctx, report, client.MergeFrom(metaBase)); err != nil {
 		return fmt.Errorf("failed to patch IncidentReport metadata: %w", err)
@@ -536,7 +574,7 @@ func (r *Reporter) updateActiveIncident(ctx context.Context, report *rcav1alpha1
 
 	statusBase := report.DeepCopy()
 	report.Status.Severity = higherSeverity(report.Status.Severity, input.Severity)
-	report.Status.IncidentType = input.IncidentType
+	report.Status.IncidentType = targetIncidentType
 	report.Status.Summary = input.Summary
 	report.Status.Reason = input.Reason
 	report.Status.Message = input.Message
@@ -557,6 +595,19 @@ func (r *Reporter) updateActiveIncident(ctx context.Context, report *rcav1alpha1
 
 func (r *Reporter) reopenIncident(ctx context.Context, report *rcav1alpha1.IncidentReport, input incident.Input, fingerprint, hash string) error {
 	now := metav1.NewTime(input.ObservedAt)
+	reportIncidentType := report.Spec.IncidentType
+	if reportIncidentType == "" {
+		reportIncidentType = report.Status.IncidentType
+	}
+	preserveIncidentType := incident.IsOTelIncidentType(reportIncidentType) &&
+		incident.IsOTelIncidentType(input.IncidentType) &&
+		reportIncidentType != "" &&
+		reportIncidentType != input.IncidentType
+	targetIncidentType := input.IncidentType
+	if preserveIncidentType {
+		targetIncidentType = reportIncidentType
+	}
+
 	if report.Labels == nil {
 		report.Labels = make(map[string]string)
 	}
@@ -566,14 +617,15 @@ func (r *Reporter) reopenIncident(ctx context.Context, report *rcav1alpha1.Incid
 
 	metaBase := report.DeepCopy()
 	report.Labels[LabelSeverity] = higherSeverity(report.Labels[LabelSeverity], input.Severity)
-	report.Labels[LabelIncidentType] = input.IncidentType
+	report.Labels[LabelIncidentType] = targetIncidentType
 	report.Labels[LabelFingerprintHash] = hash
 	report.Annotations[AnnotationLastSeen] = now.Format(time.RFC3339)
 	report.Annotations[AnnotationSignalSeen] = incrementCounter(report.Annotations[AnnotationSignalSeen])
 	report.Annotations[AnnotationSignal] = input.Summary
 	report.Annotations[AnnotationDedupKey] = input.DedupKey
+	applyDiagnosticAnnotations(report.Annotations, input)
 	report.Spec.Fingerprint = fingerprint
-	report.Spec.IncidentType = input.IncidentType
+	report.Spec.IncidentType = targetIncidentType
 	report.Spec.Scope = input.Scope
 	if err := r.client.Patch(ctx, report, client.MergeFrom(metaBase)); err != nil {
 		return fmt.Errorf("failed to patch IncidentReport metadata on reopen: %w", err)
@@ -588,7 +640,7 @@ func (r *Reporter) reopenIncident(ctx context.Context, report *rcav1alpha1.Incid
 	report.Status.LastObservedAt = &now
 	report.Status.StartTime = &now
 	report.Status.Severity = higherSeverity(report.Status.Severity, input.Severity)
-	report.Status.IncidentType = input.IncidentType
+	report.Status.IncidentType = targetIncidentType
 	report.Status.Summary = input.Summary
 	report.Status.Reason = input.Reason
 	report.Status.Message = input.Message
@@ -607,12 +659,99 @@ func (r *Reporter) reopenIncident(ctx context.Context, report *rcav1alpha1.Incid
 	}
 
 	r.openByFingerprint[fingerprint] = types.NamespacedName{Namespace: report.Namespace, Name: report.Name}
-	metrics.RecordIncidentDetected(input.AgentRef, input.IncidentType, input.Severity)
 	if r.Recorder != nil {
-		r.Recorder.Eventf(report, nil, corev1.EventTypeWarning, "IncidentReopened", "Reopen",
-			"Incident re-opened: %s", input.Summary)
+		msg := truncateEventMessage(fmt.Sprintf("Incident re-opened: %s", input.Summary))
+		r.Recorder.Eventf(report, nil, corev1.EventTypeWarning, "IncidentReopened", "Reopen", "%s", msg)
 	}
 	return nil
+}
+
+// truncateEventMessage enforces the Kubernetes Event.message 1024-char cap.
+// Returning an over-long note causes the event to be rejected ("can have at
+// most 1024 characters"), so clip with headroom for future prefix changes.
+func truncateEventMessage(s string) string {
+	const max = 1000
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "…(truncated)"
+}
+
+// buildInitialAnnotations assembles the annotation map used when an
+// IncidentReport is first created. Diagnostic annotations (TraceID, FiredRule)
+// are only written when the corresponding input fields are non-empty so that
+// K8s-event-only incidents do not carry empty-valued keys.
+func buildInitialAnnotations(input incident.Input, firstSeen metav1.Time) map[string]string {
+	annotations := map[string]string{
+		AnnotationSignal:     input.Summary,
+		AnnotationDedupKey:   input.DedupKey,
+		AnnotationLastSeen:   firstSeen.Format(time.RFC3339),
+		AnnotationSignalSeen: "1",
+	}
+	applyDiagnosticAnnotations(annotations, input)
+	return annotations
+}
+
+// applyDiagnosticAnnotations writes TraceID and FiredRule annotations when the
+// incoming input carries them. On a subsequent update from a signal that lacks
+// a trace-id (e.g. a K8s-sourced signal following an OTel-sourced one) the
+// previously-recorded annotation is preserved — we never overwrite a known
+// trace-id with an empty one.
+func applyDiagnosticAnnotations(annotations map[string]string, input incident.Input) {
+	if input.TraceID != "" {
+		annotations[AnnotationTraceID] = input.TraceID
+		annotations[AnnotationTraceIDs] = mergeTraceIDList(annotations[AnnotationTraceIDs], input.TraceID)
+	} else if annotations[AnnotationTraceIDs] == "" && annotations[AnnotationTraceID] != "" {
+		// Backfill the list annotation for incidents created before the
+		// multi-trace-id feature while preserving the existing single value.
+		annotations[AnnotationTraceIDs] = annotations[AnnotationTraceID]
+	}
+	if input.FiredRule != "" {
+		annotations[AnnotationFiredRule] = input.FiredRule
+	}
+}
+
+func mergeTraceIDList(existingCSV, incoming string) string {
+	incoming = strings.TrimSpace(incoming)
+	if incoming == "" {
+		return strings.TrimSpace(existingCSV)
+	}
+
+	existing := parseTraceIDCSV(existingCSV)
+	seen := make(map[string]struct{}, len(existing)+1)
+	for _, id := range existing {
+		seen[id] = struct{}{}
+	}
+	if _, ok := seen[incoming]; !ok {
+		existing = append(existing, incoming)
+	}
+	if len(existing) > MaxTraceIDEntries {
+		existing = existing[len(existing)-MaxTraceIDEntries:]
+	}
+	return strings.Join(existing, ",")
+}
+
+func parseTraceIDCSV(in string) []string {
+	if strings.TrimSpace(in) == "" {
+		return nil
+	}
+	parts := strings.FieldsFunc(in, func(r rune) bool {
+		return r == ',' || r == '\n' || r == '\r' || r == '\t' || r == ' '
+	})
+	out := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, p := range parts {
+		id := strings.TrimSpace(p)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }
 
 func incidentAffectsPod(report *rcav1alpha1.IncidentReport, podName, namespace string) bool {
@@ -770,14 +909,17 @@ func trimAffectedResources(in []rcav1alpha1.AffectedResource) []rcav1alpha1.Affe
 }
 
 // reportFingerprint computes the fingerprint for an existing IncidentReport.
-// The fingerprint is purely scope-based (no incident type), matching
-// Input.Fingerprint(). This ensures that different signal types targeting the
-// same resource share a single incident.
+// Kubernetes-native incidents remain scope-based. OTel incidents use the same
+// scope-only identity as new telemetry signals so logs/spans/events/latency
+// evidence for one workload consolidate into a single IncidentReport.
 func reportFingerprint(report *rcav1alpha1.IncidentReport) string {
 	if report == nil {
 		return ""
 	}
 	if report.Spec.Fingerprint != "" {
+		if incident.IsOTelIncidentType(report.Spec.IncidentType) || incident.IsOTelIncidentType(report.Status.IncidentType) {
+			return stripLegacyOTelFingerprintType(report.Spec.Fingerprint)
+		}
 		return report.Spec.Fingerprint
 	}
 
@@ -830,6 +972,21 @@ func reportFingerprint(report *rcav1alpha1.IncidentReport) string {
 	}
 
 	return strings.Join(parts, "|")
+}
+
+// ReportFingerprint returns the canonical incident fingerprint used by the
+// reporter. It is exported for read-only surfaces such as the dashboard so they
+// present the same dedup identity that write paths use.
+func ReportFingerprint(report *rcav1alpha1.IncidentReport) string {
+	return reportFingerprint(report)
+}
+
+func stripLegacyOTelFingerprintType(fingerprint string) string {
+	const marker = "|type|OTel"
+	if head, _, ok := strings.Cut(fingerprint, marker); ok {
+		return head
+	}
+	return fingerprint
 }
 
 func bestResolvedTime(report *rcav1alpha1.IncidentReport) *metav1.Time {

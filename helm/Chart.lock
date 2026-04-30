@@ -1,0 +1,9 @@
+dependencies:
+- name: opentelemetry-operator
+  repository: https://open-telemetry.github.io/opentelemetry-helm-charts
+  version: 0.109.2
+- name: jaeger
+  repository: https://jaegertracing.github.io/helm-charts
+  version: 4.7.0
+digest: sha256:8242297d2d91ee65fc6a41276be047ba8fba44827e3d6dfd07d6c3c347f6f8bc
+generated: "2026-04-16T08:33:15.4615+05:30"

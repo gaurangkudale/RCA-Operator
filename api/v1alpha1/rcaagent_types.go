@@ -54,7 +54,7 @@ type RCAAgentSpec struct {
 	// +optional
 	IncidentRetentionDays int `json:"incidentRetentionDays,omitempty"`
 
-	// OTel holds optional OpenTelemetry configuration for exporting traces and metrics to SigNoz.
+	// OTel holds optional OpenTelemetry configuration for exporting traces to an OTLP collector.
 	// +optional
 	OTel *OTelConfig `json:"otel,omitempty"`
 
@@ -65,7 +65,7 @@ type RCAAgentSpec struct {
 
 // OTelConfig holds OpenTelemetry export settings.
 type OTelConfig struct {
-	// Endpoint is the OTLP gRPC collector address (e.g. "signoz-collector:4317").
+	// Endpoint is the OTLP gRPC collector address (e.g. "otel-collector.observability.svc.cluster.local:4317").
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Endpoint string `json:"endpoint"`

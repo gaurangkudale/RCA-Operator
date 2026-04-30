@@ -96,11 +96,12 @@ func (c *Consumer) Run(ctx context.Context) {
 }
 
 func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEvent) error {
-	if c.ruleEngine != nil {
-		c.ruleEngine.Add(event)
-	}
+	metrics.RecordSignalReceived(string(event.Type()))
 
-	// Lifecycle events bypass the signal pipeline.
+	// Lifecycle (resolution) events bypass both the rule engine and the signal
+	// pipeline. Feeding them into the rule engine's sliding-window buffer would
+	// pollute correlation state with non-failure events and risk masking real
+	// failures that share a dedup key.
 	if healthy, ok := event.(watcher.PodHealthyEvent); ok {
 		return c.rep.ResolveForHealthyPod(ctx, healthy.Namespace, healthy.PodName)
 	}
@@ -108,8 +109,11 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 		return c.rep.ResolveForDeletedPod(ctx, deleted.Namespace, deleted.PodName)
 	}
 
+	if c.ruleEngine != nil {
+		c.ruleEngine.Add(event)
+	}
+
 	// ── Signal Processing Pipeline: Normalize → Enrich → Rule Engine ──
-	startTime := time.Now()
 	sig, ok := c.normalizer.Normalize(event)
 	if !ok {
 		return nil
@@ -117,17 +121,13 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 	sig = c.enricher.Enrich(ctx, sig)
 	input := sig.Input
 
-	// Record signal processing metrics.
-	metrics.RecordSignalProcessed(string(event.Type()), input.AgentRef)
-	metrics.ObserveSignalDuration(string(event.Type()), time.Since(startTime).Seconds())
-
 	// ── Rule Engine evaluation ──
 	if c.ruleEngine != nil {
 		if result := c.ruleEngine.Evaluate(event); result.Fired {
-			metrics.RecordRuleEvaluation(result.Rule, true)
 			input.Severity = result.Severity
 			input.Summary = result.Summary
 			input.Message = result.Summary
+			input.FiredRule = result.Rule
 			if result.Resource != "" {
 				switch result.ScopeLevel {
 				case incident.ScopeLevelCluster:
@@ -155,7 +155,7 @@ func (c *Consumer) handleEvent(ctx context.Context, event watcher.CorrelatorEven
 					})
 				}
 			}
-			c.log.Info("Rule engine produced incident override",
+			c.log.V(1).Info("Rule engine produced incident override",
 				"rule", result.Rule,
 				"severity", input.Severity,
 			)

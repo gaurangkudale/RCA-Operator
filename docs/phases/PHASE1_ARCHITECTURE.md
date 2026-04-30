@@ -388,13 +388,13 @@ status:
   activeAt: <time>
   lastObservedAt: <time>
   resolvedAt: <time>
-  stabilizationWindow: 5m
+  stabilizationWindowSeconds: 300
   signalCount: 9
   summary: Node not ready
   reason: NodeStatusUnknown
   message: Kubelet stopped posting node status
   affectedResources: []
-  evidence: []
+  correlatedSignals: []
   timeline: []
   conditions: []
 ```

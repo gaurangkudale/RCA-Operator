@@ -66,7 +66,7 @@ jobs:
       # ── Installation manifests ────────────────────────────────────
       - name: Generate installation manifests
         run: |
-          IMG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
+          IMG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.versions.outputs.tag_version }}"
           make build-installer IMG=${IMG,,}
           make build-crds
 

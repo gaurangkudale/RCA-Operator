@@ -13,10 +13,15 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
+	"github.com/gaurangkudale/rca-operator/internal/correlator"
+	"github.com/gaurangkudale/rca-operator/internal/correlator/graph"
+	"github.com/gaurangkudale/rca-operator/internal/incident"
 	"github.com/gaurangkudale/rca-operator/internal/incidentstatus"
+	"github.com/gaurangkudale/rca-operator/internal/jaeger"
 	"github.com/gaurangkudale/rca-operator/internal/reporter"
 )
 
@@ -26,7 +31,20 @@ type Server struct {
 	client client.Client
 	addr   string
 	log    logr.Logger
+	k8s    kubernetes.Interface
+	buffer *correlator.Buffer
+	jc     *jaeger.Client
+
+	// cache is a short-TTL JSON response cache + singleflight. It collapses
+	// bursts of dashboard polling onto a single k8s List per key and lets the
+	// UI skip re-renders via ETag/If-None-Match.
+	cache *jsonCache
 }
+
+// defaultCacheTTL is short enough to stay responsive under churn but long
+// enough to collapse the typical dashboard poll pattern (multiple tabs +
+// auto-refresh) onto one backend call.
+const defaultCacheTTL = 3 * time.Second
 
 // NewServer returns a dashboard server that will listen on addr.
 func NewServer(c client.Client, addr string, logger logr.Logger) *Server {
@@ -34,35 +52,27 @@ func NewServer(c client.Client, addr string, logger logr.Logger) *Server {
 		client: c,
 		addr:   addr,
 		log:    logger.WithName("dashboard"),
+		cache:  newJSONCache(defaultCacheTTL),
 	}
 }
 
 // Start implements manager.Runnable. It blocks until ctx is cancelled.
 func (s *Server) Start(ctx context.Context) error {
-	mux := http.NewServeMux()
-
-	// Serve embedded static files at /
-	sub, err := fs.Sub(staticFS, "static")
+	mux, err := s.newMux()
 	if err != nil {
-		return fmt.Errorf("dashboard: embed sub failed: %w", err)
+		return err
 	}
-	mux.Handle("/", http.FileServer(http.FS(sub)))
-
-	// API endpoints
-	mux.HandleFunc("/api/incidents", s.handleIncidents)
-	mux.HandleFunc("/api/incidents/", s.handleIncidentDetail)
-	mux.HandleFunc("/api/rules", s.handleRules)
-	mux.HandleFunc("/api/stats", s.handleStats)
-	mux.HandleFunc("/api/timeline", s.handleTimeline)
 
 	srv := &http.Server{
 		Addr:              s.addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
-		IdleTimeout:       60 * time.Second,
-		BaseContext:       func(_ net.Listener) context.Context { return ctx },
+		// WriteTimeout is intentionally 0: /api/stream is a long-lived SSE
+		// connection. Per-request timeouts are enforced via request context.
+		WriteTimeout: 0,
+		IdleTimeout:  60 * time.Second,
+		BaseContext:  func(_ net.Listener) context.Context { return ctx },
 	}
 
 	// Graceful shutdown when the manager context is cancelled.
@@ -78,6 +88,37 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("dashboard server failed: %w", err)
 	}
 	return nil
+}
+
+func (s *Server) newMux() (*http.ServeMux, error) {
+	mux := http.NewServeMux()
+
+	// Serve embedded static files at / and /static/. The /static/ mount keeps
+	// asset URLs explicit while the root mount preserves direct index serving.
+	sub, err := fs.Sub(staticFS, "static")
+	if err != nil {
+		return nil, fmt.Errorf("dashboard: embed sub failed: %w", err)
+	}
+	staticHandler := http.FileServer(http.FS(sub))
+	mux.Handle("/static/", http.StripPrefix("/static/", staticHandler))
+	mux.Handle("/", staticHandler)
+
+	// API endpoints
+	mux.HandleFunc("/api/incidents", s.handleIncidents)
+	mux.HandleFunc("/api/incidents/", s.handleIncidentDetail)
+	mux.HandleFunc("/api/rules", s.handleRules)
+	mux.HandleFunc("/api/stats", s.handleStats)
+	mux.HandleFunc("/api/timeline", s.handleTimeline)
+	mux.HandleFunc("/api/topology", s.handleTopology)
+	mux.HandleFunc("/api/service-graph", s.handleServiceGraph)
+	mux.HandleFunc("/api/resources/", s.handleResource)
+	mux.HandleFunc("/api/logs", s.handleLogs)
+	mux.HandleFunc("/api/agents", s.handleAgents)
+	mux.HandleFunc("/api/pods", s.handlePods)
+	mux.HandleFunc("/api/stream", s.handleStream)
+	mux.HandleFunc("/api/traces/", s.handleTrace)
+
+	return mux, nil
 }
 
 // ── API types ─────────────────────────────────────────────────────────────────
@@ -105,6 +146,10 @@ type incidentResponse struct {
 	Timeline          []timelineEntry                `json:"timeline"`
 	AgentRef          string                         `json:"agentRef"`
 	LastSeen          string                         `json:"lastSeen"`
+	TraceID           string                         `json:"traceId,omitempty"`
+	TraceIDs          []string                       `json:"traceIds,omitempty"`
+	FiredRule         string                         `json:"firedRule,omitempty"`
+	HasTopology       bool                           `json:"hasTopology"`
 }
 
 type timelineEntry struct {
@@ -145,8 +190,9 @@ type ruleResponse struct {
 
 type incidentDetailResponse struct {
 	incidentResponse
-	TraceID   string `json:"traceId"`
-	FiredRule string `json:"firedRule"`
+	TraceID   string   `json:"traceId"`
+	TraceIDs  []string `json:"traceIds,omitempty"`
+	FiredRule string   `json:"firedRule"`
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
@@ -157,61 +203,70 @@ func (s *Server) handleIncidents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	list := &rcav1alpha1.IncidentReportList{}
-	opts := []client.ListOption{}
-
-	// Optional namespace filter.
-	if ns := r.URL.Query().Get("namespace"); ns != "" {
-		opts = append(opts, client.InNamespace(ns))
-	}
-
-	if err := s.client.List(r.Context(), list, opts...); err != nil {
-		s.log.Error(err, "Failed to list IncidentReports")
-		http.Error(w, "failed to list incidents", http.StatusInternalServerError)
-		return
-	}
-
-	// Optional phase and severity filters (applied in-memory).
-	phaseFilter := r.URL.Query().Get("phase")
-	sevFilter := r.URL.Query().Get("severity")
-	typeFilter := r.URL.Query().Get("type")
-	query := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("query")))
-	limit := parsePositiveInt(r.URL.Query().Get("limit"), 500)
-	offset := parsePositiveInt(r.URL.Query().Get("offset"), 0)
-	sortBy := r.URL.Query().Get("sort")
+	q := r.URL.Query()
+	nsFilter := q.Get("namespace")
+	phaseFilter := q.Get("phase")
+	sevFilter := q.Get("severity")
+	typeFilter := q.Get("type")
+	query := strings.ToLower(strings.TrimSpace(q.Get("query")))
+	limit := parsePositiveInt(q.Get("limit"), 500)
+	offset := parsePositiveInt(q.Get("offset"), 0)
+	sortBy := q.Get("sort")
 	if sortBy == "" {
 		sortBy = "newest"
 	}
 
-	result := make([]incidentResponse, 0, len(list.Items))
-	for i := range list.Items {
-		item := &list.Items[i]
-		if phaseFilter != "" && item.Status.Phase != phaseFilter {
-			continue
-		}
-		if sevFilter != "" && item.Status.Severity != sevFilter {
-			continue
-		}
-		if typeFilter != "" && item.Spec.IncidentType != typeFilter {
-			continue
-		}
-		if query != "" && !matchesIncidentQuery(item, query) {
-			continue
-		}
-		result = append(result, toIncidentResponse(item))
-	}
+	key := "incidents|" + nsFilter + "|" + phaseFilter + "|" + sevFilter + "|" + typeFilter +
+		"|" + query + "|" + sortBy + "|l=" + strconv.Itoa(limit) + "|o=" + strconv.Itoa(offset)
 
-	sortIncidentResponses(result, sortBy)
-
-	if offset > len(result) {
-		offset = len(result)
+	body, etag, err := s.cache.Fetch(key, func() (any, error) {
+		list := &rcav1alpha1.IncidentReportList{}
+		opts := []client.ListOption{}
+		if nsFilter != "" {
+			opts = append(opts, client.InNamespace(nsFilter))
+		}
+		if err := s.client.List(r.Context(), list, opts...); err != nil {
+			return nil, err
+		}
+		result := make([]incidentResponse, 0, len(list.Items))
+		for i := range list.Items {
+			item := &list.Items[i]
+			if phaseFilter != "" && item.Status.Phase != phaseFilter {
+				continue
+			}
+			if sevFilter != "" && item.Status.Severity != sevFilter {
+				continue
+			}
+			if typeFilter != "" && item.Spec.IncidentType != typeFilter {
+				continue
+			}
+			if query != "" && !matchesIncidentQuery(item, query) {
+				continue
+			}
+			result = append(result, toIncidentResponse(item))
+		}
+		sortIncidentResponses(result, sortBy)
+		result = collapseDuplicateOTelIncidents(result)
+		if offset > len(result) {
+			offset = len(result)
+		}
+		end := len(result)
+		if limit > 0 && offset+limit < end {
+			end = offset + limit
+		}
+		// Always return a non-nil slice so JSON renders as `[]` not `null`.
+		sliced := result[offset:end]
+		if sliced == nil {
+			sliced = []incidentResponse{}
+		}
+		return sliced, nil
+	})
+	if err != nil {
+		s.log.Error(err, "Failed to list IncidentReports")
+		http.Error(w, "failed to list incidents", http.StatusInternalServerError)
+		return
 	}
-	end := len(result)
-	if limit > 0 && offset+limit < end {
-		end = offset + limit
-	}
-
-	writeJSON(w, result[offset:end])
+	writeCachedJSON(w, r, body, etag)
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
@@ -219,12 +274,22 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
-	list := &rcav1alpha1.IncidentReportList{}
-	if err := s.client.List(r.Context(), list); err != nil {
-		s.log.Error(err, "Failed to list IncidentReports for stats")
+	body, etag, err := s.cache.Fetch("stats", func() (any, error) {
+		return s.computeStats(r.Context())
+	})
+	if err != nil {
+		s.log.Error(err, "Failed to compute stats")
 		http.Error(w, "failed to list incidents", http.StatusInternalServerError)
 		return
+	}
+	writeCachedJSON(w, r, body, etag)
+}
+
+// computeStats builds the stats payload. Extracted so handleStats can cache it.
+func (s *Server) computeStats(ctx context.Context) (statsResponse, error) {
+	list := &rcav1alpha1.IncidentReportList{}
+	if err := s.client.List(ctx, list); err != nil {
+		return statsResponse{}, err
 	}
 
 	resp := statsResponse{
@@ -260,7 +325,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	// Also list RCAAgent CRDs directly so agents without incidents still appear.
 	agentList := &rcav1alpha1.RCAAgentList{}
 	agentMap := make(map[string]*rcav1alpha1.RCAAgent)
-	if err := s.client.List(r.Context(), agentList); err != nil {
+	if err := s.client.List(ctx, agentList); err != nil {
 		s.log.Error(err, "Failed to list RCAAgents for stats")
 	} else {
 		for i := range agentList.Items {
@@ -304,8 +369,11 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		}
 		resp.Agents = append(resp.Agents, ai)
 	}
+	if resp.Agents == nil {
+		resp.Agents = []agentInfo{}
+	}
 
-	writeJSON(w, resp)
+	return resp, nil
 }
 
 func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
@@ -313,12 +381,21 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
-	list := &rcav1alpha1.RCACorrelationRuleList{}
-	if err := s.client.List(r.Context(), list); err != nil {
+	body, etag, err := s.cache.Fetch("rules", func() (any, error) {
+		return s.computeRules(r.Context())
+	})
+	if err != nil {
 		s.log.Error(err, "Failed to list RCACorrelationRules")
 		http.Error(w, "failed to list rules", http.StatusInternalServerError)
 		return
+	}
+	writeCachedJSON(w, r, body, etag)
+}
+
+func (s *Server) computeRules(ctx context.Context) ([]ruleResponse, error) {
+	list := &rcav1alpha1.RCACorrelationRuleList{}
+	if err := s.client.List(ctx, list); err != nil {
+		return nil, err
 	}
 
 	result := make([]ruleResponse, 0, len(list.Items))
@@ -362,7 +439,7 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		return result[i].Priority > result[j].Priority
 	})
 
-	writeJSON(w, result)
+	return result, nil
 }
 
 func (s *Server) handleIncidentDetail(w http.ResponseWriter, r *http.Request) {
@@ -371,11 +448,13 @@ func (s *Server) handleIncidentDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract incident name from path: /api/incidents/{namespace}/{name}
+	// Supported shapes:
+	//   /api/incidents/{namespace}/{name}        → detail JSON
+	//   /api/incidents/{namespace}/{name}/graph  → raw IncidentGraph JSON
 	path := strings.TrimPrefix(r.URL.Path, "/api/incidents/")
-	parts := strings.SplitN(path, "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		http.Error(w, "path must be /api/incidents/{namespace}/{name}", http.StatusBadRequest)
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		http.Error(w, "path must be /api/incidents/{namespace}/{name}[/graph]", http.StatusBadRequest)
 		return
 	}
 	namespace, name := parts[0], parts[1]
@@ -387,16 +466,86 @@ func (s *Server) handleIncidentDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(parts) >= 3 && parts[2] == "graph" {
+		s.writeIncidentGraph(w, item)
+		return
+	}
+	if len(parts) > 2 {
+		http.Error(w, "unknown sub-resource; expected /graph", http.StatusNotFound)
+		return
+	}
+
 	base := toIncidentResponse(item)
 	detail := incidentDetailResponse{
 		incidentResponse: base,
 	}
 	if item.Annotations != nil {
 		detail.TraceID = item.Annotations["rca.rca-operator.tech/trace-id"]
+		detail.TraceIDs = collectTraceIDs(item.Annotations)
+		if detail.TraceID == "" && len(detail.TraceIDs) > 0 {
+			detail.TraceID = detail.TraceIDs[len(detail.TraceIDs)-1]
+		}
 		detail.FiredRule = item.Annotations["rca.rca-operator.tech/fired-rule"]
 	}
 
 	writeJSON(w, detail)
+}
+
+func collectTraceIDs(annotations map[string]string) []string {
+	if len(annotations) == 0 {
+		return nil
+	}
+
+	list := parseTraceIDCSV(annotations[reporter.AnnotationTraceIDs])
+	if single := strings.TrimSpace(annotations[reporter.AnnotationTraceID]); single != "" {
+		seen := make(map[string]struct{}, len(list)+1)
+		for _, id := range list {
+			seen[id] = struct{}{}
+		}
+		if _, ok := seen[single]; !ok {
+			list = append(list, single)
+		}
+	}
+	return list
+}
+
+func parseTraceIDCSV(in string) []string {
+	if strings.TrimSpace(in) == "" {
+		return nil
+	}
+	parts := strings.FieldsFunc(in, func(r rune) bool {
+		return r == ',' || r == '\n' || r == '\r' || r == '\t' || r == ' '
+	})
+	out := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, p := range parts {
+		id := strings.TrimSpace(p)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+// writeIncidentGraph streams the opaque IncidentGraph payload stored on
+// status.incidentGraph. Returns 204 when the graph has not been built or was
+// pruned by the retention subsystem so the UI can render an empty-state
+// message without treating this as an error.
+func (s *Server) writeIncidentGraph(w http.ResponseWriter, item *rcav1alpha1.IncidentReport) {
+	raw := item.Status.IncidentGraph
+	if raw == nil || len(raw.Raw) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if _, err := w.Write(raw.Raw); err != nil {
+		s.log.V(1).Info("failed to write incident graph", "error", err.Error())
+	}
 }
 
 func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
@@ -507,10 +656,17 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 func toIncidentResponse(item *rcav1alpha1.IncidentReport) incidentResponse {
+	traceIDs := collectTraceIDs(item.Annotations)
+	traceID := strings.TrimSpace(item.Annotations[reporter.AnnotationTraceID])
+	if traceID == "" && len(traceIDs) > 0 {
+		traceID = traceIDs[len(traceIDs)-1]
+	}
+	firedRule := strings.TrimSpace(item.Annotations[reporter.AnnotationFiredRule])
+
 	resp := incidentResponse{
 		Name:              item.Name,
 		Namespace:         item.Namespace,
-		Fingerprint:       item.Spec.Fingerprint,
+		Fingerprint:       reporter.ReportFingerprint(item),
 		PodName:           item.Labels[reporter.LabelPodName],
 		Severity:          item.Status.Severity,
 		Phase:             item.Status.Phase,
@@ -525,6 +681,10 @@ func toIncidentResponse(item *rcav1alpha1.IncidentReport) incidentResponse {
 		AgentRef:          item.Spec.AgentRef,
 		LastSeen:          item.Annotations[reporter.AnnotationLastSeen],
 		SignalCount:       item.Status.SignalCount,
+		TraceID:           traceID,
+		TraceIDs:          traceIDs,
+		FiredRule:         firedRule,
+		HasTopology:       hasRenderableIncidentTopology(item),
 	}
 	if item.Status.FirstObservedAt != nil {
 		t := item.Status.FirstObservedAt.Time
@@ -559,6 +719,89 @@ func toIncidentResponse(item *rcav1alpha1.IncidentReport) incidentResponse {
 		resp.Timeline = append(resp.Timeline, timelineEntry{Time: &t, Event: e.Event})
 	}
 	return resp
+}
+
+func collapseDuplicateOTelIncidents(in []incidentResponse) []incidentResponse {
+	if len(in) <= 1 {
+		return in
+	}
+
+	out := make([]incidentResponse, 0, len(in))
+	indexByKey := make(map[string]int, len(in))
+	for _, item := range in {
+		if !incident.IsOTelIncidentType(item.IncidentType) || item.Fingerprint == "" {
+			out = append(out, item)
+			continue
+		}
+		key := item.Namespace + "/" + item.Fingerprint
+		if idx, ok := indexByKey[key]; ok {
+			if preferIncidentListItem(item, out[idx]) {
+				out[idx] = item
+			}
+			continue
+		}
+		indexByKey[key] = len(out)
+		out = append(out, item)
+	}
+	return out
+}
+
+func preferIncidentListItem(candidate, current incidentResponse) bool {
+	candidateOpen := candidate.Phase != reporter.PhaseResolved
+	currentOpen := current.Phase != reporter.PhaseResolved
+	if candidateOpen != currentOpen {
+		return candidateOpen
+	}
+	candidateSeverity := severityRank(candidate.Severity)
+	currentSeverity := severityRank(current.Severity)
+	if candidateSeverity != currentSeverity {
+		return candidateSeverity > currentSeverity
+	}
+	return incidentResponseLastTime(candidate).After(incidentResponseLastTime(current))
+}
+
+func incidentResponseLastTime(item incidentResponse) time.Time {
+	for _, t := range []*time.Time{item.LastObservedAt, item.ActiveAt, item.FirstObservedAt, item.ResolvedAt} {
+		if t != nil {
+			return *t
+		}
+	}
+	return time.Time{}
+}
+
+func hasRenderableIncidentTopology(item *rcav1alpha1.IncidentReport) bool {
+	if item == nil || item.Status.IncidentGraph == nil || len(item.Status.IncidentGraph.Raw) == 0 {
+		return false
+	}
+
+	var g graph.IncidentGraph
+	if err := json.Unmarshal(item.Status.IncidentGraph.Raw, &g); err != nil {
+		return false
+	}
+
+	services := make(map[string]struct{}, len(g.Nodes))
+	for _, n := range g.Nodes {
+		if n.Kind == graph.NodeKindService && n.ID != "" {
+			services[n.ID] = struct{}{}
+		}
+	}
+	if len(services) < 2 {
+		return false
+	}
+
+	for _, e := range g.Edges {
+		if e.Kind != graph.EdgeKindCalls || e.From == e.To {
+			continue
+		}
+		if _, ok := services[e.From]; !ok {
+			continue
+		}
+		if _, ok := services[e.To]; !ok {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

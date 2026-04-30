@@ -7,23 +7,31 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - namespaces
+  - nodes
+  - pods
+  - secrets
+  - services
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods/log
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  - events.k8s.io
+  resources:
   - events
   verbs:
   - create
   - get
   - list
   - patch
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - namespaces
-  - nodes
-  - pods
-  - secrets
-  verbs:
-  - get
-  - list
   - watch
 - apiGroups:
   - apps

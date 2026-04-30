@@ -1,0 +1,167 @@
+# values-production.yaml — RCA Operator production overlay
+#
+# A minimal-but-opinionated starting point for production installs. It hardens
+# the operator (HA replicas, anti-affinity, tight resources, pinned image) and
+# leaves the observability stack on because OTLP ingest + topology enrichment
+# are what make Phase 2 useful.
+#
+# Usage:
+#   helm repo add rca-operator  https://gaurangkudale.github.io/rca-operator.github.io/charts
+#   helm repo add opentelemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+#   helm repo add jaegertracing https://jaegertracing.github.io/helm-charts
+#   helm repo update
+#
+#   helm upgrade --install rca-operator rca-operator/rca-operator \
+#     -f values-production.yaml \
+#     --namespace rca-system --create-namespace \
+#     --wait --timeout 10m
+#
+# Things you MUST review before applying:
+#   - image.tag                     — pin to the exact release you tested
+#   - instrumentation.targetNamespaces — list your app namespaces
+#   - jaeger.storage                — switch off "memory" for any real cluster
+#   - autoDetect.enabled            — off by default here; flip on when you
+#                                     have signal baselines you trust
+# -----------------------------------------------------------------------------
+
+# ── Operator image ────────────────────────────────────────────────────────────
+# Pin an immutable tag. Do NOT use "latest" in production.
+image:
+  repository: ghcr.io/gaurangkudale/rca-operator
+  tag: "0.0.16"
+  pullPolicy: IfNotPresent
+
+# ── HA control plane ──────────────────────────────────────────────────────────
+# Two replicas with leader election. Only one reconciles at a time; the second
+# is a warm stand-by that takes over within the lease TTL (~15s) on pod loss.
+replicaCount: 2
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1      # Always keep one reconciler up during voluntary disruption
+
+# Spread replicas across nodes/zones so a single node drain cannot take out
+# both pods at once. Uses topology keys present on every cloud provider.
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: rca-operator
+              app.kubernetes.io/component: controller-manager
+          topologyKey: topology.kubernetes.io/zone
+      - weight: 50
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: rca-operator
+              app.kubernetes.io/component: controller-manager
+          topologyKey: kubernetes.io/hostname
+
+leaderElection:
+  enabled: true
+
+signals:
+  bufferSize: 16384
+  emitDedupWindow: 5s
+
+# ── Resources (medium cluster sizing — adjust per values.yaml table) ─────────
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+# ── Self-telemetry: trace the operator itself into the bundled collector ─────
+# Lets you alert on reconcile latency / signal drop rate from the same Jaeger
+# you use for application traces.
+otel:
+  enabled: true
+  endpoint: ""          # Auto: <release>-otel-collector.<ns>.svc:4317
+  samplingRate: "0.1"   # 10% — operator emits high-cardinality spans
+
+# ── OTLP ingest — keep tight defaults ────────────────────────────────────────
+rcaIngest:
+  enabled: true
+  networkPolicy:
+    enabled: true        # restrict ingress on :4319 to the collector SA
+
+otelIngest:
+  filters:
+    traces:
+      statusCodeERROR: true
+      httpStatusGte: 500
+      latencyP99Ms: 5000
+    logs:
+      minSeverity: "ERROR"
+      maxSignalsPerRequest: 128
+
+# ── Auto-detection: off in prod until you've reviewed a few weeks of signals ─
+autoDetect:
+  enabled: false
+
+# ── OTel Operator + Collector ────────────────────────────────────────────────
+opentelemetryOperator:
+  enabled: true
+
+otelCollector:
+  enabled: true
+  mode: daemonset
+  # Bump collector resources in high-traffic clusters. These defaults suit
+  # a node running ~500 req/s of instrumented traffic.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# ── Zero-code instrumentation targets ────────────────────────────────────────
+# List every namespace whose deployments carry the
+# `instrumentation.opentelemetry.io/inject-*` annotation.
+instrumentation:
+  enabled: true
+  targetNamespaces: []
+    # - payments
+    # - checkout
+
+# ── Jaeger — REQUIRED: replace in-memory storage for any real cluster ────────
+# In-memory loses every trace on pod restart. Pick one of:
+#   - elasticsearch (managed ES, Opensearch, or in-cluster ES)
+#   - cassandra
+#   - remote OTLP to an external Jaeger / Tempo / Honeycomb
+jaeger:
+  enabled: true
+  # Example — managed Elasticsearch:
+  # storage:
+  #   type: elasticsearch
+  #   elasticsearch:
+  #     host: elasticsearch-master.observability.svc.cluster.local
+  #     port: 9200
+  #     user: jaeger
+  #     password: ${JAEGER_ES_PASSWORD}
+
+# Auto-wires to bundled Jaeger. Override only when pointing at an external
+# Jaeger Query endpoint (e.g. a shared observability cluster).
+graphBuilder:
+  jaegerQueryURL: ""
+
+# ── Security hardening defaults are already on in values.yaml ───────────────
+# (runAsNonRoot, readOnlyRootFilesystem, drop ALL caps, seccomp RuntimeDefault)
+# Kept here explicitly for auditability.
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL

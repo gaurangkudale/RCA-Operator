@@ -1,0 +1,46 @@
+{{- if and .Values.rcaIngest.enabled .Values.rcaIngest.networkPolicy.enabled }}
+# Phase 2 Milestone A — NetworkPolicy restricting ingress on the operator's
+# OTLP port to the cluster-wide OTel Collector DaemonSet's ServiceAccount.
+#
+# This prevents arbitrary workloads from pushing OTLP traffic into the
+# correlation pipeline. The DaemonSet collector's ServiceAccount is the only
+# legitimate source of fanned-out error spans / warn logs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "rca-operator.ingestServiceName" . }}
+  namespace: {{ include "rca-operator.namespace" . }}
+  labels:
+    {{- include "rca-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-ingest
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "rca-operator.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              # Pods created by the OTel Operator from the OpenTelemetryCollector CR
+              # carry this label automatically.
+              app.kubernetes.io/name: {{ include "rca-operator.otelCollectorName" . }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ include "rca-operator.namespace" . }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: otel-collector
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ include "rca-operator.namespace" . }}
+          podSelector:
+            matchLabels:
+              # Some OTel Operator versions label collector pods with
+              # "opentelemetry-collector" instead of "otel-collector".
+              app.kubernetes.io/component: opentelemetry-collector
+      ports:
+        - port: {{ .Values.rcaIngest.bindPort }}
+          protocol: TCP
+{{- end }}

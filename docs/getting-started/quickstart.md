@@ -1,95 +1,109 @@
 # Quick Start
 
-Get your first `RCAAgent` running in under five minutes.
+Get from a fresh install to a real incident in the dashboard in about five
+minutes. This assumes you completed [Installation](installation.md) — pods
+in `rca-system` should already be `Running`.
 
 ---
 
-## 1. Apply the minimal RCAAgent
+## 1. Create an RCAAgent
+
+An `RCAAgent` tells the operator which namespaces to watch. One agent can
+cover multiple namespaces.
 
 ```yaml
 # rca-agent.yaml
 apiVersion: rca.rca-operator.tech/v1alpha1
 kind: RCAAgent
 metadata:
-  name: sre-agent
-  namespace: default
+  name: default-agent
+  namespace: rca-system
 spec:
   watchNamespaces:
-    - production
-    - staging
-  incidentRetention: 30d
+    - default
+    - rca-demo
+  incidentRetention: 7d
 ```
 
 ```bash
 kubectl apply -f rca-agent.yaml
+kubectl get rcaagent -n rca-system   # READY should become True
 ```
-
-## 2. Verify the agent is ready
-
-```bash
-# STATUS column should show True
-kubectl get rcaagent -n default
-
-# Full status detail
-kubectl describe rcaagent sre-agent -n default
-```
-
-## 3. Verify correlation rules are loaded
-
-```bash
-# The Helm chart installs 4 default rules
-kubectl get rcacorrelationrules
-```
-
-## 4. Trigger a test incident
-
-```bash
-# Apply one of the pre-built fixture pods
-kubectl apply -f test/fixtures/pods/crashloop.yaml
-
-# Watch incidents appear
-kubectl get incidentreports -n default -w
-```
-
-See [test/fixtures/README.md](../../test/fixtures/README.md) for all available test scenarios.
 
 ---
 
-## 5. Add Notifications (optional)
+## 2. Open the dashboard
+
+The chart installs a dashboard service on port 9090.
 
 ```bash
-# Slack
-kubectl create secret generic slack-webhook \
-  --from-literal=webhookURL=https://hooks.slack.com/... \
-  -n default
-
-# PagerDuty
-kubectl create secret generic pd-api-key \
-  --from-literal=apiKey=<PD_KEY> \
-  -n default
+kubectl port-forward -n rca-system svc/rca-operator-dashboard 9090:9090
 ```
 
-Then add the `notifications` block to your `RCAAgent` spec — see the [RCAAgent CRD reference](../reference/rcaagent-crd.md) for all fields.
+Open <http://localhost:9090>. The incidents list starts empty — we'll fill it
+in the next step.
 
 ---
 
-## 6. Enable Auto-Detection (optional)
+## 3. Trigger a test incident
 
-The operator can automatically learn correlation rules from observed signal patterns. Enable it via Helm:
-
-```yaml
-autoDetect:
-  enabled: true
-```
-
-Or pass the flag directly:
+The repo ships fixture pods that fail in known-correlatable ways.
 
 ```bash
---enable-autodetect
+# Clone fixtures if you installed via Helm repo
+git clone --depth 1 https://github.com/gaurangkudale/RCA-Operator.git /tmp/rca
+
+# The fixture deploys into the rca-demo namespace — create it first
+kubectl create namespace rca-demo
+kubectl apply -f /tmp/rca/test/fixtures/pods/crashloop.yaml
+
+# Watch the incident get created
+kubectl get incidentreports -n rca-demo -w
 ```
 
-Auto-generated rules use priority 10-50 (below user rules) and are labeled for easy identification. See [Auto-Detection](../features/auto-detection.md) for details.
+Within ~30 seconds you should see an `IncidentReport` appear in
+`Detecting` → `Active` phase. Refresh the dashboard — the incident shows up
+with its timeline, affected pod, and (if the OTLP stack is installed) a
+topology graph.
+
+All fixtures: [test/fixtures/README.md](../../test/fixtures/README.md).
 
 ---
 
-Next: [RCAAgent CRD Reference](../reference/rcaagent-crd.md)
+## 4. What just happened
+
+1. **Signal collection.** The pod's `BackOff` + container `CrashLoopBackOff`
+   events reached the operator's watcher.
+2. **Correlation.** The CrashLoopBackOff signal flowed through the correlator
+   buffer. With only a single signal the multi-signal default rules don't fire,
+   but the operator still records a `CrashLoopBackOff` incident from the
+   single signal. To see a correlated multi-signal incident (e.g.
+   `crashloop-plus-oom`), apply a fixture that produces both crash loops and
+   OOM kills.
+3. **Incident creation.** The reporter deduplicated signals into a single
+   `IncidentReport` CR, set its phase to `Active`, and emitted a Kubernetes
+   Event.
+4. **Dashboard render.** The dashboard API reads `IncidentReport` CRs
+   directly — no database, no scraping.
+
+If you installed the full stack, OTLP spans from instrumented apps also flow
+into the correlator. See [OTLP Ingest](../features/otlp-ingest.md).
+
+---
+
+## 5. Clean up the test
+
+```bash
+kubectl delete -f /tmp/rca/test/fixtures/pods/crashloop.yaml
+# The IncidentReport will transition to Resolved automatically
+```
+
+---
+
+## Next steps
+
+- Add notifications → [RCAAgent CRD Reference](../reference/rcaagent-crd.md#specnotifications)
+- Write your own correlation rule → [RCACorrelationRule Reference](../reference/rcacorrelationrule-crd.md)
+- Auto-detect patterns → [Auto-Detection](../features/auto-detection.md)
+- Stream traces from your apps → [OTLP Ingest](../features/otlp-ingest.md)
+- Understand the topology graph → [Topology Graph](../features/topology-graph.md)

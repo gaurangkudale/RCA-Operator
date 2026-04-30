@@ -1,54 +1,231 @@
-{{- if .Release.IsUpgrade }}
-⚠️  IMPORTANT: CRD Upgrade Notice
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Helm does not automatically upgrade CRDs. If you're upgrading from a version
-with .io API group CRDs, you MUST manually replace them:
+{{- $ns          := .Release.Namespace -}}
+{{- $release     := .Release.Name -}}
+{{- $fullname    := include "rca-operator.fullname" . -}}
+{{- $collSvc     := include "rca-operator.collectorServiceName" . -}}
+{{- $jaegerSvc   := printf "%s-jaeger" $release -}}
+{{- $otlpGrpc    := include "rca-operator.jaegerOtlpEndpoint" . -}}
+{{- $otlpHttp    := include "rca-operator.otlpEndpoint" . -}}
+{{- $jaegerQuery := include "rca-operator.jaegerQueryURL" . -}}
 
-1. Run the CRD upgrade script:
-   curl -sSL https://raw.githubusercontent.com/gaurangkudale/RCA-Operator/main-gk/scripts/helm-upgrade-crds.sh | bash -s {{ .Release.Name }} {{ .Release.Namespace }}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  RCA Operator  {{ if .Release.IsUpgrade }}(upgraded to v{{ .Chart.AppVersion }}){{ else }}(installed v{{ .Chart.AppVersion }}){{ end }}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2. Or manually:
-   kubectl delete crd rcaagents.rca.rca-operator.io incidentreports.rca.rca-operator.io
+{{ if .Release.IsUpgrade -}}
+⚠️  CRD UPGRADE NOTICE
+   Helm does not auto-upgrade CRDs. If you changed CRD schemas, run:
    kubectl apply -f https://github.com/gaurangkudale/RCA-Operator/releases/download/helm-v{{ .Chart.Version }}/rca-operator-{{ .Chart.Version }}.tgz --dry-run=server -o yaml | kubectl apply -f -
+   Or: https://github.com/gaurangkudale/RCA-Operator/blob/main-gk/docs/HELM_UPGRADE.md
 
-For more details: https://github.com/gaurangkudale/RCA-Operator/blob/main-gk/docs/HELM_UPGRADE.md
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{ end -}}
+
+▶  TELEMETRY DATA FLOW (single helm install deploys everything below)
+
+   Your App Pods
+     │  auto-instrumented via Instrumentation CR
+     │  OTLP HTTP → {{ $otlpHttp }}
+     ▼
+   OTel Collector DaemonSet  ({{ $collSvc }})
+     │  :4317/:4318 OTLP in — k8sattributes enrichment — filelog tailing
+     │
+     ├─── ALL traces ──────────────────────────────────► Jaeger  ({{ $otlpGrpc }})
+     │                                                   └── UI: {{ $jaegerSvc }}:16686
+     │
+     └─── ERROR spans + WARN logs (filtered) ──────────► RCA Operator Ingest (:{{ .Values.rcaIngest.bindPort }})
+                                                           │  trace-id captured, signals correlated
+                                                           ▼
+                                                         Incident Correlator
+                                                           │
+{{- if $jaegerQuery }}
+                                                           ├─ graph enrichment ◄── Jaeger Query API
+                                                           │                       {{ $jaegerQuery }}
+{{- end }}
+                                                           ▼
+                                                         IncidentReport CR
+                                                           │
+                                                           ▼
+                                                         Dashboard :{{ .Values.dashboard.port }}
+
+   Trace enrichment: k8sattributes processor adds pod/node/namespace metadata.
+   Log collection:   filelog receiver tails /var/log/pods on every node.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  FRESH INSTALL — copy-paste guide
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# 1. Add required Helm chart repositories (one-time)
+helm repo add rca-operator   https://gaurangkudale.github.io/rca-operator.github.io/charts
+helm repo add opentelemetry  https://open-telemetry.github.io/opentelemetry-helm-charts
+helm repo add jaegertracing  https://jaegertracing.github.io/helm-charts
+helm repo update
+
+# 2. Download sub-charts into helm/charts/ (required before install)
+helm dep update rca-operator/rca-operator
+   # or, if installing from local source:
+   # helm dep update ./helm
+
+# 3. Install / upgrade in one command
+helm upgrade --install {{ $release }} rca-operator/rca-operator \
+  --namespace {{ $ns }} \
+  --create-namespace \
+  --wait \
+  --timeout 10m
+
+   # --wait  : Helm waits for all Deployments (operator + Jaeger) to be
+   #           Ready before applying the OpenTelemetryCollector and
+   #           Instrumentation CRs (post-install hooks, weights 10 & 20).
+   # --timeout: Give the operator and Jaeger enough time to start up.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  VERIFY INSTALLATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Check all pods are Running
+kubectl get pods -n {{ $ns }}
+
+# Expected pods:
+#   {{ $fullname }}-*             — RCA Operator controller
+{{- if .Values.opentelemetryOperator.enabled }}
+#   {{ $release }}-opentelemetry-operator-*  — OTel Operator
+{{- end }}
+{{- if .Values.otelCollector.enabled }}
+#   {{ $fullname }}-otel-collector-*         — OTel Collector (DaemonSet, one per node)
+{{- end }}
+{{- if .Values.jaeger.enabled }}
+#   {{ $release }}-jaeger-*                  — Jaeger all-in-one
 {{- end }}
 
-RCA Operator has been {{ if .Release.IsUpgrade }}upgraded{{ else }}installed{{ end }} successfully!
+{{- if .Values.otelCollector.enabled }}
 
-1. Verify the operator is running:
-   kubectl get pods -n {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "rca-operator.name" . }}"
+# Confirm the OpenTelemetryCollector CR was created
+kubectl get opentelemetrycollector -n {{ $ns }}
 
-2. Create your first RCAAgent:
-   cat <<EOF | kubectl apply -f -
-   apiVersion: rca.rca-operator.tech/v1alpha1
-   kind: RCAAgent
-   metadata:
-     name: my-rca-agent
-     namespace: {{ .Release.Namespace }}
-   spec:
-     watchNamespaces:
-       - default
-     incidentRetention: "7d"
-   EOF
+# Tail collector logs (verify traces are forwarded to Jaeger)
+kubectl logs -n {{ $ns }} -l app.kubernetes.io/component=opentelemetry-collector \
+  --tail=50 -f
+{{- end }}
 
-3. Check for incident reports:
-   kubectl get incidentreports -A
+{{- if .Values.jaeger.enabled }}
 
-{{- if .Values.dashboard.enabled }}
-4. Access the Web UI Dashboard:
-{{- if .Values.dashboard.ingress.enabled }}
-{{- range $host := .Values.dashboard.ingress.hosts }}
-   External access: http{{ if $.Values.dashboard.ingress.tls }}s{{ end }}://{{ $host.host }}{{ (index $host.paths 0).path }}
+# Confirm Jaeger is receiving traces
+kubectl logs -n {{ $ns }} -l app.kubernetes.io/name=jaeger --tail=20
+{{- end }}
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ACCESS JAEGER UI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- if .Values.jaeger.enabled }}
+{{- if .Values.jaeger.ingress.enabled }}
+{{- range .Values.jaeger.ingress.hosts }}
+  External: http{{ if $.Values.jaeger.ingress.tls }}s{{ end }}://{{ .host }}
 {{- end }}
 {{- else }}
-   Port-forward to access locally:
-   kubectl port-forward -n {{ .Release.Namespace }} service/{{ include "rca-operator.fullname" . }}-dashboard {{ .Values.dashboard.service.port }}:{{ .Values.dashboard.service.port }}
 
-   Then open: http://localhost:{{ .Values.dashboard.service.port }}
+  kubectl port-forward -n {{ $ns }} svc/{{ $jaegerSvc }} 16686:16686
+  → Open: http://localhost:16686
+
+  Service endpoints (in-cluster):
+    Jaeger UI   : http://{{ $jaegerSvc }}.{{ $ns }}:16686
+    OTLP gRPC   : {{ $otlpGrpc }}
+    OTLP HTTP   : http://{{ $jaegerSvc }}.{{ $ns }}:4318
 {{- end }}
 {{- end }}
 
-For more information, visit:
-  https://github.com/gaurangkudale/RCA-Operator
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SEND TRACES FROM YOUR WORKLOADS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- if .Values.otelCollector.enabled }}
+
+  Option A — Direct OTLP export (any language with OTEL SDK):
+    OTEL_EXPORTER_OTLP_ENDPOINT = http://{{ $collSvc }}.{{ $ns }}:4318
+    OTEL_EXPORTER_OTLP_PROTOCOL = http/protobuf
+
+  Option B — Auto-instrumentation via annotation (zero code changes):
+    Requires: opentelemetryOperator.enabled=true and instrumentation.enabled=true
+
+{{- if and .Values.instrumentation.enabled .Values.opentelemetryOperator.enabled }}
+    # Python
+    kubectl patch deployment <my-app> -n <app-ns> \
+      -p '{"spec":{"template":{"metadata":{"annotations":{"instrumentation.opentelemetry.io/inject-python":"{{ $fullname }}-instrumentation"}}}}}'
+
+    # Java
+    kubectl patch deployment <my-app> -n <app-ns> \
+      -p '{"spec":{"template":{"metadata":{"annotations":{"instrumentation.opentelemetry.io/inject-java":"{{ $fullname }}-instrumentation"}}}}}'
+
+    # Node.js
+    kubectl patch deployment <my-app> -n <app-ns> \
+      -p '{"spec":{"template":{"metadata":{"annotations":{"instrumentation.opentelemetry.io/inject-nodejs":"{{ $fullname }}-instrumentation"}}}}}'
+
+    Instrumentation CR: {{ $fullname }}-instrumentation  (namespace: {{ $ns }})
+    Collector endpoint: {{ $otlpHttp }}
+{{- else }}
+    Enable with: --set instrumentation.enabled=true --set opentelemetryOperator.enabled=true
+{{- end }}
+{{- end }}
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  RCA OPERATOR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  # Create your first RCAAgent to watch a namespace:
+  kubectl apply -f - <<EOF
+  apiVersion: rca.rca-operator.tech/v1alpha1
+  kind: RCAAgent
+  metadata:
+    name: default-agent
+    namespace: {{ $ns }}
+  spec:
+    watchNamespaces:
+      - default
+    incidentRetention: "7d"
+  EOF
+
+  # Check for detected incidents:
+  kubectl get incidentreports -A
+
+{{- if .Values.dashboard.enabled }}
+
+  # Access the RCA dashboard:
+{{- if .Values.dashboard.ingress.enabled }}
+{{- range .Values.dashboard.ingress.hosts }}
+  http{{ if $.Values.dashboard.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else }}
+  kubectl port-forward -n {{ $ns }} svc/{{ $fullname }}-dashboard \
+    {{ .Values.dashboard.service.port }}:{{ .Values.dashboard.service.port }}
+  → Open: http://localhost:{{ .Values.dashboard.service.port }}
+{{- end }}
+{{- end }}
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  COMMON OVERRIDES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  # Disable observability stack (RCA Operator only):
+  --set opentelemetryOperator.enabled=false \
+  --set jaeger.enabled=false \
+  --set otelCollector.enabled=false \
+  --set instrumentation.enabled=false \
+  --set rcaIngest.enabled=false \
+  --set graphBuilder.jaegerQueryURL=""
+
+  # External Jaeger (already running in cluster):
+  --set jaeger.enabled=false \
+  --set otelCollector.jaegerEndpoint="my-jaeger.tracing:4317" \
+  --set graphBuilder.jaegerQueryURL="http://my-jaeger.tracing:16686"
+
+  # Disable log collection (traces only):
+  --set otelCollector.filelog.enabled=false
+
+  # Lower sampling rate for high-traffic production clusters:
+  --set instrumentation.sampler.type=parentbased_traceidratio \
+  --set instrumentation.sampler.argument="0.1"
+
+  Docs: https://github.com/gaurangkudale/RCA-Operator
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

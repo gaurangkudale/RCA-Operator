@@ -29,7 +29,7 @@ spec:
       name: payment-service
 status:
   phase: Active
-  severity: P2
+  severity: P2 # High
   incidentType: CrashLoopBackOff
   summary: "CrashLoopBackOff: container app in pod payment-abc123 (restarts: 8)"
   firstObservedAt: "2026-04-01T10:00:00Z"
@@ -74,7 +74,7 @@ status:
 | Field | Type | Description |
 |---|---|---|
 | `phase` | `string` | Current lifecycle phase: `Detecting`, `Active`, or `Resolved` |
-| `severity` | `string` | Incident severity: `P1`, `P2`, `P3`, or `P4` |
+| `severity` | `string` | Canonical incident severity code: `P1`, `P2`, `P3`, or `P4` |
 | `incidentType` | `string` | Self-describing incident type from the raw event |
 | `summary` | `string` | Human-readable summary for dashboard display |
 | `reason` | `string` | Machine-oriented Kubernetes reason when available |
@@ -83,11 +83,16 @@ status:
 | `activeAt` | `Time` | When the incident crossed the stabilization window |
 | `lastObservedAt` | `Time` | When the most recent confirming signal was received |
 | `resolvedAt` | `Time` | When the incident was resolved (empty while active) |
+| `startTime` | `Time` | Deprecated alias for `firstObservedAt`; retained for backward compatibility |
+| `resolvedTime` | `Time` | Deprecated alias for `resolvedAt`; retained for backward compatibility |
 | `signalCount` | `int64` | Number of confirming signals in the current lifecycle |
+| `stabilizationWindowSeconds` | `int64` | Stabilization window applied to this incident, in seconds |
 | `notified` | `bool` | Whether Slack/PagerDuty notifications have been sent |
 | `affectedResources` | `[]AffectedResource` | Kubernetes resources involved in this incident |
 | `correlatedSignals` | `[]string` | Raw signals that triggered this incident |
 | `timeline` | `[]TimelineEvent` | Ordered sequence of incident events |
+| `conditions` | `[]metav1.Condition` | Standard Kubernetes status conditions (Active, Resolved, etc.) |
+| `incidentGraph` | `runtime.RawExtension` | Serialized blast-radius topology graph — see [Topology Graph](../features/topology-graph.md) |
 
 ### Lifecycle Phases
 
@@ -103,12 +108,16 @@ Detecting ──(stabilization window)──> Active ──(pod healthy/deleted)
 
 ### Severity Levels
 
-| Level | Scope | Description |
-|---|---|---|
-| P1 | Cluster-wide | Node failures, mass evictions |
-| P2 | Namespace / Workload | Correlated multi-signal incidents |
-| P3 | Single service | Single-signal incidents (CrashLoopBackOff, ImagePullBackOff) |
-| P4 | Warning | Informational, low-urgency events |
+Severity codes are the canonical API values stored in `IncidentReport`,
+labels, metrics, and selectors. UI and documentation should display the human
+label next to the code.
+
+| Code | Label | Typical Scope | Description |
+|---|---|---|---|
+| P1 | Critical | Cluster-wide | Node failures, mass evictions, urgent paging |
+| P2 | High | Namespace / Workload | Correlated multi-signal incidents |
+| P3 | Medium | Single service | Single-signal incidents such as CrashLoopBackOff or ImagePullBackOff |
+| P4 | Low | Warning / informational | Low-urgency telemetry or diagnostic events |
 
 ## Print Columns
 
@@ -116,7 +125,7 @@ Detecting ──(stabilization window)──> Active ──(pod healthy/deleted)
 
 | Column | Description |
 |---|---|
-| Severity | P1–P4 |
+| Severity | Canonical code (`P1`–`P4`) |
 | Phase | Detecting, Active, Resolved |
 | Type | Incident type |
 | Notified | Whether notifications were sent |
@@ -125,15 +134,21 @@ Detecting ──(stabilization window)──> Active ──(pod healthy/deleted)
 
 ## kubectl Cheatsheet
 
+The reporter writes incident metadata to labels prefixed with `rca.rca-operator.tech/` (see `internal/reporter/cr_reporter.go`). Phase is **not** mirrored to a label — filter by phase with the `STATUS` print column or jq.
+
 ```bash
-# List all incidents
+# List all incidents (with the operator's print columns)
 kubectl get incidentreport -A
 
-# Active incidents only
-kubectl get incidentreport -A -l phase=Active
+# Filter by severity (label) — works with selectors
+kubectl get incidentreport -A -l rca.rca-operator.tech/severity=P1
 
-# Incidents for a specific severity
-kubectl get incidentreport -A -l severity=P1
+# Filter by incident type (label)
+kubectl get incidentreport -A -l rca.rca-operator.tech/incident-type=CrashLoopBackOff
+
+# Active incidents only — phase lives in status, not a label, so use jq
+kubectl get incidentreport -A -o json \
+  | jq -r '.items[] | select(.status.phase=="Active") | "\(.metadata.namespace)/\(.metadata.name)"'
 
 # Full detail
 kubectl describe incidentreport <name> -n <namespace>

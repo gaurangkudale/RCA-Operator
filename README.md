@@ -9,6 +9,8 @@
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-1.26+-326CE5?logo=kubernetes)](https://kubernetes.io)
 [![kubebuilder](https://img.shields.io/badge/Built%20with-kubebuilder-FF6B6B)](https://book.kubebuilder.io)
 
+**[rca-operator.tech](https://rca-operator.tech)**
+
 </div>
 
 ## What RCA Operator Does
@@ -26,9 +28,9 @@ The operator avoids AI systems, external databases, and log-scraping dependencie
 
 ## Architecture
 
-![alt text](<architecture.png>)
+![Architecture](architecture.png)
 
-More detail lives in [Architecture](docs/concepts/Architecture.md) and [Phase 1 Architecture](docs/phases/PHASE1_ARCHITECTURE.md).
+More detail lives in [Architecture](docs/concepts/Architecture.md) and [Phase 2 Release Notes](docs/phases/PHASE2_RELEASE_NOTES.md).
 
 ## Current Feature Set
 
@@ -40,20 +42,33 @@ More detail lives in [Architecture](docs/concepts/Architecture.md) and [Phase 1 
 | Durable incident records | Deduplicates repeated signals into one `IncidentReport` per fingerprint |
 | Incident lifecycle | Tracks `Detecting`, `Active`, and `Resolved` phases |
 | Notifications | Sends Slack and PagerDuty notifications and emits Kubernetes events |
-| Dashboard | Built-in incident dashboard with light/dark theme toggle |
+| Dashboard | Built-in incident dashboard with light/dark theme toggle, workload + service topology views, and an inline Jaeger trace detail modal (no Jaeger UI hop) |
 | Retention | Automatically prunes old resolved incidents |
-| OpenTelemetry | Optional OTLP trace/metric export |
+| OpenTelemetry | Optional OTLP trace export for the operator's own spans |
 
 ## Quick Install
 
-### Helm
+### Helm (recommended)
 
 ```bash
-helm repo add rca-operator https://gaurangkudale.github.io/rca-operator.github.io/charts
+# Add repositories (one-time)
+helm repo add rca-operator  https://gaurangkudale.github.io/rca-operator.github.io/charts
+helm repo add opentelemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+helm repo add jaegertracing  https://jaegertracing.github.io/helm-charts
 helm repo update
-helm install rca-operator rca-operator/rca-operator \
-  --namespace rca-system --create-namespace
+
+# Install
+helm upgrade --install rca-operator rca-operator/rca-operator \
+  --namespace rca-system --create-namespace \
+  --wait --timeout 10m
 ```
+
+> `--wait` is required — the `OpenTelemetryCollector` and `Instrumentation` CRs are applied
+> as post-install hooks after the otel-operator webhook is confirmed Ready.
+
+The default chart values are the **full** profile. Source installs can also use
+`helm/values-minimal.yaml` or `helm/values-external-observability.yaml`; see
+[Installation](docs/getting-started/installation.md).
 
 ### kubectl
 
@@ -61,8 +76,6 @@ helm install rca-operator rca-operator/rca-operator \
 kubectl apply -f https://github.com/gaurangkudale/RCA-Operator/releases/latest/download/install.yaml
 kubectl apply -f config/samples/rca_v1alpha1_rcaagent.yaml
 ```
-
-The checked-in sample is minimal and does not require notification secrets. If you enable notifications, create the referenced Slack and PagerDuty secrets first.
 
 ## Documentation
 
@@ -72,18 +85,21 @@ The checked-in sample is minimal and does not require notification secrets. If y
 | [Installation](docs/getting-started/installation.md) | Helm and kubectl installation |
 | [Quick Start](docs/getting-started/quickstart.md) | Deploy your first agent in minutes |
 | [Architecture](docs/concepts/Architecture.md) | System design and data flow |
-| [Phase 1 Architecture](docs/phases/PHASE1_ARCHITECTURE.md) | Production target and cleanup baseline |
+| [Phase 2 Release Notes](docs/phases/PHASE2_RELEASE_NOTES.md) | What's new in the Phase 2 release |
+| [Production Guide](docs/production.md) | Production sizing, security, RBAC, network policy, retention, and cardinality guidance |
+| [Phase 1 Architecture](docs/phases/PHASE1_ARCHITECTURE.md) | Historical Kubernetes-native foundation design |
 | [RCAAgent CRD Reference](docs/reference/rcaagent-crd.md) | `RCAAgent` schema and examples |
 | [IncidentReport CRD Reference](docs/reference/incidentreport-crd.md) | `IncidentReport` schema and fields |
 | [RCACorrelationRule CRD Reference](docs/reference/rcacorrelationrule-crd.md) | Correlation rule schema and examples |
 | [Auto-Detection](docs/features/auto-detection.md) | Automatic correlation rule detection |
+| [OTLP Ingest](docs/features/otlp-ingest.md) | In-operator OTLP/HTTP receiver for traces and logs |
+| [Topology Graph](docs/features/topology-graph.md) | Incident topology graph (K8s + trace + Jaeger enrichment) |
 | [Dashboard](docs/features/DASHBOARD.md) | Dashboard data model and access patterns |
 | [Metrics Reference](docs/reference/metrics.md) | Prometheus metrics exposed by the operator |
 | [RBAC Reference](docs/reference/rbac.md) | Permissions used by the operator |
 | [Local Development](docs/development/local-setup.md) | Run locally against a cluster |
 | [Testing Guide](docs/development/testing.md) | Unit, envtest, and e2e coverage |
-| [Fixtures](test/fixtures/README.md) | Manual scenarios for incident testing |
-| [Helm Chart Setup](docs/HELM_PAGES_SETUP.md) | Helm repo publishing to GitHub Pages |
+| [Helm Reference](docs/helm-installation.md) | Override flags, from-source install, upgrade, troubleshooting |
 | [Helm Upgrade Guide](docs/HELM_UPGRADE.md) | CRD upgrade and migration steps |
 
 ## Custom Resources
@@ -115,24 +131,31 @@ kubectl get rcacorrelationrules
 kubectl describe rcacorrelationrule <name>
 ```
 
-Four default rules ship with the Helm chart:
+Four default rules are installed with the Helm chart (`defaultRules.enabled: true`):
 
 | Rule | Trigger | Condition | Severity |
 |---|---|---|---|
-| `node-plus-eviction` | NodeNotReady | PodEvicted on same node | P1 |
-| `crashloop-plus-oom` | CrashLoopBackOff | OOMKilled on same pod | P2 |
-| `crashloop-plus-deploy` | CrashLoopBackOff | StalledRollout in same namespace | P2 |
-| `imagepull-no-history` | ImagePullBackOff | No PodHealthy on same pod | P2 |
+| `node-plus-eviction` | NodeNotReady | PodEvicted on same node | P1 Critical |
+| `crashloop-plus-oom` | CrashLoopBackOff | OOMKilled on same pod | P2 High |
+| `crashloop-plus-deploy` | CrashLoopBackOff | StalledRollout in same namespace | P2 High |
+| `imagepull-no-history` | ImagePullBackOff | No PodHealthy on same pod | P2 High |
 
 When auto-detection is enabled (`--enable-autodetect`), the operator also creates rules automatically from observed signal patterns. Auto-generated rules use a fixed priority of 30 (below user rules) and are labeled `rca.rca-operator.tech/auto-generated: "true"`. See [Auto-Detection](docs/features/auto-detection.md) for details.
 
 ## Contributing
 
-Contributions are welcome.
+Contributions are welcome — bug reports, docs, tests, correlation rules, or features.
 
-1. Read [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
-2. Run `make test`
-3. Open a pull request
+1. Read [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+2. Find a `good first issue` on the [issue tracker](https://github.com/gaurangkudale/RCA-Operator/issues), or open a new one to discuss larger changes before coding.
+3. `make lint && make test && make build` must pass locally.
+4. Open a pull request — the [PR template](.github/pull_request_template.md) lists the merge checklist.
+
+## Community & Support
+
+- **Bug reports / feature requests** — [GitHub Issues](https://github.com/gaurangkudale/RCA-Operator/issues)
+- **Questions and design discussion** — [GitHub Discussions](https://github.com/gaurangkudale/RCA-Operator/discussions)
+- **Security disclosures** — see [SECURITY.md](SECURITY.md); please do **not** open public issues for vulnerabilities.
 
 ## License
 

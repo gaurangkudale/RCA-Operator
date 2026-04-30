@@ -258,6 +258,17 @@ spec:
                   first seen in the current lifecycle.
                 format: date-time
                 type: string
+              incidentGraph:
+                description: |-
+                  incidentGraph is the serialized incident topology graph — nodes for
+                  the affected Kubernetes resources + services observed via OTel spans,
+                  and edges for ownership, scheduling, and service-to-service calls. It
+                  is written by the controller on transition to Active and pruned by the
+                  retention subsystem after incidentRetention/4 to keep etcd footprint
+                  bounded. Clients should treat the payload as opaque JSON; the
+                  schema is defined by internal/correlator/graph.IncidentGraph.
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
               incidentType:
                 description: |-
                   incidentType is the category of incident detected by the incident engine.

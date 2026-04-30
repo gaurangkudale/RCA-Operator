@@ -1,6 +1,8 @@
 package collectors
 
 import (
+	"time"
+
 	"github.com/go-logr/logr"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 
@@ -25,6 +27,12 @@ type CronJobCollectorConfig = watcher.CronJobWatcherConfig
 
 func NewChannelSignalEmitter(ch chan<- Signal, logger logr.Logger) SignalEmitter {
 	return watcher.NewChannelEventEmitter(ch, logger)
+}
+
+func NewChannelSignalEmitterWithOptions(ch chan<- Signal, logger logr.Logger, dedupWindow time.Duration) SignalEmitter {
+	return watcher.NewChannelEventEmitterWithOptions(ch, logger, watcher.ChannelEventEmitterOptions{
+		DedupWindow: dedupWindow,
+	})
 }
 
 func NewPodCollector(

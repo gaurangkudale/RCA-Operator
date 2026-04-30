@@ -21,6 +21,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"os"
+	"strconv"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -29,6 +30,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -42,10 +44,13 @@ import (
 	"github.com/gaurangkudale/rca-operator/internal/autodetect"
 	"github.com/gaurangkudale/rca-operator/internal/collectors"
 	"github.com/gaurangkudale/rca-operator/internal/controller"
+	"github.com/gaurangkudale/rca-operator/internal/correlator/graph"
 	"github.com/gaurangkudale/rca-operator/internal/dashboard"
 	"github.com/gaurangkudale/rca-operator/internal/engine"
+	"github.com/gaurangkudale/rca-operator/internal/jaeger"
 	"github.com/gaurangkudale/rca-operator/internal/notify"
 	rcaotel "github.com/gaurangkudale/rca-operator/internal/otel"
+	"github.com/gaurangkudale/rca-operator/internal/otelingest"
 	"github.com/gaurangkudale/rca-operator/internal/rulengine"
 	rcawebhook "github.com/gaurangkudale/rca-operator/internal/webhook"
 	// +kubebuilder:scaffold:imports
@@ -76,6 +81,8 @@ func main() {
 	var enableHTTP2 bool
 	var enableWebhooks bool
 	var tlsOpts []func(*tls.Config)
+	var signalBufferSize int
+	var signalEmitDedupWindow time.Duration
 	flag.StringVar(&dashboardAddr, "dashboard-bind-address", ":9090", "The address the incident dashboard binds to.")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -90,6 +97,10 @@ func main() {
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
 	flag.BoolVar(&enableWebhooks, "enable-webhooks", false,
 		"Enable admission webhooks for RCAAgent and RCACorrelationRule validation.")
+	flag.IntVar(&signalBufferSize, "signal-buffer-size", 8192,
+		"Size of the shared signal channel between collectors and the incident engine.")
+	flag.DurationVar(&signalEmitDedupWindow, "signal-emit-dedup-window", 2*time.Second,
+		"Coalesce repeated signals with the same dedup key before enqueueing. Set 0 to disable.")
 	flag.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
 	flag.StringVar(&webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
 	flag.StringVar(&webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
@@ -115,6 +126,34 @@ func main() {
 		"How often to analyze the buffer for patterns.")
 	flag.DurationVar(&autoDetectExpiry, "autodetect-expiry", time.Hour,
 		"Duration without observation before an auto-generated rule expires.")
+
+	// OTel ingest (Phase 2 Milestone A). Empty bind address disables the server.
+	var otelIngestBindAddr string
+	var otelIngestErrorStatus bool
+	var otelIngestHTTPStatusGte int
+	var otelIngestLatencyMs int
+	var otelIngestMinLogSeverity string
+	var otelIngestMaxLogSignalsPerRequest int
+	flag.StringVar(&otelIngestBindAddr, "otel-ingest-bind-address", "",
+		"The address the OTLP/HTTP ingest server binds to (e.g. ':4319'). Empty disables the ingest server.")
+	flag.BoolVar(&otelIngestErrorStatus, "otel-ingest-filter-error-status", true,
+		"Emit OTelSpanError signals when a span carries STATUS_CODE_ERROR.")
+	flag.IntVar(&otelIngestHTTPStatusGte, "otel-ingest-filter-http-status-gte", 500,
+		"Emit OTelSpanError signals when an http.status_code attribute meets or exceeds this value (0 disables).")
+	flag.IntVar(&otelIngestLatencyMs, "otel-ingest-filter-latency-ms", 5000,
+		"Emit OTelSpanLatencySpike signals when span duration exceeds this threshold in milliseconds (0 disables).")
+	flag.StringVar(&otelIngestMinLogSeverity, "otel-ingest-filter-min-log-severity", "WARN",
+		"Minimum OTel log severity to ingest (TRACE|DEBUG|INFO|WARN|ERROR|FATAL).")
+	flag.IntVar(&otelIngestMaxLogSignalsPerRequest, "otel-ingest-max-log-signals-per-request", 256,
+		"Maximum OTelLogMatch signals emitted from one OTLP log request after deduplication. Set 0 to disable.")
+
+	// Jaeger Query URL (Phase 2 Milestone D). When set, the incident graph
+	// builder enriches topology with service-to-service edges resolved from
+	// trace-ids captured on OTel signals. Empty disables trace enrichment;
+	// the builder falls back to the signal-only graph.
+	var jaegerQueryURL string
+	flag.StringVar(&jaegerQueryURL, "jaeger-query-url", "",
+		"Base URL of the Jaeger Query API (e.g. http://jaeger-query:16686). Empty disables trace enrichment.")
 
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
@@ -143,11 +182,14 @@ func main() {
 
 	// --- OTel Setup ---
 	otelEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	otelServiceName := envOrDefault("OTEL_SERVICE_NAME", "rca-operator")
+	otelSamplingRate := envFloatOrDefault("OTEL_SAMPLING_RATE", 1.0)
+	otelInsecure := envBoolOrDefault("OTEL_EXPORTER_OTLP_INSECURE", true)
 	otelShutdown, err := rcaotel.Setup(context.Background(), rcaotel.Config{
 		Endpoint:     otelEndpoint,
-		ServiceName:  "rca-operator",
-		SamplingRate: 1.0,
-		Insecure:     true,
+		ServiceName:  otelServiceName,
+		SamplingRate: otelSamplingRate,
+		Insecure:     otelInsecure,
 	})
 	if err != nil {
 		setupLog.Error(err, "Failed to initialize OpenTelemetry")
@@ -252,8 +294,11 @@ func main() {
 	engine.RegisterRuleEngineFactory(crdFactory)
 
 	// --- Signal channel + Incident Engine ---
-	signals := make(chan collectors.Signal, 1024)
-	signalEmitter := collectors.NewChannelSignalEmitter(signals, ctrl.Log)
+	if signalBufferSize < 1 {
+		signalBufferSize = 1
+	}
+	signals := make(chan collectors.Signal, signalBufferSize)
+	signalEmitter := collectors.NewChannelSignalEmitterWithOptions(signals, ctrl.Log, signalEmitDedupWindow)
 	incidentEngine, err := engine.NewIncidentEngine(
 		mgr.GetClient(),
 		signals,
@@ -266,7 +311,9 @@ func main() {
 		os.Exit(1)
 	}
 	setupLog.Info("Incident engine created", "ruleEngine", incidentEngine.RuleEngineName(),
-		"loadedRules", crdFactory.Engine.RuleCount())
+		"loadedRules", crdFactory.Engine.RuleCount(),
+		"signalBufferSize", signalBufferSize,
+		"signalEmitDedupWindow", signalEmitDedupWindow.String())
 	if err := mgr.Add(incidentEngine); err != nil {
 		setupLog.Error(err, "Failed to add incident engine")
 		os.Exit(1)
@@ -291,10 +338,62 @@ func main() {
 		)
 	}
 
+	var jaegerClient *jaeger.Client
+	if jaegerQueryURL != "" {
+		jaegerClient = jaeger.New(jaegerQueryURL)
+		setupLog.Info("Jaeger query enrichment enabled", "url", jaegerQueryURL)
+	} else {
+		setupLog.Info("Jaeger query enrichment disabled (pass --jaeger-query-url to enable)")
+	}
+
 	dashboardServer := dashboard.NewServer(mgr.GetClient(), dashboardAddr, ctrl.Log)
+	if k8sClient, err := kubernetes.NewForConfig(mgr.GetConfig()); err == nil {
+		dashboardServer.WithOptions(dashboard.WithKubernetesClient(k8sClient))
+	} else {
+		setupLog.Error(err, "Failed to build kubernetes client for dashboard; /api/logs will be unavailable")
+	}
+	if crdFactory.Engine != nil {
+		dashboardServer.WithOptions(dashboard.WithBuffer(crdFactory.Engine.Buffer()))
+	}
+	if jaegerClient != nil {
+		dashboardServer.WithOptions(dashboard.WithJaegerClient(jaegerClient))
+	}
 	if err := mgr.Add(dashboardServer); err != nil {
 		setupLog.Error(err, "Failed to add dashboard server")
 		os.Exit(1)
+	}
+
+	// --- OTLP/HTTP Ingest Server (Phase 2 Milestone A) ---
+	// The DaemonSet OTel collector fans out filtered error spans and warn logs
+	// to this endpoint; the ingest server turns them into watcher.CorrelatorEvents
+	// and writes them to the same `signals` channel as K8s-event watchers.
+	if otelIngestBindAddr != "" {
+		ingestCfg := otelingest.DefaultConfig()
+		ingestCfg.BindAddress = otelIngestBindAddr
+		ingestCfg.TraceFilters.StatusCodeERROR = otelIngestErrorStatus
+		ingestCfg.TraceFilters.HTTPStatusGte = otelIngestHTTPStatusGte
+		ingestCfg.TraceFilters.LatencyP99Ms = otelIngestLatencyMs
+		ingestCfg.LogFilters.MinSeverity = otelIngestMinLogSeverity
+		ingestCfg.LogFilters.MaxSignalsPerRequest = otelIngestMaxLogSignalsPerRequest
+		// Milestone A: no user-configured redaction patterns yet; Helm chart will
+		// wire values.yaml insights.defaultRedactionPatterns into this list in
+		// Milestone E when the agent-level config is plumbed.
+		ingestCfg.Redaction = nil
+		ingestServer := otelingest.NewServer(ingestCfg, signalEmitter, ctrl.Log)
+		if err := mgr.Add(ingestServer); err != nil {
+			setupLog.Error(err, "Failed to add OTLP ingest server")
+			os.Exit(1)
+		}
+		setupLog.Info("OTLP ingest server registered",
+			"bindAddress", ingestCfg.BindAddress,
+			"errorStatus", ingestCfg.TraceFilters.StatusCodeERROR,
+			"httpStatusGte", ingestCfg.TraceFilters.HTTPStatusGte,
+			"latencyMs", ingestCfg.TraceFilters.LatencyP99Ms,
+			"minLogSeverity", ingestCfg.LogFilters.MinSeverity,
+			"maxLogSignalsPerRequest", ingestCfg.LogFilters.MaxSignalsPerRequest,
+		)
+	} else {
+		setupLog.Info("OTLP ingest server disabled (pass --otel-ingest-bind-address to enable)")
 	}
 
 	if err := (&controller.RCAAgentReconciler{
@@ -307,11 +406,23 @@ func main() {
 		setupLog.Error(err, "Failed to create controller", "controller", "RCAAgent")
 		os.Exit(1)
 	}
+	// --- Incident Graph Builder (Phase 2 Milestone D) ---
+	// The graph builder stitches K8s resources from the IncidentReport together
+	// with OTel signals recorded in the correlator buffer and (optionally)
+	// service-to-service spans fetched from Jaeger. A nil buffer or client is
+	// tolerated — the builder degrades gracefully to a signal-only or empty
+	// graph rather than blocking the Active transition.
+	var graphBuilder controller.IncidentGraphBuilder
+	if crdFactory.Engine != nil {
+		graphBuilder = graph.NewBuilder(crdFactory.Engine.Buffer(), jaegerClient, ctrl.Log)
+	}
+
 	if err := (&controller.IncidentReportReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorder("incidentreport-controller"),
-		Notifier: notify.NewDispatcher(mgr.GetClient(), ctrl.Log),
+		Client:       mgr.GetClient(),
+		Scheme:       mgr.GetScheme(),
+		Recorder:     mgr.GetEventRecorder("incidentreport-controller"),
+		Notifier:     notify.NewDispatcher(mgr.GetClient(), ctrl.Log),
+		GraphBuilder: graphBuilder,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "IncidentReport")
 		os.Exit(1)
@@ -340,4 +451,37 @@ func main() {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}
+}
+
+func envOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func envFloatOrDefault(key string, fallback float64) float64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		setupLog.Info("Ignoring invalid float environment value", "name", key, "value", v)
+		return fallback
+	}
+	return parsed
+}
+
+func envBoolOrDefault(key string, fallback bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(v)
+	if err != nil {
+		setupLog.Info("Ignoring invalid boolean environment value", "name", key, "value", v)
+		return fallback
+	}
+	return parsed
 }

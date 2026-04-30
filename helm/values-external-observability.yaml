@@ -1,0 +1,39 @@
+# External observability profile.
+#
+# Use this when you already run OpenTelemetry Collector and Jaeger outside this
+# chart. The RCA Operator still exposes its OTLP ingest endpoint so your
+# existing Collector can forward filtered error spans / warn logs to it.
+#
+# Required overrides:
+#   --set otelCollector.jaegerEndpoint=<jaeger-otlp-grpc-host:4317>
+#   --set graphBuilder.jaegerQueryURL=http://<jaeger-query-host>:16686
+# Optional:
+#   --set rcaIngest.endpoint=http://<operator-ingest-service>.<ns>.svc:4319
+
+opentelemetryOperator:
+  enabled: false
+
+jaeger:
+  enabled: false
+
+otelCollector:
+  enabled: false
+  jaegerEndpoint: ""
+
+instrumentation:
+  enabled: false
+
+rcaIngest:
+  enabled: true
+  endpoint: ""
+  networkPolicy:
+    # Existing collectors may not carry the bundled chart labels/service account.
+    # Keep this off unless you customize the NetworkPolicy selectors.
+    enabled: false
+
+graphBuilder:
+  jaegerQueryURL: ""
+
+otel:
+  enabled: true
+  endpoint: ""

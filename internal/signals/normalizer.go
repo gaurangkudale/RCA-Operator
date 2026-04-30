@@ -4,6 +4,7 @@ package signals
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	rcav1alpha1 "github.com/gaurangkudale/rca-operator/api/v1alpha1"
@@ -21,10 +22,8 @@ type SignalMapping struct {
 }
 
 // DefaultMappings returns the built-in event→incident type mappings.
-// IncidentType mirrors the raw EventType so that incident types are
-// self-describing rather than hardcoded aliases. This avoids creating
-// duplicate incidents when different event types (e.g. ImagePullBackOff and
-// StalledRollout) affect the same workload.
+// IncidentType mirrors the raw EventType so incident classes remain
+// self-describing rather than hardcoded aliases.
 func DefaultMappings() []SignalMapping {
 	return []SignalMapping{
 		{EventType: "CrashLoopBackOff", IncidentType: "CrashLoopBackOff", Severity: "P3", ScopeLevel: "Pod"},
@@ -41,6 +40,14 @@ func DefaultMappings() []SignalMapping {
 		{EventType: "StalledDaemonSet", IncidentType: "StalledDaemonSet", Severity: "P2", ScopeLevel: "Workload"},
 		{EventType: "JobFailed", IncidentType: "JobFailed", Severity: "P3", ScopeLevel: "Workload"},
 		{EventType: "CronJobFailed", IncidentType: "CronJobFailed", Severity: "P3", ScopeLevel: "Workload"},
+		// OTel-sourced signals. ScopeLevel defaults to Workload because spans
+		// carry service identity; the Enricher promotes pod→deployment scope
+		// when k8s.pod.name resource attributes are populated by the
+		// collector's k8sattributes processor.
+		{EventType: "OTelSpanError", IncidentType: "OTelSpanError", Severity: "P3", ScopeLevel: "Workload"},
+		{EventType: "OTelSpanLatencySpike", IncidentType: "OTelSpanLatencySpike", Severity: "P4", ScopeLevel: "Workload"},
+		{EventType: "OTelLogMatch", IncidentType: "OTelLogMatch", Severity: "P4", ScopeLevel: "Workload"},
+		{EventType: "OTelSpanEvent", IncidentType: "OTelSpanEvent", Severity: "P3", ScopeLevel: "Workload"},
 	}
 }
 
@@ -83,13 +90,23 @@ func (n *Normalizer) Normalize(event watcher.CorrelatorEvent) (NormalizedSignal,
 		return NormalizedSignal{}, false
 	}
 
+	// OTel span errors from non-server spans (CLIENT/INTERNAL/etc.) often mirror
+	// the downstream service failure in the same trace and can create duplicate
+	// incidents across caller/callee workloads. Keep only SERVER (or empty for
+	// backward compatibility with legacy test fixtures) as incident signals.
+	if spanErr, ok := event.(watcher.OTelSpanErrorEvent); ok {
+		if spanErr.SpanKind != "" && spanErr.SpanKind != "SERVER" {
+			return NormalizedSignal{}, false
+		}
+	}
+
 	input := n.buildInput(event, mapping)
 	return NormalizedSignal{Input: input, RawEvent: event}, true
 }
 
 func (n *Normalizer) buildInput(event watcher.CorrelatorEvent, mapping SignalMapping) incident.Input {
 	base := extractBase(event)
-	summary := buildSummary(event)
+	summary := stripEmptyKV(buildSummary(event))
 
 	input := incident.Input{
 		Namespace:    base.Namespace,
@@ -101,6 +118,7 @@ func (n *Normalizer) buildInput(event watcher.CorrelatorEvent, mapping SignalMap
 		Message:      summary,
 		DedupKey:     event.DedupKey(),
 		ObservedAt:   event.OccurredAt(),
+		TraceID:      extractTraceID(event),
 	}
 
 	// Apply special severity override for NodePressure/PIDPressure.
@@ -232,9 +250,122 @@ func (n *Normalizer) buildInput(event watcher.CorrelatorEvent, mapping SignalMap
 		input.AffectedResources = []rcav1alpha1.AffectedResource{
 			{APIVersion: "batch/v1", Kind: "CronJob", Namespace: ev.Namespace, Name: ev.CronJobName},
 		}
+	case watcher.OTelSpanErrorEvent, watcher.OTelSpanLatencySpikeEvent, watcher.OTelLogMatchEvent, watcher.OTelSpanEventEvent:
+		applyOTelScopeOverrides(&input, event)
 	}
 
 	return input
+}
+
+// applyOTelScopeOverrides upgrades OTel signals to a stable workload identity
+// when pod metadata is unavailable. Priority:
+//  1. k8s workload attrs (deployment/statefulset/daemonset/job/cronjob)
+//  2. service identity (service.name + namespace)
+//
+// This ensures trace/log-derived incidents are still created and grouped by
+// service/workload instead of being dropped due missing pod scope.
+func applyOTelScopeOverrides(input *incident.Input, event watcher.CorrelatorEvent) {
+	serviceName, resourceAttrs, ok := extractOTelResourceIdentity(event)
+	if !ok {
+		return
+	}
+
+	namespace := firstNonEmpty(
+		input.Namespace,
+		resourceAttrs["k8s.namespace.name"],
+		resourceAttrs["service.namespace"],
+	)
+	if namespace != "" {
+		input.Namespace = namespace
+		input.Scope.Namespace = namespace
+	}
+
+	if ref, affected, hasWorkload := workloadFromOTelResourceAttrs(namespace, resourceAttrs); hasWorkload {
+		input.Scope.Level = incident.ScopeLevelWorkload
+		input.Scope.WorkloadRef = ref
+		input.Scope.ResourceRef = ref
+		input.AffectedResources = []rcav1alpha1.AffectedResource{affected}
+		return
+	}
+
+	serviceName = firstNonEmpty(serviceName, resourceAttrs["service.name"])
+	if serviceName == "" || namespace == "" {
+		return
+	}
+
+	ref := &rcav1alpha1.IncidentObjectRef{
+		APIVersion: "v1",
+		Kind:       "Service",
+		Namespace:  namespace,
+		Name:       serviceName,
+	}
+	input.Scope.Level = incident.ScopeLevelWorkload
+	input.Scope.WorkloadRef = ref
+	input.Scope.ResourceRef = ref
+	input.AffectedResources = []rcav1alpha1.AffectedResource{
+		{APIVersion: "v1", Kind: "Service", Namespace: namespace, Name: serviceName},
+	}
+}
+
+func extractOTelResourceIdentity(event watcher.CorrelatorEvent) (serviceName string, resourceAttrs map[string]string, ok bool) {
+	switch e := event.(type) {
+	case watcher.OTelSpanErrorEvent:
+		return e.ServiceName, e.ResourceAttrs, true
+	case watcher.OTelSpanLatencySpikeEvent:
+		return e.ServiceName, e.ResourceAttrs, true
+	case watcher.OTelLogMatchEvent:
+		return e.ServiceName, e.ResourceAttrs, true
+	case watcher.OTelSpanEventEvent:
+		return e.ServiceName, e.ResourceAttrs, true
+	default:
+		return "", nil, false
+	}
+}
+
+func workloadFromOTelResourceAttrs(namespace string, attrs map[string]string) (*rcav1alpha1.IncidentObjectRef, rcav1alpha1.AffectedResource, bool) {
+	type workloadKey struct {
+		attrKey    string
+		apiVersion string
+		kind       string
+	}
+
+	candidates := []workloadKey{
+		{attrKey: "k8s.deployment.name", apiVersion: "apps/v1", kind: "Deployment"},
+		{attrKey: "k8s.statefulset.name", apiVersion: "apps/v1", kind: "StatefulSet"},
+		{attrKey: "k8s.daemonset.name", apiVersion: "apps/v1", kind: "DaemonSet"},
+		{attrKey: "k8s.job.name", apiVersion: "batch/v1", kind: "Job"},
+		{attrKey: "k8s.cronjob.name", apiVersion: "batch/v1", kind: "CronJob"},
+	}
+
+	for _, candidate := range candidates {
+		name := strings.TrimSpace(attrs[candidate.attrKey])
+		if name == "" || namespace == "" {
+			continue
+		}
+		ref := &rcav1alpha1.IncidentObjectRef{
+			APIVersion: candidate.apiVersion,
+			Kind:       candidate.kind,
+			Namespace:  namespace,
+			Name:       name,
+		}
+		return ref, rcav1alpha1.AffectedResource{
+			APIVersion: candidate.apiVersion,
+			Kind:       candidate.kind,
+			Namespace:  namespace,
+			Name:       name,
+		}, true
+	}
+
+	return nil, rcav1alpha1.AffectedResource{}, false
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func extractBase(event watcher.CorrelatorEvent) watcher.BaseEvent {
@@ -266,6 +397,14 @@ func extractBase(event watcher.CorrelatorEvent) watcher.BaseEvent {
 	case watcher.JobFailedEvent:
 		return e.BaseEvent
 	case watcher.CronJobFailedEvent:
+		return e.BaseEvent
+	case watcher.OTelSpanErrorEvent:
+		return e.BaseEvent
+	case watcher.OTelSpanLatencySpikeEvent:
+		return e.BaseEvent
+	case watcher.OTelLogMatchEvent:
+		return e.BaseEvent
+	case watcher.OTelSpanEventEvent:
 		return e.BaseEvent
 	default:
 		return watcher.BaseEvent{}
@@ -302,9 +441,61 @@ func extractReason(event watcher.CorrelatorEvent) string {
 		return e.Reason
 	case watcher.CronJobFailedEvent:
 		return e.Reason
+	case watcher.OTelSpanErrorEvent:
+		return e.StatusCode
+	case watcher.OTelSpanLatencySpikeEvent:
+		return "LatencySpike"
+	case watcher.OTelLogMatchEvent:
+		return e.Severity
+	case watcher.OTelSpanEventEvent:
+		return e.EventName
 	default:
 		return ""
 	}
+}
+
+// extractTraceID returns the W3C trace-id carried by OTel-sourced events, or
+// an empty string for K8s-event-sourced signals that have no trace context.
+func extractTraceID(event watcher.CorrelatorEvent) string {
+	switch e := event.(type) {
+	case watcher.OTelSpanErrorEvent:
+		return e.TraceID
+	case watcher.OTelSpanLatencySpikeEvent:
+		return e.TraceID
+	case watcher.OTelLogMatchEvent:
+		return e.TraceID
+	case watcher.OTelSpanEventEvent:
+		return e.TraceID
+	default:
+		return ""
+	}
+}
+
+// truncateBody shortens an OTel log body so the enclosing summary stays well
+// under the Kubernetes Event.message 1024-char cap. Appends an ellipsis marker
+// so readers know the body was clipped.
+func truncateBody(s string, max int) string {
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	return s[:max] + "…(truncated)"
+}
+
+// emptyKVRegex matches whitespace + key= whose value is absent (end of string or
+// followed by whitespace). Used to strip trailing/mid-string `message=` etc.
+var emptyKVRegex = regexp.MustCompile(`(^|\s)[A-Za-z_][\w.-]*=(\s|$)`)
+
+// stripEmptyKV removes `key=` fragments with empty values from a summary string.
+// Repeats until stable so adjacent empties collapse.
+func stripEmptyKV(s string) string {
+	for {
+		out := emptyKVRegex.ReplaceAllString(s, "$2")
+		if out == s {
+			break
+		}
+		s = out
+	}
+	return strings.TrimSpace(regexp.MustCompile(`\s+`).ReplaceAllString(s, " "))
 }
 
 func buildSummary(event watcher.CorrelatorEvent) string {
@@ -344,6 +535,17 @@ func buildSummary(event watcher.CorrelatorEvent) string {
 		return fmt.Sprintf("Job failed reason=%s message=%s", e.Reason, e.Message)
 	case watcher.CronJobFailedEvent:
 		return fmt.Sprintf("CronJob failed lastJob=%s reason=%s message=%s", e.LastJobName, e.Reason, e.Message)
+	case watcher.OTelSpanErrorEvent:
+		return fmt.Sprintf("Error span service=%s span=%s status=%s message=%s",
+			e.ServiceName, e.SpanName, e.StatusCode, e.StatusMessage)
+	case watcher.OTelSpanLatencySpikeEvent:
+		return fmt.Sprintf("Latency spike service=%s span=%s durationNs=%d thresholdNs=%d",
+			e.ServiceName, e.SpanName, e.DurationNanos, e.ThresholdNs)
+	case watcher.OTelLogMatchEvent:
+		return fmt.Sprintf("Log match service=%s severity=%s body=%s",
+			e.ServiceName, e.Severity, truncateBody(e.Body, 512))
+	case watcher.OTelSpanEventEvent:
+		return fmt.Sprintf("Span event service=%s event=%s", e.ServiceName, e.EventName)
 	default:
 		return ""
 	}

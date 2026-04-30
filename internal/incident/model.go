@@ -29,12 +29,26 @@ type Input struct {
 	ObservedAt        time.Time
 	Scope             rcav1alpha1.IncidentScope
 	AffectedResources []rcav1alpha1.AffectedResource
+	// TraceID is the W3C trace-id hex string from an OTel-sourced event, when
+	// available. It is persisted as an IncidentReport annotation so operators
+	// can correlate an incident back to the originating distributed trace.
+	TraceID string
+	// FiredRule is the name of the correlation rule that produced the incident
+	// classification, when a correlator rule fired. Empty for single-signal
+	// incidents. Persisted as an IncidentReport annotation.
+	FiredRule string
 }
 
 // Fingerprint returns a stable canonical identity for the incident based on its
-// scope. The fingerprint intentionally excludes IncidentType so that different
-// signal types affecting the same resource (e.g. ImagePullBackOff and
-// StalledRollout on the same Deployment) map to a single incident.
+// scope.
+//
+// For Kubernetes-native incident types, fingerprinting remains scope-based so
+// related controller/platform symptoms on the same resource can coalesce.
+//
+// OTel incident types intentionally share the same scope fingerprint. Span
+// errors, log matches, span events, and latency spikes on the same workload are
+// different evidence streams for one telemetry incident, not separate incident
+// identities.
 func (in Input) Fingerprint() string {
 	scope := in.Scope
 	var parts []string
@@ -76,6 +90,12 @@ func (in Input) Fingerprint() string {
 	}
 
 	return strings.Join(parts, "|")
+}
+
+// IsOTelIncidentType returns true when the incident type originates from
+// telemetry ingest (spans/logs/span-events) rather than Kubernetes watchers.
+func IsOTelIncidentType(incidentType string) bool {
+	return strings.HasPrefix(strings.TrimSpace(incidentType), "OTel")
 }
 
 func FingerprintHash(fingerprint string) string {
