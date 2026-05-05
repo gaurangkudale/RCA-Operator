@@ -1,19 +1,3 @@
-/*
-Copyright 2026.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package main
 
 import (
@@ -222,6 +206,12 @@ func main() {
 	webhookServer := webhook.NewServer(webhookServerOptions)
 
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
+<<<<<<< HEAD
+	// More info:
+	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.3/pkg/metrics/server
+	// - https://book.kubebuilder.io/reference/metrics.html
+=======
+>>>>>>> tmp-original-05-05-26-02-47
 	metricsServerOptions := metricsserver.Options{
 		BindAddress:   metricsAddr,
 		SecureServing: secureMetrics,
@@ -229,6 +219,13 @@ func main() {
 	}
 
 	if secureMetrics {
+<<<<<<< HEAD
+		// FilterProvider is used to protect the metrics endpoint with authn/authz.
+		// These configurations ensure that only authorized users and service accounts
+		// can access the metrics endpoint. The RBAC are configured in 'config/rbac/kustomization.yaml'. More info:
+		// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.3/pkg/metrics/filters#WithAuthenticationAndAuthorization
+=======
+>>>>>>> tmp-original-05-05-26-02-47
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
 
@@ -403,7 +400,7 @@ func main() {
 		SignalEmitter:  signalEmitter,
 		ManagerContext: managerCtx,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "Failed to create controller", "controller", "RCAAgent")
+		setupLog.Error(err, "Failed to create controller", "controller", "rcaagent")
 		os.Exit(1)
 	}
 	// --- Incident Graph Builder (Phase 2 Milestone D) ---
@@ -424,7 +421,7 @@ func main() {
 		Notifier:     notify.NewDispatcher(mgr.GetClient(), ctrl.Log),
 		GraphBuilder: graphBuilder,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "Failed to create controller", "controller", "IncidentReport")
+		setupLog.Error(err, "Failed to create controller", "controller", "incidentreport")
 		os.Exit(1)
 	}
 	if err := (&controller.RCACorrelationRuleReconciler{

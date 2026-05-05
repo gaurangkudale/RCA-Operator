@@ -159,4 +159,7 @@ Contributions are welcome — bug reports, docs, tests, correlation rules, or fe
 
 ## License
 
+<<<<<<< HEAD
+=======
 Licensed under the MIT License. See [LICENSE](LICENSE).
+>>>>>>> tmp-original-05-05-26-02-47
