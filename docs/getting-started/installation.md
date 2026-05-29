@@ -242,4 +242,5 @@ production.
 
 ---
 
-Next: [Quick Start](quickstart.md)
+Next: [Quick Start](quickstart.md) — or, to wire up an existing namespace of
+microservices, [Monitor a Namespace End-to-End](monitor-a-namespace.md).

@@ -104,6 +104,7 @@ kubectl apply -f config/samples/rca_v1alpha1_rcaagent.yaml
 | [Prerequisites](docs/getting-started/prerequisites.md) | Cluster and tooling requirements |
 | [Installation](docs/getting-started/installation.md) | Helm and kubectl installation |
 | [Quick Start](docs/getting-started/quickstart.md) | Deploy your first agent in minutes |
+| [Monitor a Namespace End-to-End](docs/getting-started/monitor-a-namespace.md) | Go from zero monitoring to incidents + traces for an existing multi-language namespace |
 | [Architecture](docs/concepts/Architecture.md) | System design and data flow |
 | [Phase 2 Release Notes](docs/phases/PHASE2_RELEASE_NOTES.md) | What's new in the Phase 2 release |
 | [Production Guide](docs/production.md) | Production sizing, security, RBAC, network policy, retention, and cardinality guidance |
