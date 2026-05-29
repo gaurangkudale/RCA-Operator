@@ -33,6 +33,14 @@ func NewDetector(buf *correlator.Buffer, c client.Client, cfg Config, logger log
 	}
 }
 
+// Start implements manager.Runnable so the controller-runtime manager owns
+// the detector's lifecycle (shutdown ordering, leader-election gating, error
+// propagation) instead of it running as a bare goroutine.
+func (d *Detector) Start(ctx context.Context) error {
+	d.Run(ctx)
+	return nil
+}
+
 // Run blocks until ctx is cancelled, ticking at AnalysisInterval.
 func (d *Detector) Run(ctx context.Context) {
 	d.log.Info("Auto-detect started",

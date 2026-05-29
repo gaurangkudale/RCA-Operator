@@ -189,7 +189,7 @@ type RCAAgent struct {
 
 	// metadata is a standard object metadata
 	// +optional
-	metav1.ObjectMeta `json:"metadata,omitzero"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec defines the desired state of RCAAgent
 	// +required
@@ -197,7 +197,7 @@ type RCAAgent struct {
 
 	// status defines the observed state of RCAAgent
 	// +optional
-	Status RCAAgentStatus `json:"status,omitzero"`
+	Status RCAAgentStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -205,7 +205,7 @@ type RCAAgent struct {
 // RCAAgentList contains a list of RCAAgent
 type RCAAgentList struct {
 	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitzero"`
+	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []RCAAgent `json:"items"`
 }
 

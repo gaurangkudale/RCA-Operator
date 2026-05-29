@@ -172,6 +172,14 @@ kubectl logs -n {{ $ns }} -l app.kubernetes.io/name=jaeger --tail=20
   RCA OPERATOR
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+{{- if .Values.defaultAgent.enabled }}
+  # A starter RCAAgent was created automatically and watches the
+  # {{ $ns }} namespace. View it:
+  kubectl get rcaagent -n {{ $ns }}
+
+  # Watch more namespaces by editing it:
+  kubectl edit rcaagent {{ .Values.defaultAgent.name | default "default" }} -n {{ $ns }}
+{{- else }}
   # Create your first RCAAgent to watch a namespace:
   kubectl apply -f - <<EOF
   apiVersion: rca.rca-operator.tech/v1alpha1
@@ -184,6 +192,7 @@ kubectl logs -n {{ $ns }} -l app.kubernetes.io/name=jaeger --tail=20
       - default
     incidentRetention: "7d"
   EOF
+{{- end }}
 
   # Check for detected incidents:
   kubectl get incidentreports -A

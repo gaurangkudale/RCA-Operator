@@ -45,9 +45,9 @@ spec:
             {{- else }}
             - --metrics-bind-address=0
             {{- end }}
-            {{- if .Values.webhooks.enabled }}
-            - --enable-webhooks=true
-            {{- end }}
+            # Explicitly set both true and false so the chart value is
+            # authoritative regardless of the operator binary's default.
+            - --enable-webhooks={{ ternary "true" "false" .Values.webhooks.enabled }}
             {{- if .Values.leaderElection.namespace }}
             - --leader-election-namespace={{ .Values.leaderElection.namespace }}
             {{- end }}

@@ -1,0 +1,27 @@
+{{- if .Values.defaultAgent.enabled }}
+{{- $watchNs := .Values.defaultAgent.watchNamespaces | default (list .Release.Namespace) -}}
+apiVersion: rca.rca-operator.tech/v1alpha1
+kind: RCAAgent
+metadata:
+  name: {{ .Values.defaultAgent.name | default "default" }}
+  namespace: {{ .Values.defaultAgent.namespace | default .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "20"
+    "helm.sh/hook-delete-policy": before-hook-creation
+  labels:
+    {{- include "rca-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: default-agent
+spec:
+  watchNamespaces:
+    {{- toYaml $watchNs | nindent 4 }}
+  incidentRetention: {{ .Values.defaultAgent.incidentRetention | default "24h" | quote }}
+  {{- with .Values.defaultAgent.notifications }}
+  notifications:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.defaultAgent.signalMappings }}
+  signalMappings:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

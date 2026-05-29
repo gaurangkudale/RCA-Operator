@@ -153,7 +153,7 @@ type RCACorrelationRule struct {
 	metav1.TypeMeta `json:",inline"`
 
 	// +optional
-	metav1.ObjectMeta `json:"metadata,omitzero"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// +required
 	Spec RCACorrelationRuleSpec `json:"spec"`
@@ -164,7 +164,7 @@ type RCACorrelationRule struct {
 // RCACorrelationRuleList contains a list of RCACorrelationRule.
 type RCACorrelationRuleList struct {
 	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitzero"`
+	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []RCACorrelationRule `json:"items"`
 }
 

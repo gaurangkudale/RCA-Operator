@@ -21,7 +21,7 @@ image:
   repository: ghcr.io/gaurangkudale/rca-operator
   pullPolicy: IfNotPresent
   # Empty string resolves to .Chart.AppVersion at render time. Pin to an
-  # explicit tag (e.g. "0.0.16") for reproducible upgrades.
+  # explicit tag (e.g. "0.0.17") for reproducible upgrades.
   tag: ""
 
 imagePullSecrets: []
@@ -93,6 +93,32 @@ otel:
 defaultRules:
   enabled: true
 
+# Default RCAAgent
+# A starter agent is created during post-install so the operator does something
+# useful immediately after `helm install` with no extra `kubectl apply` needed.
+# Disable when you want to manage all RCAAgents declaratively (GitOps).
+defaultAgent:
+  enabled: true
+  # Name of the starter agent. Defaults to "default".
+  name: "default"
+  # Namespace the starter agent is created in. Defaults to the release namespace.
+  namespace: ""
+  # Namespaces this agent watches. Defaults to the release namespace.
+  # Set to a list of namespaces (e.g. ["default", "production"]) to watch more.
+  watchNamespaces: []
+  # How long to keep Resolved IncidentReport CRs.
+  incidentRetention: "24h"
+  # Optional notification configuration. Example:
+  # notifications:
+  #   slack:
+  #     webhookSecretRef: slack-webhook
+  #     channel: "#incidents"
+  #   pagerduty:
+  #     secretRef: pd-api-key
+  notifications: {}
+  # Optional per-cluster event→incident-type overrides.
+  signalMappings: []
+
 # Automatic correlation rule detection
 # Use case: Learn new recurring incident patterns and create rules automatically.
 autoDetect:
@@ -103,7 +129,12 @@ autoDetect:
   expiry: 1h
 
 # Admission webhooks
-# Use case: Validate/default RCA custom resources before they are persisted.
+# Use case: Validate RCA custom resources at admission time before they are persisted.
+# NOTE: The base chart does not yet ship webhook serving infrastructure (a TLS
+# serving certificate and a ValidatingWebhookConfiguration). Setting this to true
+# without provisioning those (e.g. via cert-manager) will crash the manager on
+# startup because the webhook server cannot find its serving certificate.
+# Leave disabled until that infrastructure is in place.
 webhooks:
   enabled: false
 

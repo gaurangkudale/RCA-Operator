@@ -169,7 +169,7 @@ type IncidentReportStatus struct {
 
 	// startTime is when the incident was first detected.
 	// Deprecated: use firstObservedAt. Retained only for compatibility with older clients.
-	// +required
+	// +optional
 	StartTime *metav1.Time `json:"startTime,omitempty"`
 
 	// resolvedTime is when the incident was resolved. Empty while still active.
@@ -242,7 +242,7 @@ type IncidentReport struct {
 
 	// metadata is a standard object metadata
 	// +optional
-	metav1.ObjectMeta `json:"metadata,omitzero"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec defines the desired state of IncidentReport
 	// +required
@@ -250,7 +250,7 @@ type IncidentReport struct {
 
 	// status defines the observed state of IncidentReport
 	// +optional
-	Status IncidentReportStatus `json:"status,omitzero"`
+	Status IncidentReportStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -258,7 +258,7 @@ type IncidentReport struct {
 // IncidentReportList contains a list of IncidentReport
 type IncidentReportList struct {
 	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitzero"`
+	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []IncidentReport `json:"items"`
 }
 

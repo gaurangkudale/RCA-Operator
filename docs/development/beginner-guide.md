@@ -360,15 +360,19 @@ Examples in this repo:
 - rule engines implement shared rule engine contracts
 - emitters hide how signals are delivered
 
-### Goroutines
+### Goroutines and Manager Runnables
 
-Watchers and background loops often run in goroutines.
+Watchers and background loops run as goroutines, but long-lived components are
+registered with the controller-runtime manager (via `mgr.Add`) so they
+participate in leader election and graceful shutdown.
 
 Examples:
 
-- periodic scans in watchers
-- dashboard server shutdown handling
-- auto-detection loop
+- periodic scans in watchers (goroutines started by the manager-managed watchers)
+- dashboard server (manager-registered runnable)
+- incident engine (manager-registered runnable)
+- OTLP ingest server (manager-registered runnable, when enabled)
+- auto-detection loop (manager-registered runnable, when enabled)
 
 ### Channels
 

@@ -68,7 +68,6 @@ func init() {
 	// +kubebuilder:scaffold:scheme
 }
 
-// nolint:gocyclo
 func main() {
 	var dashboardAddr string
 	var metricsAddr string
@@ -96,7 +95,13 @@ func main() {
 	flag.BoolVar(&secureMetrics, "metrics-secure", true,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
 	flag.BoolVar(&enableWebhooks, "enable-webhooks", false,
-		"Enable admission webhooks for RCAAgent and RCACorrelationRule validation.")
+		"Enable admission webhooks for RCAAgent and RCACorrelationRule validation. "+
+			"Webhooks catch invalid specs at admission time rather than when the operator "+
+			"tries to load them, but require webhook serving infrastructure to be provisioned "+
+			"first (a TLS serving certificate at the webhook cert path plus a "+
+			"ValidatingWebhookConfiguration). Off by default because that infrastructure is "+
+			"not part of the base install; enabling it without certs present will crash the "+
+			"manager on startup. See docs/getting-started/installation.md for how to turn it on.")
 	flag.IntVar(&signalBufferSize, "signal-buffer-size", 8192,
 		"Size of the shared signal channel between collectors and the incident engine.")
 	flag.DurationVar(&signalEmitDedupWindow, "signal-emit-dedup-window", 2*time.Second,
@@ -180,82 +185,17 @@ func main() {
 		tlsOpts = append(tlsOpts, disableHTTP2)
 	}
 
-	// --- OTel Setup ---
-	otelEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-	otelServiceName := envOrDefault("OTEL_SERVICE_NAME", "rca-operator")
-	otelSamplingRate := envFloatOrDefault("OTEL_SAMPLING_RATE", 1.0)
-	otelInsecure := envBoolOrDefault("OTEL_EXPORTER_OTLP_INSECURE", true)
-	otelShutdown, err := rcaotel.Setup(context.Background(), rcaotel.Config{
-		Endpoint:     otelEndpoint,
-		ServiceName:  otelServiceName,
-		SamplingRate: otelSamplingRate,
-		Insecure:     otelInsecure,
-	})
-	if err != nil {
-		setupLog.Error(err, "Failed to initialize OpenTelemetry")
-		os.Exit(1)
-	}
+	otelShutdown := setupOTel()
 	defer func() {
 		if err := otelShutdown(context.Background()); err != nil {
 			setupLog.Error(err, "Failed to shutdown OpenTelemetry")
 		}
 	}()
-	if otelEndpoint != "" {
-		setupLog.Info("OpenTelemetry initialized", "endpoint", otelEndpoint)
-	}
 
-	// Initial webhook TLS options
-	webhookTLSOpts := tlsOpts
-	webhookServerOptions := webhook.Options{
-		TLSOpts: webhookTLSOpts,
-	}
-
-	if len(webhookCertPath) > 0 {
-		setupLog.Info("Initializing webhook certificate loader using provided certificates",
-			"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key", webhookCertKey)
-
-		webhookServerOptions.CertDir = webhookCertPath
-		webhookServerOptions.CertName = webhookCertName
-		webhookServerOptions.KeyName = webhookCertKey
-	}
-
-	webhookServer := webhook.NewServer(webhookServerOptions)
-
-	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
-	metricsServerOptions := metricsserver.Options{
-		BindAddress:   metricsAddr,
-		SecureServing: secureMetrics,
-		TLSOpts:       tlsOpts,
-	}
-
-	if secureMetrics {
-		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
-	}
-
-	if len(metricsCertPath) > 0 {
-		setupLog.Info("Initializing metrics certificate loader using provided certificates",
-			"metrics-cert-path", metricsCertPath, "metrics-cert-name", metricsCertName, "metrics-cert-key", metricsCertKey)
-
-		metricsServerOptions.CertDir = metricsCertPath
-		metricsServerOptions.CertName = metricsCertName
-		metricsServerOptions.KeyName = metricsCertKey
-	}
-
-	if enableLeaderElection && leaderElectionNamespace == "" {
-		if podNamespace := os.Getenv("POD_NAMESPACE"); podNamespace != "" {
-			leaderElectionNamespace = podNamespace
-			setupLog.Info("Using leader election namespace from POD_NAMESPACE", "namespace", leaderElectionNamespace)
-		} else if _, err := rest.InClusterConfig(); err != nil {
-			// Out-of-cluster runs (for example `make run`) cannot auto-detect a
-			// namespace for the lease object. Default to `default` unless a
-			// namespace is explicitly provided via flag or POD_NAMESPACE.
-			leaderElectionNamespace = "default"
-			setupLog.Info("Defaulting leader election namespace for out-of-cluster run",
-				"namespace", leaderElectionNamespace,
-				"hint", "override with --leader-election-namespace",
-			)
-		}
-	}
+	webhookServer := buildWebhookServer(tlsOpts, webhookCertPath, webhookCertName, webhookCertKey)
+	metricsServerOptions := buildMetricsServerOptions(metricsAddr, secureMetrics, tlsOpts,
+		metricsCertPath, metricsCertName, metricsCertKey)
+	leaderElectionNamespace = resolveLeaderElectionNamespace(enableLeaderElection, leaderElectionNamespace)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                  scheme,
@@ -271,17 +211,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	// --- Webhooks ---
 	if enableWebhooks {
-		if err := rcawebhook.SetupRCAAgentWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, "Failed to create RCAAgent webhook")
-			os.Exit(1)
-		}
-		if err := rcawebhook.SetupRCACorrelationRuleWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, "Failed to create RCACorrelationRule webhook")
-			os.Exit(1)
-		}
-		setupLog.Info("Admission webhooks enabled")
+		setupWebhooks(mgr)
+	} else {
+		setupLog.Info("Admission webhooks disabled; invalid RCACorrelationRule specs " +
+			"will not be rejected at admission time. Re-enable with --enable-webhooks=true.")
 	}
 
 	managerCtx := ctrl.SetupSignalHandler()
@@ -329,7 +263,10 @@ func main() {
 		adCfg.AnalysisInterval = autoDetectInterval
 		adCfg.ExpiryDuration = autoDetectExpiry
 		det := autodetect.NewDetector(crdFactory.Engine.Buffer(), mgr.GetClient(), adCfg, ctrl.Log)
-		go det.Run(managerCtx)
+		if err := mgr.Add(det); err != nil {
+			setupLog.Error(err, "Failed to add auto-detector")
+			os.Exit(1)
+		}
 		setupLog.Info("Auto-detection enabled",
 			"interval", adCfg.AnalysisInterval,
 			"minOccurrences", adCfg.MinOccurrences,
@@ -363,60 +300,158 @@ func main() {
 		os.Exit(1)
 	}
 
-	// --- OTLP/HTTP Ingest Server (Phase 2 Milestone A) ---
-	// The DaemonSet OTel collector fans out filtered error spans and warn logs
-	// to this endpoint; the ingest server turns them into watcher.CorrelatorEvents
-	// and writes them to the same `signals` channel as K8s-event watchers.
-	if otelIngestBindAddr != "" {
-		ingestCfg := otelingest.DefaultConfig()
-		ingestCfg.BindAddress = otelIngestBindAddr
-		ingestCfg.TraceFilters.StatusCodeERROR = otelIngestErrorStatus
-		ingestCfg.TraceFilters.HTTPStatusGte = otelIngestHTTPStatusGte
-		ingestCfg.TraceFilters.LatencyP99Ms = otelIngestLatencyMs
-		ingestCfg.LogFilters.MinSeverity = otelIngestMinLogSeverity
-		ingestCfg.LogFilters.MaxSignalsPerRequest = otelIngestMaxLogSignalsPerRequest
-		// Milestone A: no user-configured redaction patterns yet; Helm chart will
-		// wire values.yaml insights.defaultRedactionPatterns into this list in
-		// Milestone E when the agent-level config is plumbed.
-		ingestCfg.Redaction = nil
-		ingestServer := otelingest.NewServer(ingestCfg, signalEmitter, ctrl.Log)
-		if err := mgr.Add(ingestServer); err != nil {
-			setupLog.Error(err, "Failed to add OTLP ingest server")
-			os.Exit(1)
-		}
-		setupLog.Info("OTLP ingest server registered",
-			"bindAddress", ingestCfg.BindAddress,
-			"errorStatus", ingestCfg.TraceFilters.StatusCodeERROR,
-			"httpStatusGte", ingestCfg.TraceFilters.HTTPStatusGte,
-			"latencyMs", ingestCfg.TraceFilters.LatencyP99Ms,
-			"minLogSeverity", ingestCfg.LogFilters.MinSeverity,
-			"maxLogSignalsPerRequest", ingestCfg.LogFilters.MaxSignalsPerRequest,
-		)
-	} else {
-		setupLog.Info("OTLP ingest server disabled (pass --otel-ingest-bind-address to enable)")
-	}
+	setupOTLPIngest(mgr, signalEmitter, otelIngestBindAddr, otelIngestErrorStatus,
+		otelIngestHTTPStatusGte, otelIngestLatencyMs, otelIngestMinLogSeverity,
+		otelIngestMaxLogSignalsPerRequest)
 
-	if err := (&controller.RCAAgentReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		Cache:          mgr.GetCache(),
-		SignalEmitter:  signalEmitter,
-		ManagerContext: managerCtx,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "Failed to create controller", "controller", "RCAAgent")
-		os.Exit(1)
-	}
-	// --- Incident Graph Builder (Phase 2 Milestone D) ---
-	// The graph builder stitches K8s resources from the IncidentReport together
-	// with OTel signals recorded in the correlator buffer and (optionally)
-	// service-to-service spans fetched from Jaeger. A nil buffer or client is
-	// tolerated — the builder degrades gracefully to a signal-only or empty
-	// graph rather than blocking the Active transition.
 	var graphBuilder controller.IncidentGraphBuilder
 	if crdFactory.Engine != nil {
 		graphBuilder = graph.NewBuilder(crdFactory.Engine.Buffer(), jaegerClient, ctrl.Log)
 	}
 
+	setupControllers(mgr, crdFactory, signalEmitter, managerCtx, graphBuilder)
+	// +kubebuilder:scaffold:builder
+
+	setupHealthChecks(mgr)
+
+	setupLog.Info("Starting manager")
+	if err := mgr.Start(managerCtx); err != nil {
+		setupLog.Error(err, "Failed to run manager")
+		os.Exit(1)
+	}
+}
+
+// setupOTel initializes the OpenTelemetry SDK from environment configuration
+// and returns a shutdown function the caller must defer.
+func setupOTel() func(context.Context) error {
+	otelEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	otelShutdown, err := rcaotel.Setup(context.Background(), rcaotel.Config{
+		Endpoint:     otelEndpoint,
+		ServiceName:  envOrDefault("OTEL_SERVICE_NAME", "rca-operator"),
+		SamplingRate: envFloatOrDefault("OTEL_SAMPLING_RATE", 1.0),
+		Insecure:     envBoolOrDefault("OTEL_EXPORTER_OTLP_INSECURE", true),
+	})
+	if err != nil {
+		setupLog.Error(err, "Failed to initialize OpenTelemetry")
+		os.Exit(1)
+	}
+	if otelEndpoint != "" {
+		setupLog.Info("OpenTelemetry initialized", "endpoint", otelEndpoint)
+	}
+	return otelShutdown
+}
+
+func buildWebhookServer(tlsOpts []func(*tls.Config), certPath, certName, certKey string) webhook.Server {
+	opts := webhook.Options{TLSOpts: tlsOpts}
+	if len(certPath) > 0 {
+		setupLog.Info("Initializing webhook certificate loader using provided certificates",
+			"webhook-cert-path", certPath, "webhook-cert-name", certName, "webhook-cert-key", certKey)
+		opts.CertDir = certPath
+		opts.CertName = certName
+		opts.KeyName = certKey
+	}
+	return webhook.NewServer(opts)
+}
+
+func buildMetricsServerOptions(addr string, secure bool, tlsOpts []func(*tls.Config),
+	certPath, certName, certKey string) metricsserver.Options {
+	opts := metricsserver.Options{
+		BindAddress:   addr,
+		SecureServing: secure,
+		TLSOpts:       tlsOpts,
+	}
+	if secure {
+		opts.FilterProvider = filters.WithAuthenticationAndAuthorization
+	}
+	if len(certPath) > 0 {
+		setupLog.Info("Initializing metrics certificate loader using provided certificates",
+			"metrics-cert-path", certPath, "metrics-cert-name", certName, "metrics-cert-key", certKey)
+		opts.CertDir = certPath
+		opts.CertName = certName
+		opts.KeyName = certKey
+	}
+	return opts
+}
+
+// resolveLeaderElectionNamespace fills in the leader-election namespace when
+// the operator is running out-of-cluster (e.g. `make run`) and no explicit
+// namespace was provided via --leader-election-namespace or POD_NAMESPACE.
+func resolveLeaderElectionNamespace(enable bool, ns string) string {
+	if !enable || ns != "" {
+		return ns
+	}
+	if podNamespace := os.Getenv("POD_NAMESPACE"); podNamespace != "" {
+		setupLog.Info("Using leader election namespace from POD_NAMESPACE", "namespace", podNamespace)
+		return podNamespace
+	}
+	if _, err := rest.InClusterConfig(); err != nil {
+		setupLog.Info("Defaulting leader election namespace for out-of-cluster run",
+			"namespace", "default",
+			"hint", "override with --leader-election-namespace",
+		)
+		return "default"
+	}
+	return ns
+}
+
+func setupWebhooks(mgr ctrl.Manager) {
+	if err := rcawebhook.SetupRCAAgentWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create RCAAgent webhook")
+		os.Exit(1)
+	}
+	if err := rcawebhook.SetupRCACorrelationRuleWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create RCACorrelationRule webhook")
+		os.Exit(1)
+	}
+	setupLog.Info("Admission webhooks enabled")
+}
+
+// setupOTLPIngest registers the OTLP/HTTP ingest server with the manager when
+// a bind address is configured. The DaemonSet OTel collector fans out filtered
+// error spans and warn logs to this endpoint; the ingest server turns them
+// into watcher.CorrelatorEvents and writes them to the same signals channel
+// as K8s-event watchers.
+func setupOTLPIngest(mgr ctrl.Manager, emitter collectors.SignalEmitter, bindAddr string,
+	errorStatus bool, httpStatusGte, latencyMs int, minLogSeverity string, maxLogSignals int) {
+	if bindAddr == "" {
+		setupLog.Info("OTLP ingest server disabled (pass --otel-ingest-bind-address to enable)")
+		return
+	}
+	ingestCfg := otelingest.DefaultConfig()
+	ingestCfg.BindAddress = bindAddr
+	ingestCfg.TraceFilters.StatusCodeERROR = errorStatus
+	ingestCfg.TraceFilters.HTTPStatusGte = httpStatusGte
+	ingestCfg.TraceFilters.LatencyP99Ms = latencyMs
+	ingestCfg.LogFilters.MinSeverity = minLogSeverity
+	ingestCfg.LogFilters.MaxSignalsPerRequest = maxLogSignals
+	ingestCfg.Redaction = nil
+	ingestServer := otelingest.NewServer(ingestCfg, emitter, ctrl.Log)
+	if err := mgr.Add(ingestServer); err != nil {
+		setupLog.Error(err, "Failed to add OTLP ingest server")
+		os.Exit(1)
+	}
+	setupLog.Info("OTLP ingest server registered",
+		"bindAddress", ingestCfg.BindAddress,
+		"errorStatus", ingestCfg.TraceFilters.StatusCodeERROR,
+		"httpStatusGte", ingestCfg.TraceFilters.HTTPStatusGte,
+		"latencyMs", ingestCfg.TraceFilters.LatencyP99Ms,
+		"minLogSeverity", ingestCfg.LogFilters.MinSeverity,
+		"maxLogSignalsPerRequest", ingestCfg.LogFilters.MaxSignalsPerRequest,
+	)
+}
+
+func setupControllers(mgr ctrl.Manager, crdFactory *rulengine.Factory, emitter collectors.SignalEmitter,
+	managerCtx context.Context, graphBuilder controller.IncidentGraphBuilder) {
+	if err := (&controller.RCAAgentReconciler{
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		Cache:          mgr.GetCache(),
+		SignalEmitter:  emitter,
+		ManagerContext: managerCtx,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "RCAAgent")
+		os.Exit(1)
+	}
 	if err := (&controller.IncidentReportReconciler{
 		Client:       mgr.GetClient(),
 		Scheme:       mgr.GetScheme(),
@@ -435,20 +470,15 @@ func main() {
 		setupLog.Error(err, "Failed to create controller", "controller", "RCACorrelationRule")
 		os.Exit(1)
 	}
-	// +kubebuilder:scaffold:builder
+}
 
+func setupHealthChecks(mgr ctrl.Manager) {
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "Failed to set up health check")
 		os.Exit(1)
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		setupLog.Error(err, "Failed to set up ready check")
-		os.Exit(1)
-	}
-
-	setupLog.Info("Starting manager")
-	if err := mgr.Start(managerCtx); err != nil {
-		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}
 }
