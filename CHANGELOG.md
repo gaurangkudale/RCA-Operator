@@ -18,7 +18,16 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-_No unreleased changes yet._
+### Changed
+
+- **Admission webhooks default-on** — `--enable-webhooks` now defaults to `true` so invalid `RCACorrelationRule` and `RCAAgent` specs are rejected at admission time instead of surfacing only when the operator tries to load them. Set `--enable-webhooks=false` for local runs without a TLS certificate available.
+- **Auto-detector lifecycle** — the auto-detector is now registered with the controller-runtime manager via `mgr.Add(det)` instead of being launched as a bare goroutine. It now participates in leader election and graceful shutdown. A `Detector.Start(ctx) error` method was added to satisfy the `manager.Runnable` interface; `Detector.Run` is retained for direct callers.
+- **`cmd/main.go` refactor** — `main()` split into small `setup*` / `build*` helpers (`setupOTel`, `buildWebhookServer`, `buildMetricsServerOptions`, `resolveLeaderElectionNamespace`, `setupWebhooks`, `setupOTLPIngest`, `setupControllers`, `setupHealthChecks`). No behavior change; improves readability and removes the `// nolint:gocyclo` exception.
+
+### Fixed
+
+- **`IncidentReportStatus.StartTime` marker** — the deprecated `startTime` field was incorrectly marked `// +required`, which forced clients writing the new `firstObservedAt` field to also populate the deprecated one. It is now `// +optional`. CRD manifest regenerated.
+- **JSON struct tags** — replaced `json:",omitzero"` (not recognised by `encoding/json`) with `json:",omitempty"` across `RCAAgent`, `IncidentReport`, and `RCACorrelationRule` types so omission behaviour matches the rest of the Kubernetes ecosystem.
 
 ---
 

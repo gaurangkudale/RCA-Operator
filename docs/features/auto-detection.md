@@ -10,13 +10,17 @@ RCA Operator can automatically detect recurring signal co-occurrence patterns an
 4. When a pattern exceeds the occurrence threshold, an `RCACorrelationRule` CRD is created
 5. Stale auto-generated rules are expired and deleted if the pattern is not observed within the expiry window
 
+The detector is registered with the controller-runtime manager as a `Runnable`
+(via `mgr.Add(det)`), so it participates in the operator's leader-election and
+graceful-shutdown lifecycle rather than running as a detached goroutine.
+
 ```text
 Correlation Buffer (5-min sliding window)
          |
          |  Snapshot() every 60s
          v
 +------------------------------------------+
-|  Auto-Detector Goroutine                 |
+|  Auto-Detector (manager-managed Runnable)|
 |                                          |
 |  1. MinePatterns(entries)                |
 |     -> extract co-occurring event pairs  |
