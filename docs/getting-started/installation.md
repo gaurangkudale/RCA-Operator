@@ -220,4 +220,26 @@ before deleting CRDs in shared clusters.
 
 ---
 
+## Admission webhooks (advanced, opt-in)
+
+The operator can validate `RCAAgent` and `RCACorrelationRule` resources at
+admission time (`--enable-webhooks`), so an invalid spec is rejected by the API
+server rather than surfacing when the operator later tries to load it.
+
+This is **off by default** and is not part of the base install, because it
+requires webhook serving infrastructure to be provisioned first:
+
+1. A TLS **serving certificate** mounted at the manager's webhook cert path
+   (typically issued by [cert-manager](https://cert-manager.io)).
+2. A **`ValidatingWebhookConfiguration`** pointing the API server at the
+   operator's webhook Service, with the CA bundle injected.
+
+Enabling the flag without that infrastructure present crashes the manager on
+startup (the webhook server cannot find its serving certificate). Until the
+chart ships these resources, treat webhooks as an advanced, self-managed
+opt-in. Track progress in the project issues before turning it on in
+production.
+
+---
+
 Next: [Quick Start](quickstart.md)

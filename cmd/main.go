@@ -94,11 +94,14 @@ func main() {
 			"When empty, the in-cluster namespace is used automatically.")
 	flag.BoolVar(&secureMetrics, "metrics-secure", true,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
-	flag.BoolVar(&enableWebhooks, "enable-webhooks", true,
+	flag.BoolVar(&enableWebhooks, "enable-webhooks", false,
 		"Enable admission webhooks for RCAAgent and RCACorrelationRule validation. "+
-			"Webhooks catch invalid RCACorrelationRule specs at admission time rather than "+
-			"when the operator tries to load them. Disable only for local runs without "+
-			"a webhook TLS certificate available.")
+			"Webhooks catch invalid specs at admission time rather than when the operator "+
+			"tries to load them, but require webhook serving infrastructure to be provisioned "+
+			"first (a TLS serving certificate at the webhook cert path plus a "+
+			"ValidatingWebhookConfiguration). Off by default because that infrastructure is "+
+			"not part of the base install; enabling it without certs present will crash the "+
+			"manager on startup. See docs/getting-started/installation.md for how to turn it on.")
 	flag.IntVar(&signalBufferSize, "signal-buffer-size", 8192,
 		"Size of the shared signal channel between collectors and the incident engine.")
 	flag.DurationVar(&signalEmitDedupWindow, "signal-emit-dedup-window", 2*time.Second,

@@ -16,14 +16,18 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-## [Unreleased]
-
-### Changed
 ## [0.0.17] — 2026-05-30
 
-- **Admission webhooks default-on** — `--enable-webhooks` now defaults to `true` so invalid `RCACorrelationRule` and `RCAAgent` specs are rejected at admission time instead of surfacing only when the operator tries to load them. Set `--enable-webhooks=false` for local runs without a TLS certificate available.
+### Added
+
+- **One-line installer** — `scripts/install.sh` wraps the full-stack Helm install (prereq checks, repo add, `helm upgrade --install --wait`) and is configurable via `RCA_NAMESPACE` / `RCA_RELEASE` / `RCA_PROFILE` / `RCA_CHART_VERSION` / `RCA_VALUES_FILE` env vars.
+- **Starter `RCAAgent`** — the chart creates a default `RCAAgent` via a post-install hook (`defaultAgent.enabled`, on by default) that watches the release namespace, so the operator detects incidents immediately with no extra `kubectl apply`.
+
+### Changed
+
 - **Auto-detector lifecycle** — the auto-detector is now registered with the controller-runtime manager via `mgr.Add(det)` instead of being launched as a bare goroutine. It now participates in leader election and graceful shutdown. A `Detector.Start(ctx) error` method was added to satisfy the `manager.Runnable` interface; `Detector.Run` is retained for direct callers.
 - **`cmd/main.go` refactor** — `main()` split into small `setup*` / `build*` helpers (`setupOTel`, `buildWebhookServer`, `buildMetricsServerOptions`, `resolveLeaderElectionNamespace`, `setupWebhooks`, `setupOTLPIngest`, `setupControllers`, `setupHealthChecks`). No behavior change; improves readability and removes the `// nolint:gocyclo` exception.
+- **`--enable-webhooks` documentation** — the flag help now states that admission webhooks require serving infrastructure (a TLS serving certificate plus a `ValidatingWebhookConfiguration`) to be provisioned before they can be enabled. The flag remains **off by default** because that infrastructure is not part of the base install; enabling it without certs present crashes the manager on startup. The Helm chart passes the flag explicitly from `webhooks.enabled` (default `false`).
 
 ### Fixed
 

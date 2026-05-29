@@ -129,7 +129,12 @@ autoDetect:
   expiry: 1h
 
 # Admission webhooks
-# Use case: Validate/default RCA custom resources before they are persisted.
+# Use case: Validate RCA custom resources at admission time before they are persisted.
+# NOTE: The base chart does not yet ship webhook serving infrastructure (a TLS
+# serving certificate and a ValidatingWebhookConfiguration). Setting this to true
+# without provisioning those (e.g. via cert-manager) will crash the manager on
+# startup because the webhook server cannot find its serving certificate.
+# Leave disabled until that infrastructure is in place.
 webhooks:
   enabled: false
 
