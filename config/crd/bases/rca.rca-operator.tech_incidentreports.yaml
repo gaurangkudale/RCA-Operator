@@ -364,7 +364,6 @@ spec:
             - incidentType
             - phase
             - severity
-            - startTime
             - timeline
             type: object
         required:
