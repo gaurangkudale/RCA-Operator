@@ -21,7 +21,7 @@ image:
   repository: ghcr.io/gaurangkudale/rca-operator
   pullPolicy: IfNotPresent
   # Empty string resolves to .Chart.AppVersion at render time. Pin to an
-  # explicit tag (e.g. "0.0.16") for reproducible upgrades.
+  # explicit tag (e.g. "0.0.17") for reproducible upgrades.
   tag: ""
 
 imagePullSecrets: []
@@ -92,6 +92,32 @@ otel:
 # Enabled by default so the operator detects incidents out of the box.
 defaultRules:
   enabled: true
+
+# Default RCAAgent
+# A starter agent is created during post-install so the operator does something
+# useful immediately after `helm install` with no extra `kubectl apply` needed.
+# Disable when you want to manage all RCAAgents declaratively (GitOps).
+defaultAgent:
+  enabled: true
+  # Name of the starter agent. Defaults to "default".
+  name: "default"
+  # Namespace the starter agent is created in. Defaults to the release namespace.
+  namespace: ""
+  # Namespaces this agent watches. Defaults to the release namespace.
+  # Set to a list of namespaces (e.g. ["default", "production"]) to watch more.
+  watchNamespaces: []
+  # How long to keep Resolved IncidentReport CRs.
+  incidentRetention: "24h"
+  # Optional notification configuration. Example:
+  # notifications:
+  #   slack:
+  #     webhookSecretRef: slack-webhook
+  #     channel: "#incidents"
+  #   pagerduty:
+  #     secretRef: pd-api-key
+  notifications: {}
+  # Optional per-cluster event→incident-type overrides.
+  signalMappings: []
 
 # Automatic correlation rule detection
 # Use case: Learn new recurring incident patterns and create rules automatically.

@@ -6,17 +6,31 @@ in `rca-system` should already be `Running`.
 
 ---
 
-## 1. Create an RCAAgent
+## 1. Confirm the starter RCAAgent
 
-An `RCAAgent` tells the operator which namespaces to watch. One agent can
-cover multiple namespaces.
+The chart's post-install hook creates a starter `RCAAgent` named `default` in
+the release namespace. It watches the release namespace out of the box.
+
+```bash
+kubectl get rcaagent -n rca-system   # READY should be True
+```
+
+To watch additional namespaces, edit the starter agent (or skip the starter
+with `--set defaultAgent.enabled=false` and apply your own):
+
+```bash
+kubectl edit rcaagent default -n rca-system
+# add namespaces under spec.watchNamespaces
+```
+
+Or define your own from scratch — one agent can cover multiple namespaces:
 
 ```yaml
 # rca-agent.yaml
 apiVersion: rca.rca-operator.tech/v1alpha1
 kind: RCAAgent
 metadata:
-  name: default-agent
+  name: app-agent
   namespace: rca-system
 spec:
   watchNamespaces:
@@ -27,7 +41,6 @@ spec:
 
 ```bash
 kubectl apply -f rca-agent.yaml
-kubectl get rcaagent -n rca-system   # READY should become True
 ```
 
 ---

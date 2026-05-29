@@ -19,6 +19,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+## [0.0.17] — 2026-05-30
 
 - **Admission webhooks default-on** — `--enable-webhooks` now defaults to `true` so invalid `RCACorrelationRule` and `RCAAgent` specs are rejected at admission time instead of surfacing only when the operator tries to load them. Set `--enable-webhooks=false` for local runs without a TLS certificate available.
 - **Auto-detector lifecycle** — the auto-detector is now registered with the controller-runtime manager via `mgr.Add(det)` instead of being launched as a bare goroutine. It now participates in leader election and graceful shutdown. A `Detector.Start(ctx) error` method was added to satisfy the `manager.Runnable` interface; `Detector.Run` is retained for direct callers.

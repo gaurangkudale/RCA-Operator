@@ -48,16 +48,35 @@ More detail lives in [Architecture](docs/concepts/Architecture.md) and [Phase 2 
 
 ## Quick Install
 
-### Helm (recommended)
+### One-liner (easiest)
 
 ```bash
-# Add repositories (one-time)
-helm repo add rca-operator  https://gaurangkudale.github.io/rca-operator.github.io/charts
-helm repo add opentelemetry https://open-telemetry.github.io/opentelemetry-helm-charts
-helm repo add jaegertracing  https://jaegertracing.github.io/helm-charts
+curl -fsSL https://raw.githubusercontent.com/gaurangkudale/RCA-Operator/main/scripts/install.sh | bash
+```
+
+The installer verifies prerequisites, adds the Helm repo, installs the chart into
+`rca-system` (creating the namespace if needed), and waits for everything to be Ready.
+A starter `RCAAgent` is created automatically so the operator begins detecting
+incidents immediately — no extra `kubectl apply` required.
+
+Common overrides (set as environment variables before the curl):
+
+| Variable | Default | Description |
+|---|---|---|
+| `RCA_NAMESPACE` | `rca-system` | Install namespace |
+| `RCA_RELEASE` | `rca-operator` | Helm release name |
+| `RCA_PROFILE` | `full` | `full` (operator + bundled otel-collector + Jaeger) or `minimal` (operator only) |
+| `RCA_CHART_VERSION` | latest | Pin a specific chart version |
+| `RCA_VALUES_FILE` | — | Path to an extra `--values` file |
+
+### Helm
+
+```bash
+# One repo, one install — otel-collector and Jaeger are bundled as optional
+# sub-charts and enabled by default.
+helm repo add rca-operator https://gaurangkudale.github.io/rca-operator.github.io/charts
 helm repo update
 
-# Install
 helm upgrade --install rca-operator rca-operator/rca-operator \
   --namespace rca-system --create-namespace \
   --wait --timeout 10m
@@ -66,9 +85,10 @@ helm upgrade --install rca-operator rca-operator/rca-operator \
 > `--wait` is required — the `OpenTelemetryCollector` and `Instrumentation` CRs are applied
 > as post-install hooks after the otel-operator webhook is confirmed Ready.
 
-The default chart values are the **full** profile. Source installs can also use
-`helm/values-minimal.yaml` or `helm/values-external-observability.yaml`; see
-[Installation](docs/getting-started/installation.md).
+The default chart values are the **full** profile. For a leaner install pass
+`--set opentelemetryOperator.enabled=false --set jaeger.enabled=false`, or use
+`helm/values-minimal.yaml` / `helm/values-external-observability.yaml` from a
+source checkout. See [Installation](docs/getting-started/installation.md).
 
 ### kubectl
 

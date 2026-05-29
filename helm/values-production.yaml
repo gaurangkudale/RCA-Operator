@@ -28,7 +28,7 @@
 # Pin an immutable tag. Do NOT use "latest" in production.
 image:
   repository: ghcr.io/gaurangkudale/rca-operator
-  tag: "0.0.16"
+  tag: "0.0.17"
   pullPolicy: IfNotPresent
 
 # ── HA control plane ──────────────────────────────────────────────────────────
