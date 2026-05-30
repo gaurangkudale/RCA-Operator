@@ -213,12 +213,12 @@ type Correlator struct {
 	rules []Rule
 }
 
-// NewCorrelator returns a Correlator with the given correlation time window
-// and the currently registered rule set.
+// NewCorrelator returns a Correlator with the given correlation time window.
+// Rules are injected via WithRules; no rules are registered globally.
 func NewCorrelator(window time.Duration, opts ...CorrelatorOption) *Correlator {
 	c := &Correlator{
 		buf:   NewBuffer(window),
-		rules: RegisteredRules(),
+		rules: nil,
 	}
 	for _, opt := range opts {
 		opt(c)
