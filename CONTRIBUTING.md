@@ -146,7 +146,7 @@ rca-operator/
 │   ├── incidentstatus/    ← Status condition helpers
 │   ├── jaeger/            ← Jaeger Query client (used by graph builder + trace API)
 │   ├── notify/            ← Slack + PagerDuty dispatcher
-│   ├── otel/              ← OpenTelemetry SDK setup for the operator's own spans
+│   ├── otel/              ← OpenTelemetry SDK provider setup (OTLP exporter + tracer/meter init)
 │   ├── otelingest/        ← OTLP/HTTP receiver for traces and logs
 │   ├── reporter/          ← IncidentReport CR lifecycle writes
 │   ├── retention/         ← Retention duration parsing
