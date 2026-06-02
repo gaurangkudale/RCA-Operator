@@ -110,6 +110,9 @@ Pick the annotation per service:
 | .NET    | `instrumentation.opentelemetry.io/inject-dotnet: "true"` |
 | Go      | `instrumentation.opentelemetry.io/inject-go: "true"` |
 
+If a pod template annotation is set to `"false"`, the OpenTelemetry Operator
+does not inject the SDK and no traces will reach the collector or Jaeger.
+
 Add it under `spec.template.metadata.annotations` of each Deployment. For
 example, a Python service and a Java service:
 
@@ -121,6 +124,14 @@ kubectl patch deployment checkout -n payments --type merge -p \
 # Java service
 kubectl patch deployment ledger -n payments --type merge -p \
   '{"spec":{"template":{"metadata":{"annotations":{"instrumentation.opentelemetry.io/inject-java":"true"}}}}}'
+```
+
+For the built-in demo app in `rca-demo`, patch a service deployment the same
+way. For example, if `frontend` is your Python entrypoint:
+
+```bash
+kubectl patch deployment frontend -n rca-demo --type merge -p \
+  '{"spec":{"template":{"metadata":{"annotations":{"instrumentation.opentelemetry.io/inject-python":"true"}}}}}'
 ```
 
 Repeat for each microservice with its matching language. The patch triggers a
