@@ -781,7 +781,7 @@ func incidentScopeKey(item incidentResponse) string {
 			continue
 		}
 		switch res.Kind {
-		case kindDeployment, "StatefulSet", "DaemonSet", kindReplicaSet, "Job", "CronJob", kindService, kindPod:
+		case kindDeployment, kindStatefulSet, kindDaemonSet, kindReplicaSet, "Job", "CronJob", kindService, kindPod:
 			ns := res.Namespace
 			if ns == "" {
 				ns = item.Namespace

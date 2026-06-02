@@ -28,11 +28,13 @@ import (
 // Option configures optional Server dependencies. Keeps NewServer backward
 // compatible while adding the cluster-topology, logs, and SSE features.
 const (
-	kindPod        = "Pod"
-	kindNode       = "Node"
-	kindService    = "Service"
-	kindDeployment = "Deployment"
-	kindReplicaSet = "ReplicaSet"
+	kindPod         = "Pod"
+	kindNode        = "Node"
+	kindService     = "Service"
+	kindDeployment  = "Deployment"
+	kindReplicaSet  = "ReplicaSet"
+	kindStatefulSet = "StatefulSet"
+	kindDaemonSet   = "DaemonSet"
 
 	defaultServiceGraphLookback = 24 * time.Hour
 	maxServiceGraphLookback     = 7 * 24 * time.Hour
@@ -275,7 +277,7 @@ func incidentReferences(inc *rcav1alpha1.IncidentReport, kind, ns, name string) 
 				continue
 			}
 			switch r.Kind {
-			case kindService, kindDeployment, "StatefulSet", "DaemonSet", kindReplicaSet, kindPod:
+			case kindService, kindDeployment, kindStatefulSet, kindDaemonSet, kindReplicaSet, kindPod:
 				if r.Namespace == "" && inc.Namespace != ns {
 					continue
 				}

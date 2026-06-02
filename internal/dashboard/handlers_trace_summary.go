@@ -32,6 +32,13 @@ const (
 	maxTraceSummaryServices     = 8
 )
 
+// Signal kinds used to bucket OTel signals within a service aggregate.
+const (
+	traceKindError = "error" // span errors
+	traceKindSlow  = "slow"  // latency spikes
+	traceKindLog   = "log"   // logs / span-events (rendered as the grey "span" segment)
+)
+
 type traceSummaryResponse struct {
 	Source             string                `json:"source"` // "live" | "incidents" | "none"
 	WindowSeconds      int                   `json:"windowSeconds"`
@@ -113,9 +120,9 @@ func (s *Server) traceSummaryFromBuffer(lookback time.Duration) (traceSummaryRes
 		kind := "" // "error" | "slow" | "" (other)
 		switch ev := e.Event.(type) {
 		case watcher.OTelSpanErrorEvent:
-			svc, tid, dur, kind = ev.ServiceName, ev.TraceID, ev.DurationNanos, "error"
+			svc, tid, dur, kind = ev.ServiceName, ev.TraceID, ev.DurationNanos, traceKindError
 		case watcher.OTelSpanLatencySpikeEvent:
-			svc, tid, dur, kind = ev.ServiceName, ev.TraceID, ev.DurationNanos, "slow"
+			svc, tid, dur, kind = ev.ServiceName, ev.TraceID, ev.DurationNanos, traceKindSlow
 		case watcher.OTelLogMatchEvent:
 			svc, tid = ev.ServiceName, ev.TraceID
 		case watcher.OTelSpanEventEvent:
@@ -132,9 +139,9 @@ func (s *Server) traceSummaryFromBuffer(lookback time.Duration) (traceSummaryRes
 			bySvc[svc] = a
 		}
 		switch kind {
-		case "error":
+		case traceKindError:
 			a.errors++
-		case "slow":
+		case traceKindSlow:
 			a.slow++
 		default:
 			a.other++
@@ -196,9 +203,9 @@ func (s *Server) traceSummaryFromIncidents(ctx context.Context, lookback time.Du
 			bySvc[svc] = a
 		}
 		switch classifyOTelIncidentType(it.Spec.IncidentType) {
-		case "slow":
+		case traceKindSlow:
 			a.slow++
-		case "log":
+		case traceKindLog:
 			a.other++
 		default:
 			a.errors++
@@ -229,10 +236,7 @@ func buildTraceServices(bySvc map[string]*traceAgg, withLatency bool) traceSumma
 		}
 		ep := pctOf(a.errors, total)
 		sp := pctOf(a.slow, total)
-		gp := 100 - ep - sp
-		if gp < 0 {
-			gp = 0
-		}
+		gp := max(100-ep-sp, 0)
 		ts := traceServiceSummary{Name: name, Errors: a.errors + a.slow, ErrorPct: ep, SlowPct: sp, SpanPct: gp}
 		if withLatency && len(a.durNs) > 0 {
 			ms := int(avgNs(a.durNs) / 1_000_000)
@@ -278,7 +282,7 @@ func otelIncidentService(it *rcav1alpha1.IncidentReport) string {
 	}
 	for _, r := range it.Status.AffectedResources {
 		switch r.Kind {
-		case kindService, kindDeployment, "StatefulSet", "DaemonSet", kindReplicaSet:
+		case kindService, kindDeployment, kindStatefulSet, kindDaemonSet, kindReplicaSet:
 			if r.Name != "" {
 				return r.Name
 			}
@@ -296,11 +300,11 @@ func classifyOTelIncidentType(t string) string {
 	lt := strings.ToLower(t)
 	switch {
 	case strings.Contains(lt, "latency"), strings.Contains(lt, "slow"):
-		return "slow"
+		return traceKindSlow
 	case strings.Contains(lt, "log"):
-		return "log"
+		return traceKindLog
 	default:
-		return "error"
+		return traceKindError
 	}
 }
 
