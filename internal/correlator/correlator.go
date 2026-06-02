@@ -43,6 +43,11 @@ func NewBuffer(window time.Duration) *Buffer {
 	}
 }
 
+// Window returns the configured sliding-window duration. Used by analytics
+// consumers (e.g. the dashboard trace-summary) to label the time range they
+// can actually cover from the in-memory buffer.
+func (b *Buffer) Window() time.Duration { return b.window }
+
 // Subscribe registers ch to receive every new Entry appended to the buffer.
 // Delivery is non-blocking: if the subscriber's channel is full the entry is
 // dropped for that subscriber so a slow consumer cannot stall the event loop.

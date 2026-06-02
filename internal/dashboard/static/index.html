@@ -307,7 +307,7 @@
         <div class="panel panel-pad">
           <div class="flex items-center gap-2 mb-3">
             <h2 class="text-sm font-bold text-white">Trace / Error Summary</h2>
-            <span class="text-[11px] text-slate-500">Last 15 Minutes</span>
+            <span id="ov-trace-window" class="text-[11px] text-slate-500">Last 15 Minutes</span>
           </div>
           <div id="ov-trace"></div>
         </div>
@@ -3070,6 +3070,9 @@ function renderOvTrace(){
       ${svc.size?`<p class="text-[11px] text-slate-400 mt-2">${svc.size} service${svc.size>1?'s':''} referenced by open incidents.</p>`:''}</div>`;
     return;
   }
+  // Reflect the actual window/source the backend reported.
+  const winEl=document.getElementById('ov-trace-window');
+  if(winEl){ const m=Math.max(1,Math.round((ts.windowSeconds||900)/60)); winEl.textContent=`Last ${m} Minute${m>1?'s':''}${ts.source==='incidents'?' · from incidents':''}`; }
   const d=ts.deltas||{};
   const dtxt=(v,unit,goodIfUp)=>{ if(v===undefined||v===null) return ''; if(v===0) return `<span class="text-slate-500">±0 vs last 15m</span>`; const up=v>0, good=goodIfUp?up:!up; return `<span class="${good?'text-emerald-400':'text-red-400'}">${up?'↑':'↓'} ${Math.abs(v)}${unit||''}</span> vs last 15m`; };
   const kpi=(label,val,unit,color,delta)=>`<div class="text-center">
