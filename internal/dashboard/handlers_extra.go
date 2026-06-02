@@ -441,6 +441,7 @@ type flatAgent struct {
 	Status          string    `json:"status"`
 	LastSync        time.Time `json:"lastSync"`
 	Healthy         bool      `json:"healthy"`
+	Retention       string    `json:"retention,omitempty"`
 }
 
 func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
@@ -466,6 +467,7 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 				Status:          "Unknown",
 				Healthy:         false,
 				LastSync:        a.CreationTimestamp.Time,
+				Retention:       a.Spec.IncidentRetention,
 			}
 			for _, c := range a.Status.Conditions {
 				if c.Type == "Available" {
