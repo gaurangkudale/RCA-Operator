@@ -12,3 +12,6 @@
 
 # Re-include embedded static assets (must glob contents, not just the dir entry)
 !internal/dashboard/static/**
+
+# Re-include embedded report templates (must glob contents, not just the dir entry)
+!internal/dashboard/templates/**
