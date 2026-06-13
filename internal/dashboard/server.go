@@ -114,6 +114,7 @@ func (s *Server) newMux() (*http.ServeMux, error) {
 	mux.HandleFunc("/api/resources/", s.handleResource)
 	mux.HandleFunc("/api/logs", s.handleLogs)
 	mux.HandleFunc("/api/agents", s.handleAgents)
+	mux.HandleFunc("/api/trace-summary", s.handleTraceSummary)
 	mux.HandleFunc("/api/pods", s.handlePods)
 	mux.HandleFunc("/api/stream", s.handleStream)
 	mux.HandleFunc("/api/traces/", s.handleTrace)
@@ -780,7 +781,7 @@ func incidentScopeKey(item incidentResponse) string {
 			continue
 		}
 		switch res.Kind {
-		case kindDeployment, "StatefulSet", "DaemonSet", kindReplicaSet, "Job", "CronJob", kindService, kindPod:
+		case kindDeployment, kindStatefulSet, kindDaemonSet, kindReplicaSet, "Job", "CronJob", kindService, kindPod:
 			ns := res.Namespace
 			if ns == "" {
 				ns = item.Namespace

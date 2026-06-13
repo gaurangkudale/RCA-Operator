@@ -28,11 +28,13 @@ import (
 // Option configures optional Server dependencies. Keeps NewServer backward
 // compatible while adding the cluster-topology, logs, and SSE features.
 const (
-	kindPod        = "Pod"
-	kindNode       = "Node"
-	kindService    = "Service"
-	kindDeployment = "Deployment"
-	kindReplicaSet = "ReplicaSet"
+	kindPod         = "Pod"
+	kindNode        = "Node"
+	kindService     = "Service"
+	kindDeployment  = "Deployment"
+	kindReplicaSet  = "ReplicaSet"
+	kindStatefulSet = "StatefulSet"
+	kindDaemonSet   = "DaemonSet"
 
 	defaultServiceGraphLookback = 24 * time.Hour
 	maxServiceGraphLookback     = 7 * 24 * time.Hour
@@ -275,7 +277,7 @@ func incidentReferences(inc *rcav1alpha1.IncidentReport, kind, ns, name string) 
 				continue
 			}
 			switch r.Kind {
-			case kindService, kindDeployment, "StatefulSet", "DaemonSet", kindReplicaSet, kindPod:
+			case kindService, kindDeployment, kindStatefulSet, kindDaemonSet, kindReplicaSet, kindPod:
 				if r.Namespace == "" && inc.Namespace != ns {
 					continue
 				}
@@ -441,6 +443,7 @@ type flatAgent struct {
 	Status          string    `json:"status"`
 	LastSync        time.Time `json:"lastSync"`
 	Healthy         bool      `json:"healthy"`
+	Retention       string    `json:"retention,omitempty"`
 }
 
 func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
@@ -466,6 +469,7 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 				Status:          "Unknown",
 				Healthy:         false,
 				LastSync:        a.CreationTimestamp.Time,
+				Retention:       a.Spec.IncidentRetention,
 			}
 			for _, c := range a.Status.Conditions {
 				if c.Type == "Available" {

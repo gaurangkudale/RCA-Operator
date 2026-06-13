@@ -121,53 +121,97 @@
   .inc-row { border-left: 3px solid transparent; transition: all 0.2s; }
   #toast { transition: bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s; }
   .log-line { white-space: pre; }
+
+  /* ── Sidebar (expanded + collapsible) ── */
+  #sidebar { width: 15rem; transition: width .2s ease; }
+  #sidebar.collapsed { width: 4rem; }
+  #sidebar.collapsed .sidebar-label { display: none; }
+  #sidebar.collapsed .nav-btn { justify-content: center; padding-left: 0; padding-right: 0; }
+  #sidebar.collapsed .sidebar-brand-text { display: none; }
+  #sidebar.collapsed .sidebar-collapse-label { display: none; }
+
+  /* ── Overview layout ── */
+  #view-overview { overflow-y: auto; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 1rem; }
+  .ov-mid { display: grid; grid-template-columns: 5fr 3.4fr 4.2fr; gap: 1rem; align-items: stretch; }
+  .ov-bottom { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .ov-col { display: flex; flex-direction: column; gap: 1rem; }
+  .panel { background: #0f172a; border: 1px solid #1e293b; border-radius: .75rem; }
+  .panel-pad { padding: 1rem 1.25rem; }
+  @media (max-width: 1280px) {
+    .kpi-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .ov-mid, .ov-bottom { grid-template-columns: 1fr; }
+  }
+  .ov-kpi-spark { stroke-width: 2; fill: none; }
+  .ov-node-circle { transition: filter .15s ease; }
 </style>
 </head>
 <body class="flex h-screen bg-slate-950 overflow-hidden text-slate-300">
 
 <!-- Sidebar -->
-<aside class="w-16 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-4 gap-2 shrink-0 z-50 shadow-xl">
-  <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-600/20 mb-4 cursor-pointer" onclick="showToast('RCA Operator Dashboard connected')">
-    <i data-lucide="radar" class="text-white w-6 h-6"></i>
+<aside id="sidebar" class="bg-slate-900 border-r border-slate-800 flex flex-col shrink-0 z-50 shadow-xl">
+  <div class="h-14 flex items-center gap-2.5 px-3 border-b border-slate-800 shrink-0">
+    <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-600/20 cursor-pointer shrink-0" onclick="showToast('RCA Operator Dashboard connected')">
+      <i data-lucide="radar" class="text-white w-6 h-6"></i>
+    </div>
+    <div class="sidebar-brand-text min-w-0">
+      <div class="text-sm font-bold text-white leading-tight truncate">RCA Operator</div>
+      <div class="text-[10px] text-slate-500 font-mono leading-tight">command center</div>
+    </div>
   </div>
-  <button onclick="switchTab('incidents')" id="nav-incidents" class="nav-btn active w-full flex justify-center text-slate-500 hover:text-slate-300 py-3 hover:bg-slate-800/50 transition-colors group relative">
-    <i data-lucide="alert-triangle" class="w-5 h-5"></i>
-    <div id="nav-incidents-dot" class="absolute top-2 right-3.5 w-2 h-2 bg-red-500 rounded-full animate-pulse hidden"></div>
-    <span class="absolute left-14 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">Incidents</span>
-  </button>
-  <button onclick="switchTab('topology')" id="nav-topology" class="nav-btn w-full flex justify-center text-slate-500 hover:text-slate-300 py-3 hover:bg-slate-800/50 transition-colors group relative">
-    <i data-lucide="network" class="w-5 h-5"></i>
-    <span class="absolute left-14 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">Topology</span>
-  </button>
-  <button onclick="switchTab('logs')" id="nav-logs" class="nav-btn w-full flex justify-center text-slate-500 hover:text-slate-300 py-3 hover:bg-slate-800/50 transition-colors group relative">
-    <i data-lucide="file-text" class="w-5 h-5"></i>
-    <span class="absolute left-14 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">Logs</span>
-  </button>
-  <div class="w-8 h-px bg-slate-800 my-2"></div>
-  <button onclick="switchTab('rules')" id="nav-rules" class="nav-btn w-full flex justify-center text-slate-500 hover:text-slate-300 py-3 hover:bg-slate-800/50 transition-colors group relative">
-    <i data-lucide="file-code-2" class="w-5 h-5"></i>
-    <span class="absolute left-14 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">RCA Rules</span>
-  </button>
-  <button onclick="switchTab('agents')" id="nav-agents" class="nav-btn w-full flex justify-center text-slate-500 hover:text-slate-300 py-3 hover:bg-slate-800/50 transition-colors group relative">
-    <i data-lucide="cpu" class="w-5 h-5"></i>
-    <span class="absolute left-14 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">RCA Agents</span>
-  </button>
+  <nav class="flex-grow py-3 space-y-0.5 overflow-y-auto overflow-x-hidden">
+    <button onclick="switchTab('overview')" id="nav-overview" class="nav-btn active w-full flex items-center gap-3 px-4 py-2.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors text-sm">
+      <i data-lucide="layout-dashboard" class="w-5 h-5 shrink-0"></i><span class="sidebar-label font-medium">Overview</span>
+    </button>
+    <button onclick="switchTab('incidents')" id="nav-incidents" class="nav-btn w-full flex items-center gap-3 px-4 py-2.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors text-sm relative">
+      <i data-lucide="alert-triangle" class="w-5 h-5 shrink-0"></i><span class="sidebar-label font-medium">Incidents</span>
+      <div id="nav-incidents-dot" class="absolute top-2.5 left-7 w-2 h-2 bg-red-500 rounded-full animate-pulse hidden"></div>
+    </button>
+    <button onclick="switchTab('topology')" id="nav-topology" class="nav-btn w-full flex items-center gap-3 px-4 py-2.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors text-sm">
+      <i data-lucide="network" class="w-5 h-5 shrink-0"></i><span class="sidebar-label font-medium">Topology</span>
+    </button>
+    <button onclick="switchTab('logs')" id="nav-logs" class="nav-btn w-full flex items-center gap-3 px-4 py-2.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors text-sm">
+      <i data-lucide="file-text" class="w-5 h-5 shrink-0"></i><span class="sidebar-label font-medium">Logs</span>
+    </button>
+    <div class="mx-4 my-2 h-px bg-slate-800"></div>
+    <button onclick="switchTab('rules')" id="nav-rules" class="nav-btn w-full flex items-center gap-3 px-4 py-2.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors text-sm">
+      <i data-lucide="file-code-2" class="w-5 h-5 shrink-0"></i><span class="sidebar-label font-medium">Rules</span>
+    </button>
+    <button onclick="switchTab('agents')" id="nav-agents" class="nav-btn w-full flex items-center gap-3 px-4 py-2.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors text-sm">
+      <i data-lucide="cpu" class="w-5 h-5 shrink-0"></i><span class="sidebar-label font-medium">Agents</span>
+    </button>
+  </nav>
+  <div class="border-t border-slate-800 py-3 space-y-0.5 shrink-0">
+    <button onclick="showToast('Settings — coming soon')" class="nav-btn w-full flex items-center gap-3 px-4 py-2.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors text-sm">
+      <i data-lucide="settings" class="w-5 h-5 shrink-0"></i><span class="sidebar-label">Settings</span>
+    </button>
+    <button onclick="switchTab('incidents')" class="nav-btn w-full flex items-center gap-3 px-4 py-2.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors text-sm relative">
+      <i data-lucide="bell" class="w-5 h-5 shrink-0"></i><span class="sidebar-label">Alerts</span>
+      <span id="sidebar-alert-badge" class="sidebar-label ml-auto text-[10px] font-bold bg-indigo-500/20 text-indigo-300 rounded-full px-2 py-0.5 hidden">0</span>
+    </button>
+    <button onclick="showToast('Docs: github.com/gaurangkudale/rca-operator')" class="nav-btn w-full flex items-center gap-3 px-4 py-2.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors text-sm">
+      <i data-lucide="help-circle" class="w-5 h-5 shrink-0"></i><span class="sidebar-label">Help</span>
+    </button>
+    <button onclick="toggleSidebar()" class="nav-btn w-full flex items-center gap-3 px-4 py-2.5 text-slate-500 hover:text-slate-300 hover:bg-slate-800/50 transition-colors text-xs">
+      <i data-lucide="chevrons-left" class="w-5 h-5 shrink-0"></i><span class="sidebar-label sidebar-collapse-label">Collapse</span>
+    </button>
+  </div>
 </aside>
 
 <main class="flex-grow flex flex-col relative min-w-0 h-full">
 
   <!-- Header -->
-  <header class="h-14 bg-slate-900/90 backdrop-blur border-b border-slate-800 flex items-center justify-between px-6 shrink-0 z-40">
-    <div class="flex items-center gap-4">
-      <div class="flex items-center gap-2 text-sm font-medium">
-        <span class="text-slate-400">rca-operator</span>
-        <i data-lucide="chevron-right" class="w-4 h-4 text-slate-600"></i>
-        <span id="header-scope" class="text-slate-200">cluster</span>
-      </div>
-      <div class="h-4 w-px bg-slate-700"></div>
-      <div id="header-active-badge" class="hidden items-center gap-2 bg-red-500/10 border border-red-500/30 text-red-400 px-3 py-1 rounded-md text-xs font-bold tracking-wide shadow-[0_0_15px_rgba(239,68,68,0.15)] cursor-pointer hover:bg-red-500/20 transition-colors" onclick="switchTab('incidents')">
-        <span class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-        <span id="header-active-count">0</span> ACTIVE
+  <header class="h-16 bg-slate-900/90 backdrop-blur border-b border-slate-800 flex items-center justify-between px-6 shrink-0 z-40">
+    <div class="min-w-0">
+      <h1 class="text-lg font-bold text-white leading-tight tracking-tight truncate">RCA Operator Command Center</h1>
+      <div class="flex items-center gap-2 text-[11px] font-mono text-slate-500 mt-0.5">
+        <span>rca-operator</span>
+        <i data-lucide="chevron-right" class="w-3 h-3 text-slate-600"></i>
+        <span id="header-scope" class="text-slate-300">cluster</span>
+        <div id="header-active-badge" class="hidden items-center gap-1.5 bg-red-500/10 border border-red-500/30 text-red-400 px-2 py-0.5 rounded text-[10px] font-bold tracking-wide ml-2 cursor-pointer hover:bg-red-500/20 transition-colors" onclick="switchTab('incidents')">
+          <span class="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></span>
+          <span id="header-active-count">0</span> ACTIVE
+        </div>
       </div>
     </div>
     <div class="flex items-center gap-4">
@@ -176,10 +220,99 @@
         <div class="flex items-center gap-1.5"><i data-lucide="cpu" class="w-3.5 h-3.5 text-indigo-400"></i> <span id="header-agent-count">0</span> Agents</div>
         <div class="flex items-center gap-1.5"><i data-lucide="shield-alert" class="w-3.5 h-3.5 text-red-400"></i> <span id="header-failing-count">0</span> Active</div>
       </div>
+      <div class="h-5 w-px bg-slate-700 hidden md:block"></div>
+      <div class="flex items-center gap-1.5 text-xs font-mono text-slate-400">
+        <i data-lucide="clock" class="w-3.5 h-3.5 text-slate-500"></i><span id="header-clock">--:--:--</span>
+      </div>
+      <button onclick="showToast('Theme: dark (default)')" class="text-slate-500 hover:text-slate-200 transition-colors p-1.5 hover:bg-slate-800 rounded-lg" title="Theme"><i data-lucide="moon" class="w-4 h-4"></i></button>
+      <button onclick="refreshAll()" class="text-slate-500 hover:text-slate-200 transition-colors p-1.5 hover:bg-slate-800 rounded-lg" title="Refresh"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>
+      <div class="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 shrink-0" title="rca-operator"><i data-lucide="user" class="w-4 h-4"></i></div>
     </div>
   </header>
 
   <div class="flex-grow flex flex-col relative overflow-hidden">
+
+    <!-- ======== OVERVIEW VIEW ======== -->
+    <div id="view-overview" class="absolute inset-0 flex-col z-10 bg-slate-950 overflow-y-auto p-5 space-y-4">
+      <!-- KPI row -->
+      <div id="ov-kpis" class="kpi-grid"></div>
+
+      <!-- Middle band -->
+      <div class="ov-mid">
+        <!-- Incident Trend -->
+        <div class="panel flex flex-col">
+          <div class="panel-pad pb-2 flex items-center justify-between flex-wrap gap-2">
+            <div class="flex items-center gap-2">
+              <h2 class="text-sm font-bold text-white">Incident Trend</h2>
+              <span class="text-[11px] text-slate-500">Last 12 Hours</span>
+            </div>
+            <div class="flex items-center gap-3 text-[10px] font-mono">
+              <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-red-500"></span><span class="text-slate-400">Active Incidents</span></span>
+              <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full" style="background:#3b82f6"></span><span class="text-slate-400">Total Signals</span></span>
+            </div>
+          </div>
+          <div id="ov-trend" class="flex-grow px-2 pb-2" style="min-height:300px"></div>
+        </div>
+
+        <!-- Center column -->
+        <div class="ov-col">
+          <div class="panel panel-pad">
+            <div class="flex items-center gap-2 mb-1">
+              <h2 class="text-sm font-bold text-white">Severity Mix</h2>
+              <span class="text-[11px] text-slate-500">Open Incidents</span>
+            </div>
+            <div id="ov-severity"></div>
+          </div>
+          <div class="panel panel-pad flex-grow">
+            <div class="flex items-center gap-2 mb-3">
+              <h2 class="text-sm font-bold text-white">Root Cause Categories</h2>
+              <span class="text-[11px] text-slate-500">Last 7 Days</span>
+            </div>
+            <div id="ov-rootcause"></div>
+          </div>
+        </div>
+
+        <!-- Right column -->
+        <div class="ov-col">
+          <div class="panel panel-pad">
+            <h2 class="text-sm font-bold text-white mb-3">Agent Health</h2>
+            <div id="ov-agent-health" class="overflow-x-auto"></div>
+          </div>
+          <div class="panel panel-pad flex-grow">
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-2">
+                <h2 class="text-sm font-bold text-white">Topology Health</h2>
+                <span class="text-[11px] text-slate-500">Service Dependency</span>
+              </div>
+              <button onclick="switchTab('topology')" class="text-[10px] font-mono text-indigo-300 hover:text-indigo-200 flex items-center gap-1">View Full Topology <i data-lucide="external-link" class="w-3 h-3"></i></button>
+            </div>
+            <div id="ov-topo-health" style="min-height:180px"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom band -->
+      <div class="ov-bottom">
+        <div class="panel panel-pad">
+          <div class="flex items-center justify-between mb-2">
+            <h2 class="text-sm font-bold text-white">Recent IncidentReports</h2>
+            <span id="ov-recent-count" class="text-[10px] text-slate-500 font-mono"></span>
+          </div>
+          <div id="ov-recent" class="overflow-x-auto"></div>
+          <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-800/60">
+            <span id="ov-recent-foot" class="text-[10px] text-slate-500 font-mono"></span>
+            <button onclick="switchTab('incidents')" class="text-[11px] font-mono text-indigo-300 hover:text-indigo-200 flex items-center gap-1">View all IncidentReports <i data-lucide="external-link" class="w-3 h-3"></i></button>
+          </div>
+        </div>
+        <div class="panel panel-pad">
+          <div class="flex items-center gap-2 mb-3">
+            <h2 class="text-sm font-bold text-white">Trace / Error Summary</h2>
+            <span id="ov-trace-window" class="text-[11px] text-slate-500">Last 15 Minutes</span>
+          </div>
+          <div id="ov-trace"></div>
+        </div>
+      </div>
+    </div>
 
     <!-- ======== TOPOLOGY VIEW ======== -->
     <div id="view-topology" class="absolute inset-0 hidden flex-col z-10">
@@ -232,7 +365,7 @@
     </div>
 
     <!-- ======== INCIDENTS VIEW ======== -->
-    <div id="view-incidents" class="absolute inset-0 flex z-10 bg-slate-950">
+    <div id="view-incidents" class="absolute inset-0 hidden z-10 bg-slate-950">
       <div class="w-full md:w-[400px] shrink-0 border-r border-slate-800 flex flex-col bg-slate-950/50">
         <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
           <h2 class="font-bold text-white flex items-center gap-2 text-sm"><i data-lucide="alert-triangle" class="w-4 h-4 text-red-400"></i> Incidents</h2>
@@ -379,7 +512,7 @@
 <script>
 // --- State
 const state = {
-  activeTab: 'incidents',
+  activeTab: 'overview',
   incidents: [],
   selectedIncidentKey: null,
   incidentDetail: null,
@@ -932,13 +1065,14 @@ function switchTab(tab){
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   const navBtn = document.getElementById(`nav-${tab}`);
   if (navBtn) navBtn.classList.add('active');
-  ['topology','incidents','logs','rules','agents'].forEach(t => {
+  ['overview','topology','incidents','logs','rules','agents'].forEach(t => {
     const v = document.getElementById(`view-${t}`);
     if (!v) return;
     if (t === tab) { v.classList.remove('hidden'); v.classList.add('flex'); }
     else { v.classList.add('hidden'); v.classList.remove('flex'); }
   });
   // Lazy-load per tab
+  if (tab === 'overview') loadOverview();
   if (tab === 'topology') {
     if (state.incidentGraph) {
       renderTopology();
@@ -2630,6 +2764,350 @@ function renderAgents(){
   }).join('');
 }
 
+// ============================================================================
+//  OVERVIEW — default "Command Center" landing view (client-side aggregation)
+// ============================================================================
+const OV_SEV = {
+  P1: { label: 'P1 (Critical)', color: '#ef4444' },
+  P2: { label: 'P2 (High)',     color: '#f59e0b' },
+  P3: { label: 'P3 (Medium)',   color: '#3b82f6' },
+  P4: { label: 'P4 (Low)',      color: '#10b981' },
+};
+const OV_TYPE_COLORS = ['#ef4444','#f97316','#f59e0b','#3b82f6','#10b981','#a855f7','#14b8a6','#64748b'];
+const OV_ICON_PATHS = {
+  box: '<path d="m21 8-9-5-9 5 9 5 9-5Z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/>',
+  database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/>',
+  server: '<rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/>',
+};
+
+function ovSevRank(s){ return s==='P1'?4 : s==='P2'?3 : s==='P3'?2 : 1; }
+function ovOpenIncidents(){ return (state.incidents||[]).filter(i => String(i.phase||'').toLowerCase() !== 'resolved'); }
+function ovIncidentTime(i){ return i ? (i.firstObservedAt || i.activeAt || i.lastObservedAt || i.resolvedAt || null) : null; }
+function ovNiceMax(v){ const steps=[5,10,20,25,50,100,150,200,300,500,750,1000]; for(const s of steps) if(v<=s) return s; return Math.ceil(v/1000)*1000; }
+function ovFmtHour(t){ return String(new Date(t).getHours()).padStart(2,'0'); }
+function ovFmtCount(n){ n=Number(n)||0; return n>=1000 ? (n/1000).toFixed(1).replace(/\.0$/,'')+'k' : String(n); }
+function ovResolvedTodayCount(){
+  const now=new Date(), y=now.getFullYear(), m=now.getMonth(), d=now.getDate(); let n=0;
+  (state.incidents||[]).forEach(i=>{
+    if (String(i.phase||'').toLowerCase()!=='resolved') return;
+    const t=i.resolvedAt?new Date(i.resolvedAt):null;
+    if (t && t.getFullYear()===y && t.getMonth()===m && t.getDate()===d) n++;
+  });
+  return n;
+}
+
+async function loadOverview(){
+  await Promise.all([
+    loadStats().catch(()=>{}),
+    loadIncidents().catch(()=>{}),
+    loadAgents().catch(()=>{}),
+    loadServiceGraph().catch(()=>{}),
+  ]);
+  await loadTraceSummary();
+  renderOverview();
+}
+async function loadTraceSummary(){
+  // Optional endpoint; absent on clusters without an OTel/Jaeger backend.
+  try {
+    const r = await fetch('/api/trace-summary?lookback=15m', { headers:{ 'Accept':'application/json' } });
+    if (!r.ok){ state.traceSummary=null; return; }
+    const ct = r.headers.get('content-type')||'';
+    state.traceSummary = ct.includes('json') ? await r.json() : null;
+  } catch { state.traceSummary=null; }
+}
+
+function renderOverview(){
+  if (state.activeTab !== 'overview') return;
+  ovRecordBaseline();
+  renderOvKpis();
+  renderOvTrend();
+  renderOvSeverity();
+  renderOvRootCause();
+  renderOvAgentHealth();
+  renderOvTopologyHealth();
+  renderOvRecent();
+  renderOvTrace();
+  lucide.createIcons();
+}
+
+// ---- KPI deltas via a small client-side baseline history ----
+function ovSnapshot(){
+  const s=state.stats||{};
+  return {
+    active: s.active||0, detecting: s.detecting||0,
+    resolvedToday: ovResolvedTodayCount(),
+    namespaces: s.namespaces ? Object.keys(s.namespaces).length : 0,
+    agents: (state.agents||[]).length,
+  };
+}
+function ovRecordBaseline(){
+  if (!state.stats) return;
+  let arr=[]; try { arr=JSON.parse(localStorage.getItem('ov_baseline')||'[]'); } catch {}
+  const now=Date.now();
+  if (!arr.length || now - arr[arr.length-1].ts > 5*60*1000) arr.push({ ts:now, ...ovSnapshot() });
+  arr=arr.filter(e=>e.ts >= now-26*3600*1000);
+  try { localStorage.setItem('ov_baseline', JSON.stringify(arr)); } catch {}
+  state._ovBaseline=arr;
+}
+function ovDeltaSub(key, agoMs, label, goodIfUp){
+  const arr=state._ovBaseline||[]; const target=Date.now()-agoMs, tol=Math.max(agoMs*0.6, 20*60*1000);
+  let base=null, bd=Infinity;
+  arr.forEach(e=>{ const dd=Math.abs(e.ts-target); if(dd<bd && dd<=tol){ base=e; bd=dd; } });
+  const cur=ovSnapshot()[key];
+  if (!base || base[key]===undefined) return `<span class="text-slate-600">—</span> <span class="text-slate-500">vs ${label}</span>`;
+  const d=cur-base[key];
+  if (d===0) return `<span class="text-slate-500">±0 vs ${label}</span>`;
+  const up=d>0, good=goodIfUp?up:!up;
+  return `<span class="${good?'text-emerald-400':'text-red-400'}">${up?'↑':'↓'} ${Math.abs(d)}</span> <span class="text-slate-500">vs ${label}</span>`;
+}
+
+function renderOvKpis(){
+  const el=document.getElementById('ov-kpis'); if(!el) return;
+  const s=state.stats||{}, snap=ovSnapshot(), agents=state.agents||[];
+  const ready=agents.filter(a=>a.healthy).length;
+  const agentsVal=`${ready}<span class="text-base text-slate-400 font-medium ml-1">${ready===agents.length?'Ready':'/'+agents.length+' Ready'}</span>`;
+  const cards=[
+    { label:'Active Incidents', value:s.active||0, vc:'text-red-400', icon:'alert-triangle', ic:'text-red-400', bg:'bg-red-500/10', sub:ovDeltaSub('active',3600*1000,'last 1h',false) },
+    { label:'Detecting', value:s.detecting||0, vc:'text-amber-400', icon:'clock', ic:'text-amber-400', bg:'bg-amber-500/10', sub:ovDeltaSub('detecting',3600*1000,'last 1h',false) },
+    { label:'Resolved Today', value:snap.resolvedToday, vc:'text-emerald-400', icon:'check-circle', ic:'text-emerald-400', bg:'bg-emerald-500/10', sub:ovDeltaSub('resolvedToday',24*3600*1000,'yesterday',true) },
+    { label:'Watched Namespaces', value:snap.namespaces, vc:'text-sky-300', icon:'box', ic:'text-sky-300', bg:'bg-indigo-500/10', sub:ovDeltaSub('namespaces',24*3600*1000,'yesterday',true) },
+    { label:'RCA Agents', value:agentsVal, vc:'text-emerald-400', icon:'users', ic:'text-emerald-400', bg:'bg-emerald-500/10', sub:ovDeltaSub('agents',24*3600*1000,'yesterday',true) },
+  ];
+  el.innerHTML=cards.map(c=>`
+    <div class="panel p-4">
+      <div class="flex items-start justify-between gap-2">
+        <div class="min-w-0">
+          <div class="text-[11px] font-medium text-slate-400 tracking-wide truncate">${escapeHtml(c.label)}</div>
+          <div class="text-3xl font-bold mt-1 ${c.vc}">${c.value}</div>
+        </div>
+        <div class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${c.bg}"><i data-lucide="${c.icon}" class="w-5 h-5 ${c.ic}"></i></div>
+      </div>
+    </div>`).join('');
+  const badge=document.getElementById('sidebar-alert-badge');
+  if (badge){ const a=s.active||0; badge.textContent=a; badge.classList.toggle('hidden', a===0); }
+}
+
+function renderOvTrend(){
+  const el=document.getElementById('ov-trend'); if(!el) return;
+  const N=7, span=12*3600*1000, now=Date.now(), start=now-span, step=span/(N-1), incs=state.incidents||[];
+  const pts=[];
+  for(let i=0;i<N;i++){
+    const t=start+i*step; let ic=0, sg=0;
+    incs.forEach(inc=>{
+      const f=Date.parse(inc.firstObservedAt||ovIncidentTime(inc)||'');
+      if(isNaN(f)||f<start||f>t) return;
+      sg+=Number(inc.signalCount||0);                  // cumulative signals seen by t
+      const rr=inc.resolvedAt?Date.parse(inc.resolvedAt):NaN;
+      if(isNaN(rr)||rr>t) ic++;                          // still open at t = "active"
+    });
+    pts.push({t, ic, sg});
+  }
+  const W=Math.max(el.clientWidth||620,360), H=Math.max(el.clientHeight||300,260);
+  const pl=36, pr=18, ptop=18, pb=28, iw=W-pl-pr, ih=H-ptop-pb;
+  const ymax=ovNiceMax(Math.max(5,...pts.map(p=>Math.max(p.ic,p.sg))));
+  const X=i=>pl+(i/(N-1))*iw, Y=v=>ptop+(1-v/ymax)*ih;
+  const grid=[0,.25,.5,.75,1].map(f=>{ const y=ptop+f*ih, val=Math.round(ymax*(1-f)); return `<line x1="${pl}" y1="${y.toFixed(1)}" x2="${W-pr}" y2="${y.toFixed(1)}" stroke="#1e293b" stroke-width="1"/><text x="${pl-6}" y="${(y+3).toFixed(1)}" text-anchor="end" fill="#64748b" font-size="9" font-family="ui-monospace,monospace">${val}</text>`; }).join('');
+  const xlabels=pts.map((p,i)=>`<text x="${X(i).toFixed(1)}" y="${H-8}" text-anchor="middle" fill="#64748b" font-size="9" font-family="ui-monospace,monospace">${ovFmtHour(p.t)}</text>`).join('');
+  const series=(key,color,fill)=>{
+    const line=pts.map((p,i)=>`${X(i).toFixed(1)},${Y(p[key]).toFixed(1)}`).join(' ');
+    const area=`${pl},${(ptop+ih).toFixed(1)} ${line} ${W-pr},${(ptop+ih).toFixed(1)}`;
+    const dots=pts.map((p,i)=>`<circle cx="${X(i).toFixed(1)}" cy="${Y(p[key]).toFixed(1)}" r="3" fill="#0f172a" stroke="${color}" stroke-width="2"/>`).join('');
+    const labels=pts.map((p,i)=>`<text x="${X(i).toFixed(1)}" y="${(Y(p[key])-8).toFixed(1)}" text-anchor="middle" fill="${color}" font-size="9" font-weight="700" font-family="ui-monospace,monospace">${p[key]}</text>`).join('');
+    return `<polygon points="${area}" fill="${fill}"/><polyline points="${line}" fill="none" stroke="${color}" stroke-width="2"/>${dots}${labels}`;
+  };
+  el.innerHTML=`<svg width="100%" height="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${grid}${series('sg','#3b82f6','rgba(59,130,246,0.12)')}${series('ic','#ef4444','rgba(239,68,68,0.10)')}${xlabels}</svg>`;
+}
+
+function ovDonutSVG(segs, o){
+  o=o||{}; const size=o.size||150, th=o.thickness||22, r=(size-th)/2, cx=size/2, cy=size/2, C=2*Math.PI*r;
+  const total=segs.reduce((a,s)=>a+s.value,0); let off=0;
+  const arcs=(total>0?segs:[]).filter(s=>s.value>0).map(s=>{
+    const len=(s.value/total)*C;
+    const c=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${th}" stroke-dasharray="${len.toFixed(2)} ${(C-len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"/>`;
+    off+=len; return c;
+  }).join('');
+  const track=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#1e293b" stroke-width="${th}"/>`;
+  const center=(o.centerTop!==undefined)?`<text x="${cx}" y="${cy-1}" text-anchor="middle" fill="#fff" font-size="${o.centerSize||23}" font-weight="700" font-family="ui-monospace,monospace">${escapeHtml(o.centerTop)}</text><text x="${cx}" y="${cy+15}" text-anchor="middle" fill="#64748b" font-size="10" font-family="ui-monospace,monospace">${escapeHtml(o.centerBottom||'')}</text>`:'';
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${track}${arcs}${center}</svg>`;
+}
+
+function renderOvSeverity(){
+  const el=document.getElementById('ov-severity'); if(!el) return;
+  const open=ovOpenIncidents(), counts={P1:0,P2:0,P3:0,P4:0};
+  open.forEach(i=>{ const s=i.severity||'P4'; if(counts[s]===undefined) counts.P4++; else counts[s]++; });
+  const total=open.length;
+  const segs=['P1','P2','P3','P4'].map(k=>({label:OV_SEV[k].label, value:counts[k], color:OV_SEV[k].color}));
+  const donut=ovDonutSVG(segs,{size:150, thickness:22, centerTop:String(total), centerBottom:'Total'});
+  const legend=segs.map(s=>{ const pct=total?Math.round(s.value/total*100):0; return `<div class="flex items-center justify-between text-[11px] py-1">
+      <span class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full" style="background:${s.color}"></span><span class="text-slate-300">${escapeHtml(s.label)}</span></span>
+      <span class="font-mono text-slate-400"><span class="text-slate-200 font-bold">${s.value}</span> <span class="text-slate-500">(${pct}%)</span></span></div>`; }).join('');
+  el.innerHTML=`<div class="flex items-center gap-4"><div class="shrink-0">${donut}</div><div class="flex-grow min-w-0">${legend}</div></div>`;
+}
+
+function renderOvRootCause(){
+  const el=document.getElementById('ov-rootcause'); if(!el) return;
+  const since=Date.now()-7*24*3600*1000, counts={};
+  (state.incidents||[]).forEach(i=>{ const ts=Date.parse(ovIncidentTime(i)||''); if(!isNaN(ts)&&ts<since) return; const t=i.incidentType||'Unknown'; counts[t]=(counts[t]||0)+1; });
+  const all=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+  const totalAll=all.reduce((a,e)=>a+e[1],0)||1;
+  const top=all.slice(0,5), maxPct=top.length?Math.round(top[0][1]/totalAll*100):1;
+  if(!top.length){ el.innerHTML=`<div class="text-xs text-slate-500 py-4 text-center">No incidents in the last 7 days.</div>`; return; }
+  el.innerHTML=`<div class="space-y-2.5">`+top.map(([type,cnt],i)=>{
+    const pct=Math.round(cnt/totalAll*100), bar=Math.max(4, Math.round(pct/Math.max(maxPct,1)*100));
+    return `<div class="flex items-center gap-3">
+      <span class="text-[11px] font-mono text-slate-300 truncate shrink-0" style="width:120px" title="${escapeHtml(type)}">${escapeHtml(type)}</span>
+      <div class="flex-grow h-2.5 rounded-full bg-slate-800 overflow-hidden"><div class="h-full rounded-full" style="width:${bar}%;background:${OV_TYPE_COLORS[i%OV_TYPE_COLORS.length]}"></div></div>
+      <span class="text-[11px] font-mono font-bold text-slate-300 text-right shrink-0" style="width:34px">${pct}%</span></div>`;
+  }).join('')+`</div>`;
+}
+
+function renderOvAgentHealth(){
+  const el=document.getElementById('ov-agent-health'); if(!el) return;
+  const ags=state.agents||[];
+  if(!ags.length){ el.innerHTML=`<div class="text-xs text-slate-500 py-4 text-center">No agents registered.</div>`; return; }
+  const rows=ags.map(a=>{
+    const ready=!!a.healthy;
+    const st=ready?{t:'Ready',c:'#34d399'}:((!a.status||a.status==='Unknown')?{t:'Unknown',c:'#94a3b8'}:{t:'Degraded',c:'#fbbf24'});
+    const nss=(a.watchNamespaces||[]).join(', ')||'—';
+    return `<tr class="hover:bg-slate-800/30">
+      <td class="py-2 pr-2 font-mono text-[11px] text-slate-300 whitespace-nowrap">${escapeHtml(a.name||'')}</td>
+      <td class="py-2 pr-2 whitespace-nowrap"><span class="inline-flex items-center gap-1.5 text-[11px]" style="color:${st.c}"><span class="w-1.5 h-1.5 rounded-full" style="background:${st.c}"></span>${st.t}</span></td>
+      <td class="py-2 pr-2 font-mono text-[11px] text-slate-400" title="${escapeHtml(nss)}">${escapeHtml(nss)}</td>
+      <td class="py-2 pr-2 font-mono text-[11px] text-slate-400 whitespace-nowrap">${escapeHtml(a.retention||'—')}</td>
+      <td class="py-2 font-mono text-[11px] text-slate-500 whitespace-nowrap">${escapeHtml(relTime(a.lastSync))}</td></tr>`;
+  }).join('');
+  el.innerHTML=`<table class="w-full text-left border-collapse">
+    <thead><tr class="text-[10px] text-slate-500 uppercase border-b border-slate-800">
+      <th class="py-1.5 pr-2 font-bold">Agent</th><th class="py-1.5 pr-2 font-bold">Status</th><th class="py-1.5 pr-2 font-bold">Namespaces</th><th class="py-1.5 pr-2 font-bold">Retention</th><th class="py-1.5 font-bold">Last Seen</th>
+    </tr></thead><tbody class="divide-y divide-slate-800/50">${rows}</tbody></table>`;
+}
+
+function ovServiceIcon(name,kind){
+  const n=(name||'').toLowerCase();
+  if(/postgre|mysql|maria|mongo|redis|cassandra|sql|database|\bdb\b/.test(n)) return 'database';
+  if(kind==='Node'||/node|pool/.test(n)) return 'server';
+  return 'box';
+}
+function renderOvTopologyHealth(){
+  const el=document.getElementById('ov-topo-health'); if(!el) return;
+  const g=state.serviceGraph||{nodes:[],edges:[]};
+  const allow=new Set(['Service','Node','Deployment','StatefulSet','DaemonSet','Database']);
+  let nodes=(g.nodes||[]).filter(n=>allow.has(n.kind));
+  if(!nodes.length){
+    el.innerHTML=`<div class="h-full flex flex-col items-center justify-center text-center py-6">
+      <i data-lucide="network" class="w-8 h-8 text-slate-700 mb-2"></i>
+      <p class="text-xs text-slate-500">No service-dependency data.</p>
+      <p class="text-[10px] text-slate-600 mt-1">Requires OTel tracing via a Jaeger backend.</p></div>`;
+    return;
+  }
+  const deg={}; (g.edges||[]).forEach(e=>{ deg[e.from]=(deg[e.from]||0)+1; deg[e.to]=(deg[e.to]||0)+1; });
+  nodes=nodes.sort((a,b)=>((b.blastRadius||0)+(deg[b.id]||0))-((a.blastRadius||0)+(deg[a.id]||0))).slice(0,8);
+  const keep=new Set(nodes.map(n=>n.id));
+  const edges=(g.edges||[]).filter(e=>keep.has(e.from)&&keep.has(e.to)&&e.from!==e.to);
+  const layer={}; nodes.forEach(n=>layer[n.id]=0);
+  for(let k=0;k<nodes.length;k++) edges.forEach(e=>{ if(layer[e.to]<layer[e.from]+1) layer[e.to]=layer[e.from]+1; });
+  const layers={}; nodes.forEach(n=>{ (layers[layer[n.id]]=layers[layer[n.id]]||[]).push(n); });
+  const Ls=Object.keys(layers).map(Number).sort((a,b)=>a-b), maxRows=Math.max(...Ls.map(L=>layers[L].length));
+  const W=Math.max(el.clientWidth||420,300), H=Math.max(maxRows*64,150), colW=W/Ls.length, pos={};
+  Ls.forEach((L,ci)=>{ const arr=layers[L], x=colW*(ci+0.5); arr.forEach((n,i)=>{ pos[n.id]={x,y:H*((i+1)/(arr.length+1))}; }); });
+  const health=n=>{ let worst=null; ovOpenIncidents().forEach(inc=>{ if(incidentMatchesNode(inc,{kind:'Service',name:n.name,namespace:n.namespace})){ const s=inc.severity||'P4'; if(!worst||ovSevRank(s)>ovSevRank(worst)) worst=s; } }); return worst; };
+  const col=w=> w==='P1'?'#ef4444':w==='P2'?'#f59e0b':w==='P3'?'#3b82f6':'#34d399';
+  const edgeSvg=edges.map(e=>{ const a=pos[e.from], b=pos[e.to]; if(!a||!b) return ''; const mx=((a.x+b.x)/2).toFixed(1), my=((a.y+b.y)/2).toFixed(1);
+    const lbl=e.count?`<text x="${mx}" y="${(my-4)}" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="ui-monospace,monospace" paint-order="stroke" stroke="#0f172a" stroke-width="3">${ovFmtCount(e.count)}</text>`:'';
+    return `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="#334155" stroke-width="1.5" marker-end="url(#ovarrow)"/>${lbl}`; }).join('');
+  const nodeSvg=nodes.map(n=>{ const p=pos[n.id], w=health(n), c=col(w), icon=ovServiceIcon(n.name,n.kind);
+    return `<g transform="translate(${p.x.toFixed(1)},${p.y.toFixed(1)})">
+      <circle r="17" fill="#0f172a" stroke="${c}" stroke-width="2"${w?' filter="url(#ovglow)"':''}/>
+      <svg x="-8" y="-8" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${OV_ICON_PATHS[icon]}</svg>
+      <text x="0" y="32" text-anchor="middle" fill="#cbd5e1" font-size="10" font-family="ui-monospace,monospace">${escapeHtml(n.name)}</text></g>`; }).join('');
+  el.innerHTML=`<svg width="100%" height="${H}" viewBox="0 0 ${W} ${H}">
+    <defs>
+      <marker id="ovarrow" markerWidth="8" markerHeight="8" refX="21" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#334155"/></marker>
+      <filter id="ovglow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    </defs>${edgeSvg}${nodeSvg}</svg>`;
+}
+
+function renderOvRecent(){
+  const el=document.getElementById('ov-recent'); if(!el) return;
+  const list=(state.incidents||[]).slice(0,5), total=(state.incidents||[]).length;
+  const cEl=document.getElementById('ov-recent-count'); if(cEl) cEl.textContent=total?`${total} total`:'';
+  const fEl=document.getElementById('ov-recent-foot'); if(fEl) fEl.textContent=total?`Showing 1–${list.length} of ${total}`:'No incidents';
+  if(!list.length){ el.innerHTML=`<div class="text-xs text-slate-500 py-6 text-center">No incidents.</div>`; return; }
+  const phaseMeta=p=>{ p=(p||'').toLowerCase(); return p==='active'?{i:'activity',c:'#f87171',t:'Active'}:p==='resolved'?{i:'check-circle',c:'#34d399',t:'Resolved'}:{i:'clock',c:'#fbbf24',t:'Detecting'}; };
+  const affres=inc=>{
+    const pod=(inc.podName||'').trim();
+    if (pod && pod.toLowerCase()!=='unknown') return 'pod/'+pod;
+    const r=(inc.affectedResources||[]).find(x=>x&&x.name);
+    if (r){ const k=(r.kind||'').toLowerCase(); const km=k==='deployment'?'deploy':k==='statefulset'?'sts':k==='service'?'svc':k; return (km?km+'/':'')+r.name; }
+    const sc=inc.scope||{}; const wr=sc.workloadRef||sc.resourceRef;
+    if (wr&&wr.name){ const k=(wr.kind||'').toLowerCase(); return (k?k+'/':'')+wr.name; }
+    return '—';
+  };
+  const rows=list.map(inc=>{ const ph=phaseMeta(inc.phase);
+    return `<tr class="hover:bg-slate-800/30 cursor-pointer" onclick="switchTab('incidents'); selectIncident('${escapeHtml(inc.namespace)}','${escapeHtml(inc.name)}')">
+      <td class="py-2 pr-2">${severityBadge(inc.severity,'px-1.5 py-0.5 rounded text-[10px] font-bold font-mono')}</td>
+      <td class="py-2 pr-2 whitespace-nowrap"><span class="inline-flex items-center gap-1.5 text-[11px]" style="color:${ph.c}"><i data-lucide="${ph.i}" class="w-3.5 h-3.5"></i>${ph.t}</span></td>
+      <td class="py-2 pr-2 font-mono text-[11px] text-indigo-300 whitespace-nowrap">${escapeHtml(inc.namespace)}</td>
+      <td class="py-2 pr-2 font-mono text-[11px] text-slate-300 whitespace-nowrap">${escapeHtml(inc.incidentType||'—')}</td>
+      <td class="py-2 pr-2 font-mono text-[11px] text-sky-300 whitespace-nowrap" title="${escapeHtml(affres(inc))}">${escapeHtml(affres(inc))}</td>
+      <td class="py-2 font-mono text-[11px] text-slate-500 whitespace-nowrap">${escapeHtml(relTime(ovIncidentTime(inc)))}</td></tr>`;
+  }).join('');
+  el.innerHTML=`<table class="w-full text-left border-collapse">
+    <thead><tr class="text-[10px] text-slate-500 uppercase border-b border-slate-800">
+      <th class="py-1.5 pr-2 font-bold">Severity</th><th class="py-1.5 pr-2 font-bold">Phase</th><th class="py-1.5 pr-2 font-bold">Namespace</th><th class="py-1.5 pr-2 font-bold">Type</th><th class="py-1.5 pr-2 font-bold">Affected Resource</th><th class="py-1.5 font-bold">Last Seen</th>
+    </tr></thead><tbody class="divide-y divide-slate-800/50">${rows}</tbody></table>`;
+}
+
+function renderOvTrace(){
+  const el=document.getElementById('ov-trace'); if(!el) return;
+  const ts=state.traceSummary;
+  if(!ts || !Array.isArray(ts.services) || !ts.services.length){
+    const svc=new Set(); ovOpenIncidents().forEach(inc=>{ (inc.affectedResources||[]).forEach(r=>{ if(r.kind==='Service'&&r.name) svc.add(r.name); }); });
+    el.innerHTML=`<div class="flex flex-col items-center justify-center text-center py-8">
+      <i data-lucide="git-branch" class="w-8 h-8 text-slate-700 mb-2"></i>
+      <p class="text-xs text-slate-500">No trace summary for the last 15 minutes.</p>
+      <p class="text-[10px] text-slate-600 mt-1">Live span-error &amp; latency analytics need the trace-summary API.</p>
+      ${svc.size?`<p class="text-[11px] text-slate-400 mt-2">${svc.size} service${svc.size>1?'s':''} referenced by open incidents.</p>`:''}</div>`;
+    return;
+  }
+  // Reflect the actual window/source the backend reported.
+  const winEl=document.getElementById('ov-trace-window');
+  if(winEl){ const m=Math.max(1,Math.round((ts.windowSeconds||900)/60)); winEl.textContent=`Last ${m} Minute${m>1?'s':''}${ts.source==='incidents'?' · from incidents':''}`; }
+  const d=ts.deltas||{};
+  const dtxt=(v,unit,goodIfUp)=>{ if(v===undefined||v===null) return ''; if(v===0) return `<span class="text-slate-500">±0 vs last 15m</span>`; const up=v>0, good=goodIfUp?up:!up; return `<span class="${good?'text-emerald-400':'text-red-400'}">${up?'↑':'↓'} ${Math.abs(v)}${unit||''}</span> vs last 15m`; };
+  const kpi=(label,val,unit,color,delta)=>`<div class="text-center">
+    <div class="text-[11px] text-slate-400 mb-0.5">${escapeHtml(label)}</div>
+    <div class="text-2xl font-bold ${color}">${val}${unit?`<span class="text-sm font-medium text-slate-400 ml-0.5">${unit}</span>`:''}</div>
+    <div class="text-[10px] font-mono text-slate-500 mt-0.5">${delta||''}</div></div>`;
+  const head=`<div class="grid grid-cols-3 gap-2 mb-4">
+    ${kpi('Error traces', ts.errorTraces??0, '', 'text-red-400', dtxt(d.errorTraces,'',false))}
+    ${kpi('Avg. critical path', ts.avgCriticalPathMs??'—', ts.avgCriticalPathMs!=null?'ms':'', 'text-amber-400', dtxt(d.latencyMs,' ms',false))}
+    ${kpi('Services with errors', ts.servicesWithErrors??0, '', 'text-red-400', dtxt(d.services,'',false))}</div>`;
+  const bars=ts.services.map(s=>{ const sp=Math.max(0,s.spanPct||0), er=Math.max(0,s.errorPct||0), sl=Math.max(0,s.slowPct||0);
+    return `<div class="flex items-center gap-2 mb-2">
+      <span class="font-mono text-[11px] text-slate-300 w-16 truncate" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</span>
+      <span class="font-mono text-[10px] font-bold text-red-300 bg-red-500/10 rounded px-1.5 py-0.5 w-8 text-center shrink-0">${s.errors??0}</span>
+      <div class="flex-grow h-3 rounded bg-slate-800 overflow-hidden flex"><div style="width:${sp}%;background:#475569"></div><div style="width:${er}%;background:#ef4444"></div><div style="width:${sl}%;background:#f59e0b"></div></div>
+      <span class="font-mono text-[11px] text-slate-400 w-14 text-right shrink-0">${s.latencyMs!=null?s.latencyMs+' ms':'—'}</span></div>`; }).join('');
+  const legend=`<div class="flex items-center gap-4 mt-3 pt-3 border-t border-slate-800/60 text-[10px] font-mono text-slate-400">
+    <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm" style="background:#475569"></span>Span</span>
+    <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm" style="background:#ef4444"></span>Error</span>
+    <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm" style="background:#f59e0b"></span>Slow (&gt;300ms)</span></div>`;
+  el.innerHTML=head+`<div class="flex items-center justify-between mb-2"><span class="text-[10px] text-slate-500 uppercase tracking-wide font-bold">Service (Top by Errors)</span><span class="text-[10px] text-slate-500">Latency (ms)</span></div>`+bars+legend;
+}
+
+function ovUpdateClock(){
+  const el=document.getElementById('header-clock'); if(!el) return;
+  const d=new Date(), p=n=>String(n).padStart(2,'0');
+  el.textContent=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+function toggleSidebar(){ const s=document.getElementById('sidebar'); if(s) s.classList.toggle('collapsed'); }
+function refreshAll(){
+  ['/api/stats','/api/incidents','/api/agents','/api/service-graph','/api/topology'].forEach(p=>invalidateCache(p));
+  showToast('Refreshing…');
+  tick();
+}
+
 // --- Orchestration
 function renderAll(){
   renderHeader();
@@ -2637,27 +3115,34 @@ function renderAll(){
   if (state.incidentDetail) renderIncidentDetail();
   renderRules();
   renderAgents();
+  if (state.activeTab === 'overview') renderOverview();
   if (state.activeTab === 'topology') renderTopology();
 }
 
 async function tick(){
-  await loadStats();
-  await loadIncidents();
-  // Auto-select first incident if nothing selected.
-  if (!state.selectedIncidentKey && state.incidents.length) {
-    const first = state.incidents[0];
-    state.selectedIncidentKey = incKey(first);
-    renderIncidentsList();
-    if (state.activeTab === 'incidents') {
-      document.getElementById('incident-empty-pane').classList.add('hidden');
-      const pane = document.getElementById('incident-detail-pane');
-      pane.classList.remove('hidden'); pane.classList.add('flex');
-      loadIncidentDetail(first.namespace, first.name);
+  if (state.activeTab === 'overview') {
+    await loadOverview();
+  } else {
+    await loadStats();
+    await loadIncidents();
+    // Auto-select first incident if nothing selected.
+    if (!state.selectedIncidentKey && state.incidents.length) {
+      const first = state.incidents[0];
+      state.selectedIncidentKey = incKey(first);
+      renderIncidentsList();
+      if (state.activeTab === 'incidents') {
+        document.getElementById('incident-empty-pane').classList.add('hidden');
+        const pane = document.getElementById('incident-detail-pane');
+        pane.classList.remove('hidden'); pane.classList.add('flex');
+        loadIncidentDetail(first.namespace, first.name);
+      }
     }
   }
   // Invalidate per-endpoint so next load refreshes.
   invalidateCache('/api/stats');
   invalidateCache('/api/incidents');
+  invalidateCache('/api/agents');
+  invalidateCache('/api/service-graph');
 }
 
 window.switchTab = switchTab;
@@ -2674,6 +3159,8 @@ window.toggleTraceList = toggleTraceList;
 window.openTrace = openTrace;
 window.closeTrace = closeTrace;
 window.openPodLogs = openPodLogs;
+window.toggleSidebar = toggleSidebar;
+window.refreshAll = refreshAll;
 
 document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape') {
@@ -2686,14 +3173,21 @@ window.showAllLogs = showAllLogs;
 window.showTailLogs = showTailLogs;
 window.showToast = showToast;
 
+let _ovResizeTimer = null;
 window.addEventListener('resize', () => {
   if (state.activeTab === 'topology' && (state.topology || state.incidentGraph)) {
     resetLayout();
+  }
+  if (state.activeTab === 'overview') {
+    clearTimeout(_ovResizeTimer);
+    _ovResizeTimer = setTimeout(renderOverview, 150);
   }
 });
 
 window.addEventListener('load', async () => {
   lucide.createIcons();
+  ovUpdateClock();
+  setInterval(ovUpdateClock, 1000);
   await tick();
   setInterval(tick, 15000);
   // Live duration ticker for detail pane.
