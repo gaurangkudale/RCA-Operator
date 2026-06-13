@@ -1,0 +1,333 @@
+{{define "styles"}}
+  <style>
+    :root {
+      --ink: #0f172a; --ink-soft: #475569; --ink-faint: #94a3b8;
+      --line: #e2e8f0; --line-soft: #eef2f7; --bg: #ffffff; --panel: #f8fafc;
+      --brand: #4f46e5; --brand-soft: #eef2ff;
+      --p1: #dc2626; --p2: #ea580c; --p3: #d97706; --pother: #64748b;
+      --active: #dc2626; --detecting: #2563eb; --resolved: #16a34a;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      background: var(--bg); color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 14px; line-height: 1.5; -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; }
+    .wrap { max-width: 920px; margin: 0 auto; padding: 0 28px 64px; }
+
+    /* Toolbar (screen only) */
+    .toolbar {
+      position: sticky; top: 0; z-index: 50; display: flex; gap: 8px; align-items: center;
+      background: #0f172a; color: #e2e8f0; padding: 10px 28px;
+    }
+    .toolbar .sp { flex: 1; }
+    .toolbar .hint { color: #94a3b8; font-size: 12px; }
+    .btn {
+      appearance: none; border: 1px solid #334155; background: #1e293b; color: #e2e8f0;
+      font: inherit; font-size: 13px; font-weight: 600; padding: 7px 14px; border-radius: 8px; cursor: pointer;
+    }
+    .btn:hover { background: #334155; }
+    .btn.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+    .btn.primary:hover { background: #4338ca; }
+
+    /* Brand header */
+    .brand { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
+      border-bottom: 2px solid var(--ink); padding: 28px 0 16px; margin-bottom: 24px; }
+    .brand .logo { font-size: 13px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--brand); }
+    .brand h1 { margin: 6px 0 0; font-size: 24px; font-weight: 800; letter-spacing: -.01em; }
+    .brand .gen { text-align: right; font-size: 12px; color: var(--ink-soft); }
+    .brand .gen .mono { color: var(--ink); }
+
+    /* Sections */
+    section { margin: 0 0 22px; break-inside: avoid; }
+    section > h2 { font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase;
+      color: var(--ink-faint); margin: 0 0 10px; }
+    .panel { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 14px 16px; }
+    .panel.plain { background: var(--bg); }
+
+    /* Badges */
+    .badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px; }
+    .badge { font-size: 11px; font-weight: 700; letter-spacing: .04em; padding: 3px 9px; border-radius: 999px;
+      border: 1px solid var(--line); background: #fff; color: var(--ink-soft); white-space: nowrap; }
+    .badge.mono { font-weight: 600; }
+    .badge[data-sev="P1"] { color: #fff; background: var(--p1); border-color: var(--p1); }
+    .badge[data-sev="P2"] { color: #fff; background: var(--p2); border-color: var(--p2); }
+    .badge[data-sev="P3"] { color: #fff; background: var(--p3); border-color: var(--p3); }
+    .badge[data-phase="Active"] { color: var(--active); border-color: var(--active); }
+    .badge[data-phase="Detecting"] { color: var(--detecting); border-color: var(--detecting); }
+    .badge[data-phase="Resolved"] { color: var(--resolved); border-color: var(--resolved); }
+
+    .title { font-size: 20px; font-weight: 800; margin: 8px 0 2px; word-break: break-word; }
+    .subtitle { font-size: 12px; color: var(--ink-soft); }
+
+    /* Meta grid */
+    .meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line);
+      border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+    .meta .cell { background: var(--bg); padding: 10px 14px; }
+    .meta .k { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); }
+    .meta .v { font-size: 13px; margin-top: 2px; word-break: break-word; }
+
+    /* KPI tiles */
+    .kpis { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
+    .kpi { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; background: var(--bg); }
+    .kpi .n { font-size: 28px; font-weight: 800; line-height: 1; }
+    .kpi .l { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); margin-top: 6px; }
+    .kpi.active .n { color: var(--active); }
+    .kpi.detecting .n { color: var(--detecting); }
+    .kpi.resolved .n { color: var(--resolved); }
+
+    /* Tables */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; font-size: 10px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase;
+      color: var(--ink-faint); padding: 8px 10px; border-bottom: 1px solid var(--line); }
+    td { padding: 8px 10px; border-bottom: 1px solid var(--line-soft); vertical-align: top; word-break: break-word; }
+    tr:last-child td { border-bottom: 0; }
+
+    /* Signals */
+    .sig { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between;
+      padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; background: var(--bg); }
+    .sig .t { font-size: 12px; }
+    .sig .c { font-size: 11px; font-weight: 700; color: var(--brand); background: var(--brand-soft);
+      border-radius: 6px; padding: 1px 7px; white-space: nowrap; }
+
+    /* Timeline */
+    .tl { list-style: none; margin: 0; padding: 0; border-left: 2px solid var(--line); }
+    .tl li { position: relative; padding: 0 0 14px 18px; }
+    .tl li:last-child { padding-bottom: 2px; }
+    .tl li::before { content: ""; position: absolute; left: -7px; top: 4px; width: 10px; height: 10px;
+      border-radius: 999px; background: var(--brand); border: 2px solid #fff; }
+    .tl .when { font-size: 11px; color: var(--brand); font-weight: 600; }
+    .tl .rel { font-size: 11px; color: var(--ink-faint); margin-left: 6px; }
+    .tl .ev { font-size: 13px; margin-top: 2px; }
+
+    .muted { color: var(--ink-faint); font-style: italic; font-size: 13px; }
+    .summary p { margin: 0 0 8px; }
+    .summary p:last-child { margin-bottom: 0; }
+    .summary .sub { font-size: 13px; color: var(--ink-soft); }
+    .summary .reason { font-size: 12px; color: var(--ink-faint); }
+    .traceids { display: flex; flex-direction: column; gap: 6px; }
+    .traceids .id { font-size: 12px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); word-break: break-all; }
+    .foot { margin-top: 28px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 11px; color: var(--ink-faint); }
+
+    @media print {
+      .no-print { display: none !important; }
+      body { font-size: 12px; }
+      .wrap { max-width: none; padding: 0; }
+      .panel, .kpi, .meta, .sig, section { break-inside: avoid; }
+      .brand { padding-top: 0; }
+      @page { margin: 14mm; }
+    }
+  </style>
+{{end}}
+
+{{define "toolbar"}}
+  <div class="toolbar no-print">
+    <button class="btn primary" onclick="window.print()">Save as PDF</button>
+    <button class="btn" onclick="rcaDownloadHTML('{{.Meta.DownloadName}}')">Download HTML</button>
+    <span class="sp"></span>
+    <span class="hint">Use “Save as PDF” → choose “Save as PDF” as the destination in the print dialog.</span>
+    <button class="btn" onclick="window.close()">Close</button>
+  </div>
+{{end}}
+
+{{define "downloadScript"}}
+  <script>
+    function rcaDownloadHTML(filename) {
+      try {
+        var html = "<!doctype html>\n" + document.documentElement.outerHTML;
+        var blob = new Blob([html], { type: "text/html" });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url; a.download = filename || "rca-report.html";
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      } catch (e) { alert("Download failed: " + e); }
+    }
+  </script>
+{{end}}
+
+{{define "brand"}}
+  <header class="brand">
+    <div>
+      <div class="logo">RCA Operator</div>
+      <h1>{{.Meta.Heading}}</h1>
+    </div>
+    <div class="gen">
+      Generated<br><span class="mono">{{.Meta.GeneratedAt}}</span>
+    </div>
+  </header>
+{{end}}
+
+{{/* ============================ INCIDENT REPORT ============================ */}}
+{{define "incident"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Meta.Title}}</title>
+  {{template "styles" .}}
+</head>
+<body>
+  {{template "toolbar" .}}
+  <div class="wrap">
+    {{template "brand" .}}
+
+    <section>
+      <div class="badges">
+        {{if .Severity}}<span class="badge" data-sev="{{.Severity}}">{{.Severity}} {{.SeverityLabel}}</span>{{end}}
+        {{if .Phase}}<span class="badge" data-phase="{{.Phase}}">{{.Phase}}</span>{{end}}
+        {{if .IncidentType}}<span class="badge mono">{{.IncidentType}}</span>{{end}}
+        {{if .FiredRule}}<span class="badge mono">rule: {{.FiredRule}}</span>{{end}}
+      </div>
+      <div class="title">{{.Title}}</div>
+      <div class="subtitle mono">{{.Namespace}} &bull; {{.Name}}</div>
+    </section>
+
+    <section>
+      <h2>Summary</h2>
+      <div class="panel summary">
+        <p>{{if .Summary}}{{.Summary}}{{else}}No summary available{{end}}</p>
+        {{if .Message}}<p class="sub">{{.Message}}</p>{{end}}
+        {{if .Reason}}<p class="reason mono">reason: {{.Reason}}</p>{{end}}
+      </div>
+    </section>
+
+    <section>
+      <h2>Details</h2>
+      <div class="meta">
+        <div class="cell"><div class="k">Namespace</div><div class="v mono">{{.Namespace}}</div></div>
+        <div class="cell"><div class="k">Incident</div><div class="v mono">{{.Name}}</div></div>
+        <div class="cell"><div class="k">Agent</div><div class="v mono">{{if .AgentRef}}{{.AgentRef}}{{else}}—{{end}}</div></div>
+        <div class="cell"><div class="k">Primary Pod</div><div class="v mono">{{if .PodName}}{{.PodName}}{{else}}—{{end}}</div></div>
+        <div class="cell"><div class="k">Signals Correlated</div><div class="v">{{.SignalCount}}</div></div>
+        <div class="cell"><div class="k">Alert Dispatched</div><div class="v">{{if .Notified}}Yes{{else}}No{{end}}</div></div>
+        <div class="cell"><div class="k">First Observed</div><div class="v mono">{{if .FirstObservedAt}}{{.FirstObservedAt}}{{else}}—{{end}}</div></div>
+        <div class="cell"><div class="k">Activated</div><div class="v mono">{{if .ActiveAt}}{{.ActiveAt}}{{else}}—{{end}}</div></div>
+        <div class="cell"><div class="k">Last Observed</div><div class="v mono">{{if .LastObservedAt}}{{.LastObservedAt}}{{else}}—{{end}}</div></div>
+        <div class="cell"><div class="k">Resolved</div><div class="v mono">{{if .ResolvedAt}}{{.ResolvedAt}}{{else}}—{{end}}</div></div>
+        <div class="cell"><div class="k">Duration</div><div class="v mono">{{if .Duration}}{{.Duration}}{{else}}—{{end}}</div></div>
+        <div class="cell"><div class="k">Status</div><div class="v">{{.Phase}}</div></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Affected Resources</h2>
+      {{if .Resources}}
+      <table>
+        <thead><tr><th>Kind</th><th>Name</th><th>Namespace</th></tr></thead>
+        <tbody>
+          {{range .Resources}}<tr><td class="mono">{{.Kind}}</td><td class="mono">{{.Name}}</td><td class="mono">{{.Namespace}}</td></tr>{{end}}
+        </tbody>
+      </table>
+      {{else}}<div class="muted">No resources</div>{{end}}
+    </section>
+
+    <section>
+      <h2>Correlated Signals{{if .SignalsTotal}} <span class="mono" style="color:var(--ink-faint);font-weight:600">({{.SignalsUnique}} unique / {{.SignalsTotal}} total)</span>{{end}}</h2>
+      {{if .Signals}}
+        {{range .Signals}}<div class="sig"><span class="t mono">{{.Text}}</span><span class="c">x{{.Count}}</span></div>{{end}}
+      {{else}}<div class="muted">None</div>{{end}}
+    </section>
+
+    {{if .TraceIDs}}
+    <section>
+      <h2>Trace IDs</h2>
+      <div class="traceids">{{range .TraceIDs}}<div class="id mono">{{.}}</div>{{end}}</div>
+    </section>
+    {{end}}
+
+    <section>
+      <h2>Timeline</h2>
+      {{if .Timeline}}
+      <ul class="tl">
+        {{range .Timeline}}<li><span class="when mono">{{.Time}}</span><span class="rel">{{.Rel}}</span><div class="ev">{{.Event}}</div></li>{{end}}
+      </ul>
+      {{else}}<div class="muted">No timeline entries</div>{{end}}
+    </section>
+
+    <div class="foot">Generated by RCA Operator · {{.Meta.GeneratedAt}}</div>
+  </div>
+  {{template "downloadScript" .}}
+</body>
+</html>
+{{end}}
+
+{{/* ============================ CLUSTER REPORT ============================ */}}
+{{define "cluster"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Meta.Title}}</title>
+  {{template "styles" .}}
+</head>
+<body>
+  {{template "toolbar" .}}
+  <div class="wrap">
+    {{template "brand" .}}
+
+    <section>
+      <h2>Incident Overview</h2>
+      <div class="kpis">
+        <div class="kpi active"><div class="n">{{.Active}}</div><div class="l">Active</div></div>
+        <div class="kpi detecting"><div class="n">{{.Detecting}}</div><div class="l">Detecting</div></div>
+        <div class="kpi resolved"><div class="n">{{.Resolved}}</div><div class="l">Resolved</div></div>
+        <div class="kpi"><div class="n">{{.Total}}</div><div class="l">Total</div></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Open Incidents by Severity</h2>
+      <div class="badges">
+        <span class="badge" data-sev="P1">P1 Critical · {{.P1}}</span>
+        <span class="badge" data-sev="P2">P2 High · {{.P2}}</span>
+        <span class="badge" data-sev="P3">P3 Medium · {{.P3}}</span>
+        <span class="badge">Other · {{.POther}}</span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Agent Health <span class="mono" style="color:var(--ink-faint);font-weight:600">({{.AgentCount}} agents · {{.NamespaceCount}} namespaces)</span></h2>
+      {{if .Agents}}
+      <table>
+        <thead><tr><th>Agent</th><th>Health</th><th>Watched Namespaces</th></tr></thead>
+        <tbody>
+          {{range .Agents}}<tr>
+            <td class="mono">{{.Name}}</td>
+            <td>{{if .Healthy}}Healthy{{else}}Unhealthy{{end}}</td>
+            <td class="mono">{{if .Namespaces}}{{range $i, $ns := .Namespaces}}{{if $i}}, {{end}}{{$ns}}{{end}}{{else}}—{{end}}</td>
+          </tr>{{end}}
+        </tbody>
+      </table>
+      {{else}}<div class="muted">No agents found</div>{{end}}
+    </section>
+
+    <section>
+      <h2>Incidents{{if .Capped}} <span class="mono" style="color:var(--ink-faint);font-weight:600">(showing {{len .Incidents}} of {{.IncidentTotal}})</span>{{end}}</h2>
+      {{if .Incidents}}
+      <table>
+        <thead><tr><th>Severity</th><th>Phase</th><th>Type</th><th>Incident</th><th>Namespace</th><th>First Seen</th></tr></thead>
+        <tbody>
+          {{range .Incidents}}<tr>
+            <td><span class="badge" data-sev="{{.Severity}}">{{if .Severity}}{{.Severity}}{{else}}—{{end}}</span></td>
+            <td><span class="badge" data-phase="{{.Phase}}">{{.Phase}}</span></td>
+            <td class="mono">{{.IncidentType}}</td>
+            <td class="mono">{{.Title}}</td>
+            <td class="mono">{{.Namespace}}</td>
+            <td class="mono">{{if .FirstObservedAt}}{{.FirstObservedAt}}{{else}}—{{end}}</td>
+          </tr>{{end}}
+        </tbody>
+      </table>
+      {{else}}<div class="muted">No incidents recorded</div>{{end}}
+    </section>
+
+    <div class="foot">Generated by RCA Operator · {{.Meta.GeneratedAt}}</div>
+  </div>
+  {{template "downloadScript" .}}
+</body>
+</html>
+{{end}}

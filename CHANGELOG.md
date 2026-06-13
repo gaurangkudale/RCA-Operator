@@ -16,6 +16,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Incident reports & export** — the dashboard can now generate shareable, archivable reports. A **Report** button in the incident detail pane opens a self-contained, print-optimized HTML report for a single incident (`GET /api/incidents/{namespace}/{name}/report`), and an **Export Report** button on the Overview tab opens a cluster-wide summary (`GET /api/report`). Each report exports to **PDF** via the browser's native "Save as PDF" print dialog and to standalone **HTML** via a download button (or the `?download=1` query param, which sets `Content-Disposition: attachment`). Reports are rendered server-side with Go's `html/template` (all incident text auto-escaped) — no new dependencies or external services.
+
+---
+
 ## [0.0.17] — 2026-05-30
 
 ### Added
@@ -168,7 +176,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ---
 
 <!-- Version diff links — update on each release -->
-[Unreleased]: https://github.com/gaurangkudale/RCA-Operator/compare/v0.0.16...HEAD
+[Unreleased]: https://github.com/gaurangkudale/RCA-Operator/compare/v0.0.17...HEAD
+[0.0.17]: https://github.com/gaurangkudale/RCA-Operator/compare/v0.0.16...v0.0.17
 [0.0.16]: https://github.com/gaurangkudale/RCA-Operator/compare/v0.0.15...v0.0.16
 [0.0.5]: https://github.com/gaurangkudale/RCA-Operator/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/gaurangkudale/RCA-Operator/compare/v0.0.1...v0.0.4

@@ -43,6 +43,7 @@ More detail lives in [Architecture](docs/concepts/Architecture.md) and [Phase 2 
 | Incident lifecycle | Tracks `Detecting`, `Active`, and `Resolved` phases |
 | Notifications | Sends Slack and PagerDuty notifications and emits Kubernetes events |
 | Dashboard | Built-in incident dashboard with light/dark theme toggle, workload + service topology views, and an inline Jaeger trace detail modal (no Jaeger UI hop) |
+| Reports | Generate a printable, self-contained per-incident or cluster-summary report and export it as PDF (browser print) or standalone HTML |
 | Retention | Automatically prunes old resolved incidents |
 | OpenTelemetry | Optional OTLP trace export for the operator's own spans |
 
