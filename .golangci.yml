@@ -5,6 +5,7 @@ linters:
   default: none
   enable:
     - copyloopvar
+    - depguard
     - dupl
     - errcheck
     - ginkgolinter
@@ -23,6 +24,19 @@ linters:
     - unparam
     - unused
   settings:
+<<<<<<< HEAD
+    custom:
+      logcheck:
+        type: "module"
+        description: Checks Go logging calls for Kubernetes logging conventions.
+    depguard:
+      rules:
+        forbid-sort-pkg:
+          deny:
+            - pkg: sort
+              desc: Should be replaced with slices package
+=======
+>>>>>>> tmp-original-16-06-26-04-10
     revive:
       rules:
         - name: comment-spacings
@@ -30,6 +44,7 @@ linters:
     modernize:
       disable:
         - omitzero
+        - newexpr
   exclusions:
     generated: lax
     rules:
