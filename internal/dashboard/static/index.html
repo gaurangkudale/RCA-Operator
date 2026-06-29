@@ -234,6 +234,18 @@
 
     <!-- ======== OVERVIEW VIEW ======== -->
     <div id="view-overview" class="absolute inset-0 flex-col z-10 bg-slate-950 overflow-y-auto p-5 space-y-4">
+      <!-- Overview header -->
+      <div class="flex items-center justify-between gap-2">
+        <div class="min-w-0">
+          <h2 class="text-sm font-bold text-white">Cluster Overview</h2>
+          <p class="text-[11px] text-slate-500">Incident summary across all monitored namespaces</p>
+        </div>
+        <button onclick="openClusterReport()" title="Open a printable cluster report (Save as PDF or download HTML)"
+                class="shrink-0 text-[11px] font-mono text-indigo-200 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors">
+          <i data-lucide="file-text" class="w-3.5 h-3.5"></i> Export Report
+        </button>
+      </div>
+
       <!-- KPI row -->
       <div id="ov-kpis" class="kpi-grid"></div>
 
@@ -1252,6 +1264,11 @@ function renderIncidentDetail(){
         <div class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1">Time Elapsed</div>
         <div class="text-lg font-mono font-bold text-amber-400">${escapeHtml(dur)}</div>
         ${topologyButton(d, 'mt-2 text-[10px] font-mono text-indigo-300 hover:text-indigo-200 bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded flex items-center gap-1')}
+        <button onclick="openIncidentReport('${escapeHtml(d.namespace)}','${escapeHtml(d.name)}')"
+                title="Open a printable report (Save as PDF or download HTML)"
+                class="mt-2 text-[10px] font-mono text-indigo-300 hover:text-indigo-200 bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded flex items-center gap-1">
+          <i data-lucide="file-text" class="w-3 h-3"></i> Report
+        </button>
       </div>
     </div>
     <div class="flex-grow overflow-y-auto p-6 space-y-6">
@@ -3145,8 +3162,17 @@ async function tick(){
   invalidateCache('/api/service-graph');
 }
 
+function openIncidentReport(ns, name){
+  window.open('/api/incidents/' + encodeURIComponent(ns) + '/' + encodeURIComponent(name) + '/report', '_blank');
+}
+function openClusterReport(){
+  window.open('/api/report', '_blank');
+}
+
 window.switchTab = switchTab;
 window.selectIncident = selectIncident;
+window.openIncidentReport = openIncidentReport;
+window.openClusterReport = openClusterReport;
 window.goToTopology = goToTopology;
 window.clearTopologyIncident = clearTopologyIncident;
 window.resetLayout = resetLayout;

@@ -118,6 +118,7 @@ func (s *Server) newMux() (*http.ServeMux, error) {
 	mux.HandleFunc("/api/pods", s.handlePods)
 	mux.HandleFunc("/api/stream", s.handleStream)
 	mux.HandleFunc("/api/traces/", s.handleTrace)
+	mux.HandleFunc("/api/report", s.handleClusterReport)
 
 	return mux, nil
 }
@@ -471,8 +472,12 @@ func (s *Server) handleIncidentDetail(w http.ResponseWriter, r *http.Request) {
 		s.writeIncidentGraph(w, item)
 		return
 	}
+	if len(parts) >= 3 && parts[2] == "report" {
+		s.writeIncidentReport(w, r, item)
+		return
+	}
 	if len(parts) > 2 {
-		http.Error(w, "unknown sub-resource; expected /graph", http.StatusNotFound)
+		http.Error(w, "unknown sub-resource; expected /graph or /report", http.StatusNotFound)
 		return
 	}
 
