@@ -62,11 +62,6 @@ type BuildOptions struct {
 	Summary bool
 }
 
-// Build emits the full detail graph (back-compat wrapper).
-func (b *ClusterBuilder) Build(ctx context.Context) (*ClusterGraph, error) {
-	return b.BuildWithOptions(ctx, BuildOptions{})
-}
-
 // incidentOverlay indexes open incidents by resource for status overlay.
 type incidentOverlay struct {
 	pod, dep, node, ns map[string]string

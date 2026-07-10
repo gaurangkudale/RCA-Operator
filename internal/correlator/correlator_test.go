@@ -1,7 +1,6 @@
 package correlator
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
@@ -26,27 +25,6 @@ func oomKilled(ns, pod, node, container string) watcher.OOMKilledEvent {
 	return watcher.OOMKilledEvent{
 		BaseEvent:     watcher.BaseEvent{Namespace: ns, PodName: pod, NodeName: node},
 		ContainerName: container,
-	}
-}
-
-func imagePull(ns, pod, container, reason string) watcher.ImagePullBackOffEvent { //nolint:unparam
-	return watcher.ImagePullBackOffEvent{
-		BaseEvent:     watcher.BaseEvent{Namespace: ns, PodName: pod},
-		ContainerName: container,
-		Reason:        reason,
-	}
-}
-
-func nodeNotReady(ns, node, reason string) watcher.NodeNotReadyEvent { //nolint:unparam
-	return watcher.NodeNotReadyEvent{
-		BaseEvent: watcher.BaseEvent{Namespace: ns, NodeName: node},
-		Reason:    reason,
-	}
-}
-
-func podEvicted(ns, pod, node string) watcher.PodEvictedEvent { //nolint:unparam
-	return watcher.PodEvictedEvent{
-		BaseEvent: watcher.BaseEvent{Namespace: ns, PodName: pod, NodeName: node},
 	}
 }
 
@@ -130,11 +108,7 @@ func TestBuffer_Snapshot_PurgesExpired(t *testing.T) {
 // WithRules() to exercise the Correlator infrastructure.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// testRule creates a registeredRule that can be injected into a Correlator via
-// WithRules() for testing the evaluation pipeline without hardcoded rules.
-func testRule(name string, priority int, fn ruleFunc) Rule {
-	return registeredRule{name: name, priority: priority, evaluate: fn}
-}
+// testRule is defined in testutil_test.go.
 
 func TestCorrelator_InjectedRuleFires(t *testing.T) {
 	rule := testRule("TestOOM", 400, func(event watcher.CorrelatorEvent, entries []Entry) CorrelationResult {
@@ -243,47 +217,3 @@ func TestCorrelator_ZeroRulesNoFire(t *testing.T) {
 	}
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helper function tests
-// ─────────────────────────────────────────────────────────────────────────────
-
-func TestExtractNodeForFailure(t *testing.T) {
-	cases := []struct {
-		event    watcher.CorrelatorEvent
-		wantNode string
-	}{
-		{crashLoop("ns", "pod", "node-1", "c", 1), "node-1"},
-		{oomKilled("ns", "pod", "node-2", "c"), "node-2"},
-		{podEvicted("ns", "pod", "node-3"), "node-3"},
-		{imagePull("ns", "pod", "c", "err"), ""},     // no node
-		{nodeNotReady("ns", "node-4", "reason"), ""}, // not a pod failure type
-	}
-	for i, tc := range cases {
-		t.Run(fmt.Sprintf("case-%d", i), func(t *testing.T) {
-			got := extractNodeForFailure(tc.event)
-			if got != tc.wantNode {
-				t.Errorf("extractNodeForFailure(%T) = %q, want %q", tc.event, got, tc.wantNode)
-			}
-		})
-	}
-}
-
-func TestFailurePodKey(t *testing.T) {
-	cases := []struct {
-		event   watcher.CorrelatorEvent
-		wantKey string
-	}{
-		{crashLoop("ns", "pod-a", "node", "c", 1), "ns/pod-a"},
-		{oomKilled("ns", "pod-b", "node", "c"), "ns/pod-b"},
-		{podEvicted("ns", "pod-c", "node"), "ns/pod-c"},
-		{imagePull("ns", "pod-d", "c", "err"), ""},
-	}
-	for i, tc := range cases {
-		t.Run(fmt.Sprintf("case-%d", i), func(t *testing.T) {
-			got := failurePodKey(tc.event)
-			if got != tc.wantKey {
-				t.Errorf("failurePodKey(%T) = %q, want %q", tc.event, got, tc.wantKey)
-			}
-		})
-	}
-}

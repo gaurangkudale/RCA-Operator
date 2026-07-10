@@ -1525,11 +1525,9 @@ func TestHandleEvent_Rule2BadDeploy_DedupsWithExistingIncident(t *testing.T) {
 		WithObjects(existingBadDeploy).
 		Build()
 
-	// Inject a test rule that mimics the old CrashLoop+StalledRollout rule.
-	badDeployRule := registeredRule{
-		name:     "CrashLoopPlusBadDeploy",
-		priority: 300,
-		evaluate: func(event watcher.CorrelatorEvent, entries []Entry) CorrelationResult {
+	// Inject a test rule that mimics the CrashLoop+StalledRollout correlation.
+	badDeployRule := testRule("CrashLoopPlusBadDeploy", 300,
+		func(event watcher.CorrelatorEvent, entries []Entry) CorrelationResult {
 			cl, ok := event.(watcher.CrashLoopBackOffEvent)
 			if !ok {
 				return CorrelationResult{}
@@ -1547,8 +1545,7 @@ func TestHandleEvent_Rule2BadDeploy_DedupsWithExistingIncident(t *testing.T) {
 				}
 			}
 			return CorrelationResult{}
-		},
-	}
+		})
 	corr := NewCorrelator(5*time.Minute, WithRules([]Rule{badDeployRule}))
 	corr.buf.nowFn = func() time.Time { return now }
 	// Pre-buffer a StalledRollout event so the rule fires on the CrashLoop.
@@ -1639,11 +1636,9 @@ func TestHandleEvent_Rule5NodeFailure_DedupsWithNodeNotReadyIncident(t *testing.
 		WithObjects(existingNodeFailure).
 		Build()
 
-	// Inject a test rule that mimics the old NodeNotReady+PodEvicted rule.
-	nodeFailureRule := registeredRule{
-		name:     "NodeNotReadyPlusEviction",
-		priority: 500,
-		evaluate: func(event watcher.CorrelatorEvent, entries []Entry) CorrelationResult {
+	// Inject a test rule that mimics the NodeNotReady+PodEvicted correlation.
+	nodeFailureRule := testRule("NodeNotReadyPlusEviction", 500,
+		func(event watcher.CorrelatorEvent, entries []Entry) CorrelationResult {
 			evicted, ok := event.(watcher.PodEvictedEvent)
 			if !ok {
 				return CorrelationResult{}
@@ -1661,8 +1656,7 @@ func TestHandleEvent_Rule5NodeFailure_DedupsWithNodeNotReadyIncident(t *testing.
 				}
 			}
 			return CorrelationResult{}
-		},
-	}
+		})
 	corr := NewCorrelator(5*time.Minute, WithRules([]Rule{nodeFailureRule}))
 	corr.buf.nowFn = func() time.Time { return now }
 	// Pre-buffer a NodeNotReady event so the rule fires on the PodEvicted.
@@ -2070,10 +2064,8 @@ func TestHandleEvent_FiredRuleAndTraceIDAnnotations_OnCreate(t *testing.T) {
 	now := time.Date(2026, 4, 17, 9, 0, 0, 0, time.UTC)
 	const traceID = "abcdef0123456789abcdef0123456789"
 
-	spanErrorRule := registeredRule{
-		name:     "OTelSpanPlusCrash",
-		priority: 400,
-		evaluate: func(event watcher.CorrelatorEvent, entries []Entry) CorrelationResult {
+	spanErrorRule := testRule("OTelSpanPlusCrash", 400,
+		func(event watcher.CorrelatorEvent, _ []Entry) CorrelationResult {
 			if _, ok := event.(watcher.OTelSpanErrorEvent); !ok {
 				return CorrelationResult{}
 			}
@@ -2083,8 +2075,7 @@ func TestHandleEvent_FiredRuleAndTraceIDAnnotations_OnCreate(t *testing.T) {
 				Summary:  "test: OTel span error correlated",
 				Rule:     "OTelSpanPlusCrash",
 			}
-		},
-	}
+		})
 	corr := NewCorrelator(5*time.Minute, WithRules([]Rule{spanErrorRule}))
 	corr.buf.nowFn = func() time.Time { return now }
 

@@ -89,23 +89,6 @@ func registeredRuleEngineFactories() []RuleEngineFactory {
 	return factories
 }
 
-// WithCorrelationWindow overrides the temporary correlation window used by the
-// currently resolved rule engine.
-func WithCorrelationWindow(window time.Duration) Option {
-	return func(opts *incidentEngineOptions) {
-		if window > 0 {
-			opts.correlationWindow = window
-		}
-	}
-}
-
-// WithRuleEngine allows explicit injection of a rule engine implementation.
-func WithRuleEngine(ruleEngine RuleEngine) Option {
-	return func(opts *incidentEngineOptions) {
-		opts.resolvedRuleEngine = ruleEngine
-	}
-}
-
 // WithRuleEngineName asks the incident engine to resolve a specific registered
 // rule engine. When unset, the incident engine auto-selects the highest-priority
 // compatible engine.
@@ -119,14 +102,6 @@ func WithRuleEngineName(name string) Option {
 func WithContext(ctx context.Context) Option {
 	return func(opts *incidentEngineOptions) {
 		opts.context = ctx
-	}
-}
-
-// WithConsumerOption appends a low-level consumer option for compatibility
-// while the incident engine surface is being normalized.
-func WithConsumerOption(opt correlator.Option) Option {
-	return func(opts *incidentEngineOptions) {
-		opts.consumerOptions = append(opts.consumerOptions, opt)
 	}
 }
 
